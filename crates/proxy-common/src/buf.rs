@@ -33,9 +33,9 @@ const SMALL_PER_CPU: usize = 8;
 const MEDIUM_PER_CPU: usize = 4;
 const LARGE_PER_CPU: usize = 2;
 
-const SMALL_SIZE: usize = 4 * 1024;   // 4 KiB
+const SMALL_SIZE: usize = 4 * 1024; // 4 KiB
 const MEDIUM_SIZE: usize = 16 * 1024; // 16 KiB
-const LARGE_SIZE: usize = 64 * 1024;  // 64 KiB
+const LARGE_SIZE: usize = 64 * 1024; // 64 KiB
 
 /// A pool of reusable byte buffers, shared across tasks via `Arc`.
 ///

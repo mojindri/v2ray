@@ -153,17 +153,11 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrependedStream<S> {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -171,14 +165,11 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrependedStream<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tokio::io::AsyncReadExt;
 
     // Checks that PrependedStream returns the prefix bytes first, then the
     // bytes from the inner stream.
     #[tokio::test]
     async fn prepended_stream_prefix_then_inner() {
-        // Inner stream: contains "world"
-        let inner = tokio::io::duplex(64).0;
         // We use a cursor as a simple in-memory reader instead:
         let inner = std::io::Cursor::new(b"world".to_vec());
         let mut stream = PrependedStream::new(inner, b"hello ".to_vec());
