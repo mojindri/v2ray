@@ -265,12 +265,11 @@ async fn test_config(config_path: PathBuf) -> Result<()> {
 /// X25519 is the elliptic-curve Diffie-Hellman algorithm used in REALITY.
 /// The server holds the private key; the public key goes in client configs.
 fn cmd_x25519() {
-    use rand::rngs::OsRng;
-    use x25519_dalek::{StaticSecret, PublicKey};
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     // `StaticSecret` is a long-term key suitable for REALITY configuration.
     // It is generated from the OS CSPRNG and can be serialised to bytes.
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let secret = StaticSecret::random();
     let public = PublicKey::from(&secret);
 
     // Print as hex so the user can paste them into a JSON config file.

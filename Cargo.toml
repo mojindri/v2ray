@@ -36,15 +36,15 @@ rust-version = "1.85"
 
 # ── Async runtime ──────────────────────────────────────────────────────────────
 [workspace.dependencies]
-tokio       = { version = "1.47", features = ["full"] }
+tokio       = { version = "1.52", features = ["full"] }
 tokio-util  = { version = "0.7", features = ["codec", "io", "net"] }
 futures     = "0.3"
 
 # ── TLS (pure Rust) ────────────────────────────────────────────────────────────
 rustls      = { version = "0.23.40", default-features = false, features = ["aws_lc_rs", "tls12"] }
 tokio-rustls = "0.26"
-rustls-acme = "0.13"
-rcgen       = "0.13"
+rustls-acme = "0.15"
+rcgen       = "0.14"
 
 # ── QUIC ───────────────────────────────────────────────────────────────────────
 quinn       = { version = "0.11.9", features = ["runtime-tokio", "rustls-aws-lc-rs"] }
@@ -54,31 +54,31 @@ tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }
 
 # ── gRPC ───────────────────────────────────────────────────────────────────────
 tonic       = "0.14"
-prost       = "0.13"
+prost       = "0.14"
 
 # ── TUN mode ───────────────────────────────────────────────────────────────────
-tun         = { version = "0.6", features = ["async"] }
+tun         = { version = "0.8", features = ["async"] }
 
 # ── Crypto — pure Rust, all audited ───────────────────────────────────────────
-aws-lc-rs           = "1.10"
+aws-lc-rs           = "1.17"
 ring                = "0.17"
 aes-gcm             = "0.10"
 chacha20poly1305    = "0.10"
-blake3              = "1.5"
-x25519-dalek        = { version = "2", features = ["static_secrets"] }
-sha2                = "0.10"
-sha3                = "0.10"
-md-5                = "0.10"
-hmac                = "0.12"
-hkdf                = "0.12"
-crc32fast           = "1.4"
+blake3              = "1.8"
+x25519-dalek        = { version = "2", features = ["getrandom", "static_secrets"] }
+sha2                = "0.11"
+sha3                = "0.12"
+md-5                = "0.11"
+hmac                = "0.13"
+hkdf                = "0.13"
+crc32fast           = "1.5"
 subtle              = "2.6"
 
 # ── UUID ───────────────────────────────────────────────────────────────────────
-uuid        = { version = "1.10", features = ["v4", "v5"] }
+uuid        = { version = "1.23", features = ["v4", "v5"] }
 
 # ── Buffers & serialisation ────────────────────────────────────────────────────
-bytes       = "1.7"
+bytes       = "1.11"
 serde       = { version = "1", features = ["derive"] }
 serde_json  = "1"
 
@@ -88,50 +88,50 @@ trait-variant = "0.1"
 pin-project-lite = "0.2"
 
 # ── Config & hot-reload ────────────────────────────────────────────────────────
-validator   = { version = "0.18", features = ["derive"] }
-arc-swap    = "1.7"
-notify      = "6"
-once_cell   = "1.19"
+validator   = { version = "0.20", features = ["derive"] }
+arc-swap    = "1.9"
+notify      = "8"
+once_cell   = "1.21"
 
 # ── Routing & IP matching ──────────────────────────────────────────────────────
-ipnet       = "2.10"
+ipnet       = "2.12"
 regex       = "1"
 aho-corasick = "1"
 
 # ── DNS ────────────────────────────────────────────────────────────────────────
-hickory-resolver = { version = "0.25", features = ["tls-aws-lc-rs", "https-aws-lc-rs", "quic-aws-lc-rs"] }
+hickory-resolver = { version = "0.26", features = ["tls-aws-lc-rs", "https-aws-lc-rs", "quic-aws-lc-rs"] }
 
 # ── Observability ──────────────────────────────────────────────────────────────
 tracing             = "0.1"
 tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }
-metrics             = "0.23"
-metrics-exporter-prometheus = "0.15"
-axum                = "0.7"
+metrics             = "0.24"
+metrics-exporter-prometheus = "0.18"
+axum                = "0.8"
 
 # ── Concurrency ────────────────────────────────────────────────────────────────
 dashmap     = "6"
-lru         = "0.12"
+lru         = "0.18"
 parking_lot = "0.12"
 crossbeam-queue = "0.3"
 
 # ── Error handling ─────────────────────────────────────────────────────────────
-thiserror   = "1"
+thiserror   = "2"
 anyhow      = "1"
 
 # ── Network & OS ───────────────────────────────────────────────────────────────
-socket2     = { version = "0.5", features = ["all"] }
-nix         = { version = "0.29", features = ["socket", "net", "sched", "user"] }
+socket2     = { version = "0.6", features = ["all"] }
+nix         = { version = "0.31", features = ["socket", "net", "sched", "user"] }
 libc        = "0.2"
 
 # ── Security ───────────────────────────────────────────────────────────────────
-seccompiler = "0.4"
+seccompiler = "0.5"
 caps        = "0.5"
 
 # ── CLI ────────────────────────────────────────────────────────────────────────
 clap        = { version = "4", features = ["derive", "env"] }
 
 # ── Misc utilities ─────────────────────────────────────────────────────────────
-rand        = "0.8"
+rand        = "0.10"
 hex         = "0.4"
 base64      = "0.22"
 num_cpus    = "1"

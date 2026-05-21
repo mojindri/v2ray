@@ -123,7 +123,7 @@ impl TcpServerTransport {
         // TCP_NODELAY: disable Nagle's algorithm.
         // Without this, the OS buffers small writes and sends them together.
         // For proxy traffic this adds latency — we want each write sent immediately.
-        sock.set_nodelay(true)?;
+        sock.set_tcp_nodelay(true)?;
 
         // SO_REUSEPORT: allow multiple sockets to bind to the same port.
         // This enables the accept loop to be distributed across CPU cores.
@@ -135,6 +135,7 @@ impl TcpServerTransport {
 
 /// Client-side TCP transport: dials outbound connections.
 pub struct TcpClientTransport {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TcpConfig,
 }
 
@@ -153,7 +154,7 @@ impl TcpClientTransport {
 
         // Apply socket options.
         let sock = SockRef::from(&stream);
-        sock.set_nodelay(true)?;
+        sock.set_tcp_nodelay(true)?;
 
         // Apply SO_MARK if configured (Linux only).
         // SO_MARK lets the OS route this socket's packets through a specific

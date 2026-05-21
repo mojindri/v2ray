@@ -15,7 +15,7 @@
 //! 3. Extract the first bytes of the TCP payload (before TLS, if any).
 //! 4. Paste them as hex strings below.
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 
 use proxy_common::Address;
 use proxy_protocol::vless::codec::{encode_request, decode_request, Command};
