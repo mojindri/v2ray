@@ -19,16 +19,24 @@
 //! breaking the abstraction. The whole point is that protocols are oblivious to
 //! transports and vice versa.
 //!
+//! The only exception is infrastructure code that owns the relay implementation.
+//! On Linux, the relay can optimize raw TCP sockets with `splice(2)`, so this
+//! module exposes a small Linux-only helper for that specific case. Protocols
+//! should still treat `BoxedStream` as completely opaque.
+//!
 //! # `Link` — splitting a stream into reader + writer
 //!
 //! Some parts of the dispatcher need separate read and write halves so they can
 //! pump bytes in both directions independently (bidirectional relay). `Link`
 //! holds those two halves.
 
+use std::any::Any;
 use std::io;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+#[cfg(target_os = "linux")]
+use tokio::net::TcpStream;
 
 /// A trait that combines both `AsyncRead` and `AsyncWrite`.
 ///
@@ -38,12 +46,33 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 /// You do not need to implement this yourself — the blanket impl below
 /// automatically implements it for anything that is already both `AsyncRead`
 /// and `AsyncWrite`.
-pub trait AsyncReadWrite: AsyncRead + AsyncWrite {}
+pub trait AsyncReadWrite: AsyncRead + AsyncWrite + Any {
+    /// Return this stream as `Any` for infrastructure-level type recovery.
+    ///
+    /// `Any` is Rust's safe runtime type check. We use it only to ask a narrow
+    /// question in the relay layer: "is this boxed stream still a raw TCP
+    /// socket?" If the answer is no, normal async copying is used.
+    fn as_any(&self) -> &dyn Any;
+
+    /// Convert this boxed stream into `Any` for infrastructure-level downcast.
+    ///
+    /// This consumes the box. That matters because recovering a `TcpStream`
+    /// means we need ownership of the socket, not just a borrowed reference.
+    fn into_any(self: Box<Self>) -> Box<dyn Any + Send>;
+}
 
 // Blanket implementation: anything that is already AsyncRead + AsyncWrite
 // automatically becomes AsyncReadWrite. This means TlsStream, WebSocketStream,
 // TcpStream, and any adapter types all just work without extra boilerplate.
-impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> AsyncReadWrite for T {}
+impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> AsyncReadWrite for T {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn into_any(self: Box<Self>) -> Box<dyn Any + Send> {
+        self
+    }
+}
 
 /// A heap-allocated, type-erased byte stream.
 ///
@@ -54,6 +83,30 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> AsyncReadWrite for T {}
 /// connection, but that cost is negligible compared to the cost of actually
 /// reading/writing network data.
 pub type BoxedStream = Box<dyn AsyncReadWrite + Send + Unpin + 'static>;
+
+/// Recover a raw TCP stream from a boxed stream when the transport is still TCP.
+///
+/// This is intentionally Linux-only because the only current caller is the
+/// Linux `splice(2)` relay path. Protocol code should continue to treat
+/// `BoxedStream` as opaque.
+#[cfg(target_os = "linux")]
+pub fn try_into_tcp_stream(stream: BoxedStream) -> Result<TcpStream, BoxedStream> {
+    // First check the type by reference. This avoids consuming the box unless
+    // we already know the downcast should succeed.
+    if stream.as_any().is::<TcpStream>() {
+        // Now consume the boxed trait object and turn it into boxed `Any`.
+        // From there, Rust can safely downcast it back into `TcpStream`.
+        let any = stream.into_any();
+        let tcp = any
+            .downcast::<TcpStream>()
+            .expect("stream type checked as TcpStream before downcast");
+        Ok(*tcp)
+    } else {
+        // Not raw TCP: hand the original stream back to the caller so it can
+        // use the portable fallback path without losing any data.
+        Err(stream)
+    }
+}
 
 /// A bidirectional link: separate read and write halves of a stream.
 ///
