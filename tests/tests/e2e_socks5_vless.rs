@@ -20,8 +20,8 @@ use tokio::net::{TcpListener, TcpStream};
 const TEST_UUID: &str = "a3482e88-686a-4a58-8126-99c9df64b7bf";
 
 fn unused_local_port() -> u16 {
-    let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .expect("failed to reserve local port");
+    let listener =
+        std::net::TcpListener::bind(("127.0.0.1", 0)).expect("failed to reserve local port");
     listener
         .local_addr()
         .expect("failed to read local address")
@@ -116,13 +116,7 @@ async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> Tcp
     assert_eq!(resp, [5, 0], "SOCKS5 method negotiation failed");
 
     let host_bytes = dest_host.as_bytes();
-    let mut req = vec![
-        5,
-        1,
-        0,
-        3,
-        host_bytes.len() as u8,
-    ];
+    let mut req = vec![5, 1, 0, 3, host_bytes.len() as u8];
     req.extend_from_slice(host_bytes);
     req.extend_from_slice(&dest_port.to_be_bytes());
     stream.write_all(&req).await.unwrap();
@@ -252,9 +246,7 @@ async fn e2e_socks5_to_vless_to_freedom_transfers_http() {
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", http_port).await;
     stream
-        .write_all(
-            b"GET /phase1 HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n",
-        )
+        .write_all(b"GET /phase1 HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n")
         .await
         .unwrap();
 

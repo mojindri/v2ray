@@ -226,9 +226,15 @@ pub struct HealthCheckConfig {
 fn default_health_check_url() -> String {
     "http://www.gstatic.com/generate_204".to_string()
 }
-fn default_health_check_interval() -> u64 { 30 }
-fn default_health_check_timeout() -> u64 { 5 }
-fn default_max_failures() -> u32 { 3 }
+fn default_health_check_interval() -> u64 {
+    30
+}
+fn default_health_check_timeout() -> u64 {
+    5
+}
+fn default_max_failures() -> u32 {
+    3
+}
 
 /// An inbound handler: a port and protocol the proxy listens on.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
@@ -292,19 +298,35 @@ pub struct StreamSettingsConfig {
     pub security: SecurityType,
 
     /// TLS-specific settings (certificate, SNI, ALPN, etc.).
-    #[serde(default, rename = "tlsSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "tlsSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub tls_settings: Option<TlsConfig>,
 
     /// REALITY-specific settings (server public key, short ID, fingerprint, etc.).
-    #[serde(default, rename = "realitySettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "realitySettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub reality_settings: Option<RealityConfig>,
 
     /// WebSocket-specific settings (path, headers).
-    #[serde(default, rename = "wsSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "wsSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub ws_settings: Option<WsConfig>,
 
     /// gRPC-specific settings (service name, multiMode).
-    #[serde(default, rename = "grpcSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "grpcSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub grpc_settings: Option<GrpcConfig>,
 }
 
@@ -312,7 +334,11 @@ pub struct StreamSettingsConfig {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct TlsConfig {
     /// The server name (SNI) to present during the TLS handshake.
-    #[serde(default, rename = "serverName", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "serverName",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub server_name: String,
 
     /// Whether to skip certificate verification.
@@ -326,7 +352,11 @@ pub struct TlsConfig {
     pub alpn: Vec<String>,
 
     /// Path to the TLS certificate file (PEM format). Server-side only.
-    #[serde(default, rename = "certificateFile", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "certificateFile",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub certificate_file: String,
 
     /// Path to the TLS private key file (PEM format). Server-side only.
@@ -354,7 +384,11 @@ pub struct RealityConfig {
 
     /// The server's X25519 private key (base64 encoded). Server-side only.
     /// Generate with: proxy-rs x25519
-    #[serde(default, rename = "privateKey", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "privateKey",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub private_key: String,
 
     /// Short IDs that clients must use to authenticate.
@@ -366,7 +400,11 @@ pub struct RealityConfig {
     // ── Client-side settings ────────────────────────────────────────────────
     /// The server's X25519 public key (base64 encoded). Client-side only.
     /// Provided by the server operator.
-    #[serde(default, rename = "publicKey", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "publicKey",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub public_key: String,
 
     /// The short ID this client will use. Must match one of the server's shortIds.
@@ -380,7 +418,11 @@ pub struct RealityConfig {
 
     /// The server name (SNI) to use in the ClientHello.
     /// Must match the dest server's certificate.
-    #[serde(default, rename = "serverName", skip_serializing_if = "String::is_empty")]
+    #[serde(
+        default,
+        rename = "serverName",
+        skip_serializing_if = "String::is_empty"
+    )]
     pub server_name: String,
 
     /// Maximum allowed time difference (in seconds) between client and server clocks.
@@ -389,8 +431,12 @@ pub struct RealityConfig {
     pub max_time_diff: u64,
 }
 
-fn default_fingerprint() -> String { "chrome".to_string() }
-fn default_max_time_diff() -> u64 { 60 }
+fn default_fingerprint() -> String {
+    "chrome".to_string()
+}
+fn default_max_time_diff() -> u64 {
+    60
+}
 
 /// WebSocket transport settings.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -405,7 +451,9 @@ pub struct WsConfig {
     pub headers: std::collections::HashMap<String, String>,
 }
 
-fn default_ws_path() -> String { "/".to_string() }
+fn default_ws_path() -> String {
+    "/".to_string()
+}
 
 /// gRPC transport settings.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -420,7 +468,9 @@ pub struct GrpcConfig {
     pub multi_mode: bool,
 }
 
-fn default_grpc_service() -> String { "GunService".to_string() }
+fn default_grpc_service() -> String {
+    "GunService".to_string()
+}
 
 /// Sniffing settings — detect the inner protocol of a connection.
 ///

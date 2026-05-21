@@ -27,8 +27,8 @@ use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info};
 
-use proxy_common::{BoxedStream, ProxyError};
 use proxy_app::features::ConnectionHandler;
+use proxy_common::{BoxedStream, ProxyError};
 
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone)]

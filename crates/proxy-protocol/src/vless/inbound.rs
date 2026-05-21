@@ -29,10 +29,10 @@ use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
-use proxy_common::{BoxedStream, Network, PrependedStream, ProxyError};
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
+use proxy_common::{BoxedStream, Network, PrependedStream, ProxyError};
 
 use super::codec::{decode_request, encode_response};
 use super::registry::VlessUserRegistry;
@@ -131,8 +131,7 @@ impl InboundHandler for VlessInbound {
                         stream.write_all(&resp).await?;
 
                         // Hand the stream to the dispatcher to relay to the destination.
-                        let ctx = Context::new(&self.tag, source)
-                            .with_user(user.email.clone());
+                        let ctx = Context::new(&self.tag, source).with_user(user.email.clone());
                         dispatcher.dispatch(ctx, req.dest, stream).await
                     }
                     None => {
@@ -184,10 +183,9 @@ impl VlessInbound {
         // Relay bytes bidirectionally between the client and the fallback backend.
         // This runs until both sides close. The fallback backend sends back a
         // real web page, which the prober receives.
-        tokio::io::copy_bidirectional(
-            &mut { prepended },
-            &mut fallback,
-        ).await.ok(); // ignore relay errors — the connection is already compromised
+        tokio::io::copy_bidirectional(&mut { prepended }, &mut fallback)
+            .await
+            .ok(); // ignore relay errors — the connection is already compromised
 
         Ok(())
     }
