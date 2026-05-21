@@ -1,0 +1,16 @@
+[package]
+name        = "proxy-common"
+description = "Shared types used by every other crate: addresses, errors, byte streams, and buffer pools."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# proxy-common deliberately has no internal dependencies.
+# It sits at the bottom of the dependency graph.
+[dependencies]
+bytes.workspace        = true
+thiserror.workspace    = true
+tokio                  = { workspace = true }
+parking_lot.workspace  = true
+crossbeam-queue.workspace = true
+tracing.workspace      = true

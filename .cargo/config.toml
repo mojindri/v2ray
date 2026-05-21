@@ -1,0 +1,28 @@
+# Cargo configuration for the whole workspace.
+# These settings apply to every crate in the project.
+
+[build]
+# Use the faster `lld` linker on Linux if available.
+# lld can cut link times by 50-80% on large Rust projects.
+# It is optional — if lld is not installed, Cargo falls back to the system linker.
+# Install on Debian/Ubuntu: apt-get install lld
+# rustflags = ["-C", "link-arg=-fuse-ld=lld"]
+
+[profile.release]
+# Strip debug symbols from the release binary to keep it small.
+# The binary still runs correctly — this only removes information useful
+# for crash analysis. You can re-enable debug info by removing this line.
+strip = "symbols"
+# Enable link-time optimisation in release builds.
+# LTO lets the compiler optimise across crate boundaries, typically giving
+# 5-15% smaller and faster binaries at the cost of longer compile times.
+lto = "thin"
+# Set the codegen unit count to 1 in release mode.
+# More units = faster parallel compilation but less optimisation.
+# 1 unit = maximum optimisation (slower to compile, faster to run).
+codegen-units = 1
+
+[profile.dev]
+# In debug builds, generate split debug info.
+# This speeds up linking during development without affecting runtime behaviour.
+split-debuginfo = "unpacked"
