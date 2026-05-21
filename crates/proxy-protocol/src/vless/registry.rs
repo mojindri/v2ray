@@ -21,8 +21,8 @@
 //! generated with version=5 but the same other bytes matches a version=4 UUID.
 //! Xray-core does the same normalisation.
 
-use std::sync::Arc;
 use dashmap::DashMap;
+use std::sync::Arc;
 
 /// Information about a VLESS user.
 #[derive(Debug, Clone)]
@@ -134,8 +134,8 @@ mod tests {
     fn add_and_validate_user() {
         let registry = VlessUserRegistry::new();
         let uuid = [
-            0xa3,0x48,0x2e,0x88, 0x68,0x6a, 0x4a,0x58,
-            0x81,0x26, 0x99,0xc9,0xdf,0x64,0xb7,0xbf,
+            0xa3, 0x48, 0x2e, 0x88, 0x68, 0x6a, 0x4a, 0x58, 0x81, 0x26, 0x99, 0xc9, 0xdf, 0x64,
+            0xb7, 0xbf,
         ];
         registry.add_user(make_user(uuid));
         let found = registry.validate(&uuid);

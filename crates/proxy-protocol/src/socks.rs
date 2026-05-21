@@ -35,10 +35,10 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
-use proxy_common::{Address, BoxedStream, Network, ProxyError};
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
+use proxy_common::{Address, BoxedStream, Network, ProxyError};
 
 // ── SOCKS5 protocol constants ─────────────────────────────────────────────────
 
@@ -155,7 +155,9 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
     // Check if the client offered it.
     if !methods.contains(&METHOD_NO_AUTH) {
         // Tell the client we have no acceptable method and bail.
-        stream.write_all(&[SOCKS_VERSION, METHOD_NO_ACCEPTABLE]).await?;
+        stream
+            .write_all(&[SOCKS_VERSION, METHOD_NO_ACCEPTABLE])
+            .await?;
         return Err(ProxyError::AuthFailed);
     }
 
@@ -184,7 +186,9 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
         // We only support CONNECT in Phase 1.
         // Send "command not supported" and return an error.
         send_reply(stream, REP_CMD_NOT_SUPPORTED).await?;
-        return Err(ProxyError::Protocol(format!("SOCKS5 CMD {cmd} not supported")));
+        return Err(ProxyError::Protocol(format!(
+            "SOCKS5 CMD {cmd} not supported"
+        )));
     }
 
     let atyp = stream.read_u8().await?;
@@ -235,9 +239,9 @@ async fn read_address(stream: &mut BoxedStream, atyp: u8) -> Result<Address, Pro
                 .map_err(|_| ProxyError::Protocol("domain name is not valid UTF-8".into()))?;
             Ok(Address::Domain(domain, port))
         }
-        other => {
-            Err(ProxyError::Protocol(format!("unknown SOCKS5 ATYP: {other:#x}")))
-        }
+        other => Err(ProxyError::Protocol(format!(
+            "unknown SOCKS5 ATYP: {other:#x}"
+        ))),
     }
 }
 
@@ -265,9 +269,7 @@ mod tests {
 
     // Helper: performs a SOCKS5 CONNECT handshake from the "client" side
     // and returns the server's parsed destination address.
-    async fn do_handshake(
-        client_send: &[u8],
-    ) -> Result<Address, ProxyError> {
+    async fn do_handshake(client_send: &[u8]) -> Result<Address, ProxyError> {
         let (mut client, server) = duplex(1024);
         let mut server_stream: BoxedStream = Box::new(server);
 
@@ -290,14 +292,11 @@ mod tests {
         // Greeting: VER=5, NMETHODS=1, METHOD=0x00
         // Request:  VER=5, CMD=CONNECT, RSV=0, ATYP=IPv4, 93.184.216.34, PORT=443
         let client_bytes = [
-            5, 1, 0,                               // greeting
-            5, 1, 0, 1, 93, 184, 216, 34, 1, 187,  // request (port 443 = 0x01BB)
+            5, 1, 0, // greeting
+            5, 1, 0, 1, 93, 184, 216, 34, 1, 187, // request (port 443 = 0x01BB)
         ];
         let dest = do_handshake(&client_bytes).await.unwrap();
-        assert_eq!(
-            dest,
-            Address::Ipv4(Ipv4Addr::new(93, 184, 216, 34), 443)
-        );
+        assert_eq!(dest, Address::Ipv4(Ipv4Addr::new(93, 184, 216, 34), 443));
     }
 
     // Checks that a CONNECT to a domain name succeeds.
@@ -307,9 +306,9 @@ mod tests {
         // Port: 443 = 0x01BB
         let domain = b"example.com";
         let mut client_bytes = vec![
-            5, 1, 0,                          // greeting
-            5, 1, 0, 3,                       // request header
-            11u8,                             // domain length
+            5, 1, 0, // greeting
+            5, 1, 0, 3,    // request header
+            11u8, // domain length
         ];
         client_bytes.extend_from_slice(domain);
         client_bytes.extend_from_slice(&[0x01, 0xBB]); // port 443

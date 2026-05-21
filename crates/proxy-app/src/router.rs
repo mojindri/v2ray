@@ -85,7 +85,8 @@ impl LiveRouter {
     /// The swap is atomic: any concurrent routing decisions in progress will
     /// use either the old rules or the new rules, never a mix.
     pub fn swap(&self, rules: Vec<CompiledRule>, default_tag: String) {
-        self.inner.store(Arc::new(RouterInner { rules, default_tag }));
+        self.inner
+            .store(Arc::new(RouterInner { rules, default_tag }));
     }
 }
 
@@ -145,8 +146,7 @@ impl CompiledRule {
     /// Returns `true` if all conditions in this rule match the given context.
     pub fn matches(&self, ctx: &RoutingContext<'_>) -> bool {
         // Check inbound tag restriction first (cheapest check).
-        if !self.inbound_tags.is_empty()
-            && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
+        if !self.inbound_tags.is_empty() && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
         {
             return false;
         }
@@ -154,7 +154,11 @@ impl CompiledRule {
         // Check port restriction.
         if !self.port_ranges.is_empty() {
             let port = ctx.dest.port();
-            if !self.port_ranges.iter().any(|(lo, hi)| port >= *lo && port <= *hi) {
+            if !self
+                .port_ranges
+                .iter()
+                .any(|(lo, hi)| port >= *lo && port <= *hi)
+            {
                 return false;
             }
         }
@@ -163,7 +167,9 @@ impl CompiledRule {
         if let Some(dm) = &self.domain_matcher {
             match ctx.dest {
                 Address::Domain(name, _) => {
-                    if !dm.matches(name) { return false; }
+                    if !dm.matches(name) {
+                        return false;
+                    }
                 }
                 _ => return false, // rule requires a domain, but dest is an IP
             }
@@ -173,7 +179,9 @@ impl CompiledRule {
         if let Some(im) = &self.ip_matcher {
             match ctx.dest.ip() {
                 Some(ip) => {
-                    if !im.matches(ip) { return false; }
+                    if !im.matches(ip) {
+                        return false;
+                    }
                 }
                 None => return false, // rule requires an IP, but dest is a domain
             }
@@ -267,7 +275,10 @@ impl IpMatcher {
     pub fn new(ranges: Vec<String>) -> anyhow::Result<Self> {
         let parsed = ranges
             .iter()
-            .map(|r| r.parse::<IpNet>().map_err(|e| anyhow::anyhow!("invalid CIDR '{}': {}", r, e)))
+            .map(|r| {
+                r.parse::<IpNet>()
+                    .map_err(|e| anyhow::anyhow!("invalid CIDR '{}': {}", r, e))
+            })
             .collect::<anyhow::Result<Vec<_>>>()?;
         Ok(Self { ranges: parsed })
     }
@@ -286,12 +297,8 @@ mod tests {
     // Checks that a domain full-match rule correctly accepts and rejects domains.
     #[test]
     fn domain_full_match() {
-        let matcher = DomainMatcher::new(
-            vec!["example.com".into()],
-            vec![],
-            vec![],
-            vec![],
-        ).unwrap();
+        let matcher =
+            DomainMatcher::new(vec!["example.com".into()], vec![], vec![], vec![]).unwrap();
 
         assert!(matcher.matches("example.com"));
         assert!(!matcher.matches("sub.example.com")); // full match, not suffix
@@ -301,12 +308,8 @@ mod tests {
     // Checks that a suffix rule matches both the domain itself and its subdomains.
     #[test]
     fn domain_suffix_match() {
-        let matcher = DomainMatcher::new(
-            vec![],
-            vec!["example.com".into()],
-            vec![],
-            vec![],
-        ).unwrap();
+        let matcher =
+            DomainMatcher::new(vec![], vec!["example.com".into()], vec![], vec![]).unwrap();
 
         assert!(matcher.matches("example.com"));
         assert!(matcher.matches("sub.example.com"));
@@ -317,12 +320,7 @@ mod tests {
     // Checks that a keyword rule matches any domain containing the keyword.
     #[test]
     fn domain_keyword_match() {
-        let matcher = DomainMatcher::new(
-            vec![],
-            vec![],
-            vec!["vpn".into()],
-            vec![],
-        ).unwrap();
+        let matcher = DomainMatcher::new(vec![], vec![], vec!["vpn".into()], vec![]).unwrap();
 
         assert!(matcher.matches("myvpn.com"));
         assert!(matcher.matches("vpn-service.net"));
@@ -332,12 +330,8 @@ mod tests {
     // Checks that a regex rule works correctly.
     #[test]
     fn domain_regex_match() {
-        let matcher = DomainMatcher::new(
-            vec![],
-            vec![],
-            vec![],
-            vec![r".*\.google\..*".into()],
-        ).unwrap();
+        let matcher =
+            DomainMatcher::new(vec![], vec![], vec![], vec![r".*\.google\..*".into()]).unwrap();
 
         assert!(matcher.matches("www.google.com"));
         assert!(matcher.matches("mail.google.co.uk"));

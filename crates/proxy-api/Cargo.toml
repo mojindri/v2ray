@@ -4,6 +4,7 @@ description = "gRPC management and statistics API — exposes runtime metrics ov
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 
 [dependencies]
 proxy-common    = { path = "../proxy-common" }

@@ -4,6 +4,7 @@ description = "Proxy protocol implementations: VLESS, VMess, Trojan, Shadowsocks
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 
 [dependencies]
 proxy-common          = { path = "../proxy-common" }
