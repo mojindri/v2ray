@@ -98,10 +98,9 @@ impl Dispatcher for DefaultDispatcher {
         debug!(outbound = %route.outbound_tag, "route selected");
 
         // Step 2: Find the outbound handler.
-        let outbound = self.outbounds.get(&route.outbound_tag)
-            .ok_or_else(|| ProxyError::Protocol(
-                format!("outbound '{}' not found", route.outbound_tag)
-            ))?;
+        let outbound = self.outbounds.get(&route.outbound_tag).ok_or_else(|| {
+            ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
+        })?;
 
         // Step 3: Open a connection to the destination via the outbound.
         let start = Instant::now();
@@ -128,10 +127,8 @@ impl Dispatcher for DefaultDispatcher {
         //   outbound → inbound (server sending data back to the client)
         //
         // It returns the total bytes sent in each direction when finished.
-        let result = tokio::io::copy_bidirectional(
-            &mut { inbound_stream },
-            &mut { outbound_stream },
-        ).await;
+        let result =
+            tokio::io::copy_bidirectional(&mut { inbound_stream }, &mut { outbound_stream }).await;
 
         let elapsed = start.elapsed();
 

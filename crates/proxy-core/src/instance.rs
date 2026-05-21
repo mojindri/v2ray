@@ -33,7 +33,9 @@ use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{Config, Protocol};
 use proxy_protocol::freedom::FreedomOutbound;
 use proxy_protocol::socks::Socks5Inbound;
-use proxy_protocol::vless::{VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUserRegistry, VlessUser};
+use proxy_protocol::vless::{
+    VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
+};
 
 /// The running proxy instance.
 pub struct Instance {
@@ -62,13 +64,9 @@ impl Instance {
 
         for out_cfg in &config.outbounds {
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
-                Protocol::Freedom => {
-                    FreedomOutbound::new(&out_cfg.tag)
-                }
-                Protocol::Vless => {
-                    build_vless_outbound(out_cfg)
-                        .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?
-                }
+                Protocol::Freedom => FreedomOutbound::new(&out_cfg.tag),
+                Protocol::Vless => build_vless_outbound(out_cfg)
+                    .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("outbound protocol {:?} not yet implemented in Phase 1", p)
                 }
@@ -78,7 +76,9 @@ impl Instance {
         }
 
         // ── Step 2: Build router ─────────────────────────────────────────────
-        let default_tag = config.outbounds.first()
+        let default_tag = config
+            .outbounds
+            .first()
             .map(|o| o.tag.clone())
             .unwrap_or_else(|| "direct".into());
 
@@ -102,13 +102,9 @@ impl Instance {
                 .with_context(|| format!("invalid listen address for inbound '{}'", in_cfg.tag))?;
 
             let handler: Arc<dyn InboundHandler> = match in_cfg.protocol {
-                Protocol::Socks => {
-                    Socks5Inbound::new(&in_cfg.tag)
-                }
-                Protocol::Vless => {
-                    build_vless_inbound(in_cfg)
-                        .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?
-                }
+                Protocol::Socks => Socks5Inbound::new(&in_cfg.tag),
+                Protocol::Vless => build_vless_inbound(in_cfg)
+                    .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("inbound protocol {:?} not yet implemented in Phase 1", p)
                 }
@@ -125,7 +121,7 @@ impl Instance {
 
             // Start the TCP accept loop for this inbound.
             let transport = proxy_transport::TcpServerTransport::new(
-                proxy_transport::tcp::TcpConfig::default()
+                proxy_transport::tcp::TcpConfig::default(),
             );
             let task = tokio::spawn(async move {
                 if let Err(e) = transport.serve(addr, conn_handler).await {
@@ -181,7 +177,9 @@ impl ConnectionHandler for InboundConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        self.inbound.handle(stream, source, Arc::clone(&self.dispatcher)).await
+        self.inbound
+            .handle(stream, source, Arc::clone(&self.dispatcher))
+            .await
     }
 }
 
@@ -192,20 +190,30 @@ fn build_vless_outbound(
     // Extract server address and UUID from the settings JSON.
     let settings = &cfg.settings;
 
-    let server_str = settings["address"].as_str()
+    let server_str = settings["address"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("VLESS outbound missing 'address'"))?;
-    let port = settings["port"].as_u64()
+    let port = settings["port"]
+        .as_u64()
         .ok_or_else(|| anyhow::anyhow!("VLESS outbound missing 'port'"))?;
-    let server: SocketAddr = format!("{server_str}:{port}").parse()
+    let server: SocketAddr = format!("{server_str}:{port}")
+        .parse()
         .with_context(|| format!("invalid VLESS server address '{server_str}:{port}'"))?;
 
-    let uuid_str = settings["users"][0]["id"].as_str()
+    let uuid_str = settings["users"][0]["id"]
+        .as_str()
         .ok_or_else(|| anyhow::anyhow!("VLESS outbound missing users[0].id"))?;
     let uuid = parse_uuid(uuid_str)?;
 
-    let flow = settings["users"][0]["flow"].as_str().unwrap_or("").to_string();
+    let flow = settings["users"][0]["flow"]
+        .as_str()
+        .unwrap_or("")
+        .to_string();
 
-    Ok(VlessOutbound::new(&cfg.tag, VlessOutboundConfig { server, uuid, flow }))
+    Ok(VlessOutbound::new(
+        &cfg.tag,
+        VlessOutboundConfig { server, uuid, flow },
+    ))
 }
 
 /// Build a VLESS inbound handler from config.
@@ -216,7 +224,8 @@ fn build_vless_inbound(
 
     if let Some(clients) = cfg.settings["clients"].as_array() {
         for client in clients {
-            let id_str = client["id"].as_str()
+            let id_str = client["id"]
+                .as_str()
                 .ok_or_else(|| anyhow::anyhow!("VLESS client missing 'id'"))?;
             let uuid = parse_uuid(id_str)?;
             let email = client["email"].as_str().unwrap_or("").to_string();
@@ -225,7 +234,8 @@ fn build_vless_inbound(
         }
     }
 
-    let fallback = cfg.settings["fallback"]["dest"].as_str()
+    let fallback = cfg.settings["fallback"]["dest"]
+        .as_str()
         .and_then(|s| s.parse::<SocketAddr>().ok());
 
     Ok(VlessInbound::new(&cfg.tag, registry, fallback))
@@ -233,8 +243,7 @@ fn build_vless_inbound(
 
 /// Parse a UUID string like "a3482e88-686a-4a58-8126-99c9df64b7bf" into 16 bytes.
 fn parse_uuid(s: &str) -> Result<[u8; 16]> {
-    let uuid = uuid::Uuid::parse_str(s)
-        .with_context(|| format!("invalid UUID '{s}'"))?;
+    let uuid = uuid::Uuid::parse_str(s).with_context(|| format!("invalid UUID '{s}'"))?;
     Ok(*uuid.as_bytes())
 }
 
@@ -243,72 +252,85 @@ fn build_rules(
     rules: &[proxy_config::schema::RoutingRule],
     _outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
 ) -> Result<Vec<CompiledRule>> {
-    rules.iter().map(|r| {
-        let mut full = Vec::new();
-        let mut suffix = Vec::new();
-        let mut keywords = Vec::new();
-        let mut regexes = Vec::new();
-        let mut ip_ranges = Vec::new();
+    rules
+        .iter()
+        .map(|r| {
+            let mut full = Vec::new();
+            let mut suffix = Vec::new();
+            let mut keywords = Vec::new();
+            let mut regexes = Vec::new();
+            let mut ip_ranges = Vec::new();
 
-        for pattern in &r.domain {
-            if let Some(rest) = pattern.strip_prefix("domain:") {
-                full.push(rest.to_string());
-            } else if let Some(rest) = pattern.strip_prefix("suffix:") {
-                suffix.push(rest.to_string());
-            } else if let Some(rest) = pattern.strip_prefix("keyword:") {
-                keywords.push(rest.to_string());
-            } else if let Some(rest) = pattern.strip_prefix("regexp:") {
-                regexes.push(rest.to_string());
+            for pattern in &r.domain {
+                if let Some(rest) = pattern.strip_prefix("domain:") {
+                    full.push(rest.to_string());
+                } else if let Some(rest) = pattern.strip_prefix("suffix:") {
+                    suffix.push(rest.to_string());
+                } else if let Some(rest) = pattern.strip_prefix("keyword:") {
+                    keywords.push(rest.to_string());
+                } else if let Some(rest) = pattern.strip_prefix("regexp:") {
+                    regexes.push(rest.to_string());
+                } else {
+                    // Default to domain exact match
+                    full.push(pattern.clone());
+                }
+            }
+
+            for pattern in &r.ip {
+                if !pattern.starts_with("geoip:") {
+                    ip_ranges.push(pattern.clone());
+                }
+            }
+
+            let domain_matcher = if full.is_empty()
+                && suffix.is_empty()
+                && keywords.is_empty()
+                && regexes.is_empty()
+            {
+                None
             } else {
-                // Default to domain exact match
-                full.push(pattern.clone());
-            }
-        }
+                Some(DomainMatcher::new(full, suffix, keywords, regexes)?)
+            };
 
-        for pattern in &r.ip {
-            if !pattern.starts_with("geoip:") {
-                ip_ranges.push(pattern.clone());
-            }
-        }
+            let ip_matcher = if ip_ranges.is_empty() {
+                None
+            } else {
+                Some(IpMatcher::new(ip_ranges)?)
+            };
 
-        let domain_matcher = if full.is_empty() && suffix.is_empty() && keywords.is_empty() && regexes.is_empty() {
-            None
-        } else {
-            Some(DomainMatcher::new(full, suffix, keywords, regexes)?)
-        };
+            let port_ranges = parse_port_ranges(r.port.as_deref().unwrap_or(""))?;
 
-        let ip_matcher = if ip_ranges.is_empty() {
-            None
-        } else {
-            Some(IpMatcher::new(ip_ranges)?)
-        };
-
-        let port_ranges = parse_port_ranges(r.port.as_deref().unwrap_or(""))?;
-
-        Ok(proxy_app::router::CompiledRule {
-            outbound_tag: r.outbound_tag.clone(),
-            domain_matcher,
-            ip_matcher,
-            port_ranges,
-            inbound_tags: r.inbound_tag.clone(),
+            Ok(proxy_app::router::CompiledRule {
+                outbound_tag: r.outbound_tag.clone(),
+                domain_matcher,
+                ip_matcher,
+                port_ranges,
+                inbound_tags: r.inbound_tag.clone(),
+            })
         })
-    }).collect()
+        .collect()
 }
 
 /// Parse a port specification string into a list of (lo, hi) ranges.
 ///
 /// Formats: "443", "80,443", "8000-9000", "80,443,8000-9000"
 fn parse_port_ranges(s: &str) -> Result<Vec<(u16, u16)>> {
-    if s.is_empty() { return Ok(vec![]); }
-    s.split(',').map(|part| {
-        let part = part.trim();
-        if let Some((lo, hi)) = part.split_once('-') {
-            let lo: u16 = lo.parse().with_context(|| format!("invalid port '{lo}'"))?;
-            let hi: u16 = hi.parse().with_context(|| format!("invalid port '{hi}'"))?;
-            Ok((lo, hi))
-        } else {
-            let p: u16 = part.parse().with_context(|| format!("invalid port '{part}'"))?;
-            Ok((p, p))
-        }
-    }).collect()
+    if s.is_empty() {
+        return Ok(vec![]);
+    }
+    s.split(',')
+        .map(|part| {
+            let part = part.trim();
+            if let Some((lo, hi)) = part.split_once('-') {
+                let lo: u16 = lo.parse().with_context(|| format!("invalid port '{lo}'"))?;
+                let hi: u16 = hi.parse().with_context(|| format!("invalid port '{hi}'"))?;
+                Ok((lo, hi))
+            } else {
+                let p: u16 = part
+                    .parse()
+                    .with_context(|| format!("invalid port '{part}'"))?;
+                Ok((p, p))
+            }
+        })
+        .collect()
 }

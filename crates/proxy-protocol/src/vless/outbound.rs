@@ -21,9 +21,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::debug;
 
-use proxy_common::{Address, BoxedStream, ProxyError};
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
+use proxy_common::{Address, BoxedStream, ProxyError};
 
 use super::codec::{encode_request, Command};
 
@@ -66,11 +66,7 @@ impl OutboundHandler for VlessOutbound {
         &self.tag
     }
 
-    async fn connect(
-        &self,
-        _ctx: &Context,
-        dest: &Address,
-    ) -> Result<BoxedStream, ProxyError> {
+    async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         // Step 1: Connect to the VLESS server over TCP.
         // In Phase 2, a TLS/REALITY transport layer will wrap this.
         let mut stream = TcpStream::connect(self.config.server).await?;
