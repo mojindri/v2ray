@@ -1,0 +1,40 @@
+[package]
+name        = "proxy-transport"
+description = "Transport layer implementations: TCP, WebSocket, TLS, REALITY, gRPC, QUIC, mKCP, TUN."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+proxy-common          = { path = "../proxy-common" }
+proxy-config          = { path = "../proxy-config" }
+proxy-tls             = { path = "../proxy-tls" }
+proxy-app             = { path = "../proxy-app" }
+
+tokio.workspace             = true
+tokio-util.workspace        = true
+bytes.workspace             = true
+rustls.workspace            = true
+tokio-rustls.workspace      = true
+rustls-acme.workspace       = true
+rcgen.workspace             = true
+tokio-tungstenite.workspace = true
+tonic.workspace             = true
+prost.workspace             = true
+quinn.workspace             = true
+pin-project-lite.workspace  = true
+socket2.workspace           = true
+nix.workspace               = true
+libc.workspace              = true
+async-trait.workspace       = true
+thiserror.workspace         = true
+tracing.workspace           = true
+anyhow.workspace            = true
+arc-swap.workspace          = true
+notify.workspace            = true
+x25519-dalek.workspace      = true
+aes-gcm.workspace           = true
+hkdf.workspace              = true
+sha2.workspace              = true
+rand.workspace              = true
+hex.workspace               = true

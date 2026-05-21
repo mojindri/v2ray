@@ -1,0 +1,28 @@
+[package]
+name        = "proxy-app"
+description = "Application layer: router, dispatcher, DNS resolver, FakeIP, health checker, failover, statistics."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+proxy-common          = { path = "../proxy-common" }
+proxy-config          = { path = "../proxy-config" }
+
+tokio.workspace            = true
+bytes.workspace            = true
+async-trait.workspace      = true
+dashmap.workspace          = true
+lru.workspace              = true
+parking_lot.workspace      = true
+arc-swap.workspace         = true
+ipnet.workspace            = true
+regex.workspace            = true
+aho-corasick.workspace     = true
+hickory-resolver.workspace = true
+thiserror.workspace        = true
+tracing.workspace          = true
+anyhow.workspace           = true
+serde.workspace            = true
+metrics.workspace          = true
+once_cell.workspace        = true

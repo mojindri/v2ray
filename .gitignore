@@ -1,0 +1,27 @@
+# Rust build output — never commit this directory.
+# It can be multiple gigabytes and is fully reproducible from source.
+/target/
+
+# Cargo lock file for libraries is conventionally not committed,
+# but for binaries (which this project is) we DO commit Cargo.lock
+# so that CI and production builds use identical dependency versions.
+# Therefore Cargo.lock is NOT listed here.
+
+# Editor and IDE files — not part of the project.
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Environment files — may contain secrets, never commit.
+.env
+.env.local
+
+# GeoIP/GeoSite data files — downloaded separately, not stored in git.
+# Run `make update-geoip` to download them.
+*.dat
+
+# Fuzz corpus and artifacts — too large for git, stored separately.
+fuzz/corpus/
+fuzz/artifacts/

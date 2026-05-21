@@ -1,0 +1,47 @@
+{
+  "_comment": "Chrome 131 TLS fingerprint profile — used by the REALITY client transport in Phase 2.",
+  "_note": "This file will be loaded at startup and validated against the JA3/JA4 hash below.",
+  "_version": "Chrome/131.0.6778.108",
+  "_ja3": "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
+  "_ja4": "t13d1516h2_8daaf6152771_e5627eed4de4",
+  "cipher_suites": [
+    4865,
+    4866,
+    4867,
+    49195,
+    49199,
+    49196,
+    49200,
+    52393,
+    52392,
+    49171,
+    49172,
+    156,
+    157,
+    47,
+    53
+  ],
+  "compression_methods": [0],
+  "extensions": [
+    { "id": 0,   "name": "server_name" },
+    { "id": 23,  "name": "extended_master_secret" },
+    { "id": 65281, "name": "renegotiation_info" },
+    { "id": 10,  "name": "supported_groups" },
+    { "id": 11,  "name": "ec_point_formats" },
+    { "id": 35,  "name": "session_ticket" },
+    { "id": 16,  "name": "application_layer_protocol_negotiation" },
+    { "id": 5,   "name": "status_request" },
+    { "id": 13,  "name": "signature_algorithms" },
+    { "id": 18,  "name": "signed_certificate_timestamp" },
+    { "id": 51,  "name": "key_share" },
+    { "id": 45,  "name": "psk_key_exchange_modes" },
+    { "id": 43,  "name": "supported_versions" },
+    { "id": 27,  "name": "compress_certificate" },
+    { "id": 21,  "name": "padding" }
+  ],
+  "supported_groups": [29, 23, 24],
+  "alpn": ["h2", "http/1.1"],
+  "signature_algorithms": [
+    1027, 2052, 1025, 1283, 2053, 1281, 2054, 1537
+  ]
+}

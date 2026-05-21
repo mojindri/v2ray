@@ -1,0 +1,26 @@
+[package]
+name        = "integration-tests"
+description = "Integration and golden vector tests for the proxy platform."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+# This crate only contains tests — the binary is empty.
+# `cargo test -p integration-tests` runs all tests in this crate.
+
+[dev-dependencies]
+proxy-common     = { path = "../crates/proxy-common" }
+proxy-config     = { path = "../crates/proxy-config" }
+proxy-app        = { path = "../crates/proxy-app" }
+proxy-protocol   = { path = "../crates/proxy-protocol" }
+proxy-core       = { path = "../crates/proxy-core" }
+proxy-transport  = { path = "../crates/proxy-transport" }
+
+tokio.workspace     = true
+anyhow.workspace    = true
+hex.workspace       = true
+serde_json.workspace = true
+
+[lib]
+name = "integration_tests"
+path = "src/lib.rs"

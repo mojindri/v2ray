@@ -1,0 +1,7 @@
+# Pins the Rust toolchain version for this project.
+# Everyone who builds this — on any machine, in any CI — gets the exact same
+# compiler version, which prevents "works on my machine" issues caused by
+# compiler updates changing behaviour or adding new warnings.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]
