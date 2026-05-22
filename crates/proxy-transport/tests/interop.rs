@@ -95,16 +95,17 @@ fn interop_dir() -> std::path::PathBuf {
 /// helpful message if it doesn't exist yet.
 fn read_key_file(name: &str) -> String {
     let path = interop_dir().join("keys").join(name);
-    std::fs::read_to_string(&path).unwrap_or_else(|_| {
-        panic!(
-            "\n\nMissing key file: {}\n\
+    std::fs::read_to_string(&path)
+        .unwrap_or_else(|_| {
+            panic!(
+                "\n\nMissing key file: {}\n\
              Run once to generate:\n  \
              make -C tests/interop keys\n",
-            path.display()
-        )
-    })
-    .trim()
-    .to_string()
+                path.display()
+            )
+        })
+        .trim()
+        .to_string()
 }
 
 /// Decode an Xray-style base64url-no-padding x25519 key into 32 raw bytes.
@@ -449,11 +450,7 @@ async fn d1_wrong_short_id_triggers_nginx_fallback() {
         .expect("TCP dial failed");
 
     let mut buf = vec![0u8; 512];
-    let read_result = timeout(
-        Duration::from_secs(2),
-        stream.read(&mut buf),
-    )
-    .await;
+    let read_result = timeout(Duration::from_secs(2), stream.read(&mut buf)).await;
 
     match read_result {
         Err(_elapsed) => panic!(
@@ -524,18 +521,15 @@ async fn d1_bare_clienthello_no_rst() {
 
     let mut rng = rand::rngs::SmallRng::seed_from_u64(0xBAD_FEED);
     // Zero random and zero session_id = no REALITY auth token.
-    let hello = ClientHelloBuilder::chrome_131().build(
-        TEST_SNI,
-        &[0u8; 32],
-        &[0u8; 32],
-        None,
-        &mut rng,
-    );
+    let hello =
+        ClientHelloBuilder::chrome_131().build(TEST_SNI, &[0u8; 32], &[0u8; 32], None, &mut rng);
 
     let mut tcp = TcpStream::connect(XRAY_ADDR)
         .await
         .expect("TCP connect failed — is `make -C tests/interop up` running?");
-    tcp.write_all(&hello).await.expect("write ClientHello failed");
+    tcp.write_all(&hello)
+        .await
+        .expect("write ClientHello failed");
 
     let mut buf = vec![0u8; 512];
     let read_result = timeout(Duration::from_secs(2), tcp.read(&mut buf)).await;

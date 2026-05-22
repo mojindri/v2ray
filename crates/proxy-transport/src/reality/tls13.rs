@@ -52,10 +52,8 @@ const HS_CERTIFICATE: u8 = 0x0b;
 const HS_CERTIFICATE_VERIFY: u8 = 0x0f;
 const HS_FINISHED: u8 = 0x14;
 const HELLO_RETRY_REQUEST_RANDOM: [u8; 32] = [
-    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11,
-    0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
-    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E,
-    0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
+    0xCF, 0x21, 0xAD, 0x74, 0xE5, 0x9A, 0x61, 0x11, 0xBE, 0x1D, 0x8C, 0x02, 0x1E, 0x65, 0xB8, 0x91,
+    0xC2, 0xA2, 0x11, 0x16, 0x7A, 0xBB, 0x8C, 0x5E, 0x07, 0x9E, 0x09, 0xE2, 0xC8, 0xA8, 0x33, 0x9C,
 ];
 
 // ── Cipher suite ──────────────────────────────────────────────────────────────
@@ -114,8 +112,7 @@ impl CipherSuite {
     fn expand_label(self, prk: &[u8], label: &str, context: &[u8], len: usize) -> Vec<u8> {
         let full_label = format!("tls13 {label}");
         // HkdfLabel = uint16(len) || uint8(label_len) || label || uint8(ctx_len) || ctx
-        let mut info =
-            Vec::with_capacity(2 + 1 + full_label.len() + 1 + context.len());
+        let mut info = Vec::with_capacity(2 + 1 + full_label.len() + 1 + context.len());
         info.extend_from_slice(&(len as u16).to_be_bytes());
         info.push(full_label.len() as u8);
         info.extend_from_slice(full_label.as_bytes());
@@ -157,14 +154,12 @@ impl CipherSuite {
     fn hmac(self, key: &[u8], data: &[u8]) -> Vec<u8> {
         match self {
             Self::Aes128GcmSha256 => {
-                let mut mac =
-                    Hmac::<Sha256>::new_from_slice(key).expect("HMAC key length ok");
+                let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC key length ok");
                 mac.update(data);
                 mac.finalize().into_bytes().to_vec()
             }
             Self::Aes256GcmSha384 => {
-                let mut mac =
-                    Hmac::<Sha384>::new_from_slice(key).expect("HMAC key length ok");
+                let mut mac = Hmac::<Sha384>::new_from_slice(key).expect("HMAC key length ok");
                 mac.update(data);
                 mac.finalize().into_bytes().to_vec()
             }
@@ -201,11 +196,7 @@ pub(crate) struct AppKeys {
 ///
 /// `dhe` is the x25519 shared secret from the TLS key_share exchange.
 /// `transcript_hash` is Hash(ClientHello || ServerHello).
-fn derive_handshake_keys(
-    cs: CipherSuite,
-    dhe: &[u8; 32],
-    transcript_hash: &[u8],
-) -> HsKeys {
+fn derive_handshake_keys(cs: CipherSuite, dhe: &[u8; 32], transcript_hash: &[u8]) -> HsKeys {
     let hash_len = cs.hash_len();
     let zero = vec![0u8; hash_len];
 
@@ -368,7 +359,8 @@ fn encrypt_app_record(
     // AAD = 5-byte record header with the ciphertext length
     let header: [u8; 5] = [
         RT_APPLICATION_DATA,
-        0x03, 0x03,
+        0x03,
+        0x03,
         (ct_len >> 8) as u8,
         ct_len as u8,
     ];
@@ -381,14 +373,26 @@ fn encrypt_app_record(
             let cipher = Aes128Gcm::new_from_slice(key)
                 .map_err(|_| ProxyError::Protocol("bad AES-128-GCM key".into()))?;
             cipher
-                .encrypt(nonce_ga, Payload { msg: &msg, aad: &header })
+                .encrypt(
+                    nonce_ga,
+                    Payload {
+                        msg: &msg,
+                        aad: &header,
+                    },
+                )
                 .map_err(|_| ProxyError::Protocol("AES-128-GCM encrypt failed".into()))?
         }
         CipherSuite::Aes256GcmSha384 => {
             let cipher = Aes256Gcm::new_from_slice(key)
                 .map_err(|_| ProxyError::Protocol("bad AES-256-GCM key".into()))?;
             cipher
-                .encrypt(nonce_ga, Payload { msg: &msg, aad: &header })
+                .encrypt(
+                    nonce_ga,
+                    Payload {
+                        msg: &msg,
+                        aad: &header,
+                    },
+                )
                 .map_err(|_| ProxyError::Protocol("AES-256-GCM encrypt failed".into()))?
         }
     };
@@ -436,14 +440,18 @@ fn parse_server_hello(hs_body: &[u8]) -> Result<(CipherSuite, u16, Vec<u8>), Pro
 
     let mut pos = random_end;
     if pos >= hs_body.len() {
-        return Err(ProxyError::Protocol("ServerHello: truncated at session_id".into()));
+        return Err(ProxyError::Protocol(
+            "ServerHello: truncated at session_id".into(),
+        ));
     }
 
     let sid_len = hs_body[pos] as usize;
     pos += 1 + sid_len;
 
     if pos + 3 > hs_body.len() {
-        return Err(ProxyError::Protocol("ServerHello: truncated at cipher_suite".into()));
+        return Err(ProxyError::Protocol(
+            "ServerHello: truncated at cipher_suite".into(),
+        ));
     }
 
     let raw_cs = u16::from_be_bytes([hs_body[pos], hs_body[pos + 1]]);
@@ -453,7 +461,9 @@ fn parse_server_hello(hs_body: &[u8]) -> Result<(CipherSuite, u16, Vec<u8>), Pro
 
     // Extensions
     if pos + 2 > hs_body.len() {
-        return Err(ProxyError::Protocol("ServerHello: no extensions length".into()));
+        return Err(ProxyError::Protocol(
+            "ServerHello: no extensions length".into(),
+        ));
     }
     let ext_total = u16::from_be_bytes([hs_body[pos], hs_body[pos + 1]]) as usize;
     pos += 2;
@@ -504,7 +514,10 @@ fn describe_server_hello_extension(ext_type: u16, ext_data: &[u8]) -> String {
     match ext_type {
         0x002b if ext_data.len() == 2 => {
             let version = u16::from_be_bytes([ext_data[0], ext_data[1]]);
-            format!("supported_versions(len={}, selected=0x{version:04x})", ext_data.len())
+            format!(
+                "supported_versions(len={}, selected=0x{version:04x})",
+                ext_data.len()
+            )
         }
         0x0033 if ext_data.len() >= 2 => {
             let group = u16::from_be_bytes([ext_data[0], ext_data[1]]);
@@ -535,8 +548,7 @@ fn split_handshake_messages(data: &[u8]) -> Vec<(u8, &[u8])> {
     let mut pos = 0;
     while pos + 4 <= data.len() {
         let hs_type = data[pos];
-        let hs_len =
-            u32::from_be_bytes([0, data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
+        let hs_len = u32::from_be_bytes([0, data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         let msg_end = pos + 4 + hs_len;
         if msg_end > data.len() {
             break;
@@ -593,14 +605,21 @@ pub(crate) async fn complete_tls13_handshake(
             let mut key = [0u8; 32];
             key.copy_from_slice(&server_pub_bytes);
             let server_tls_pub = PublicKey::from(key);
-            client_x25519_secret.diffie_hellman(&server_tls_pub).as_bytes().to_vec()
+            client_x25519_secret
+                .diffie_hellman(&server_tls_pub)
+                .as_bytes()
+                .to_vec()
         }
         23 => {
             let client_p256_secret = client_p256_secret.ok_or_else(|| {
-                ProxyError::Protocol("ServerHello selected secp256r1 but client has no P-256 key share".into())
+                ProxyError::Protocol(
+                    "ServerHello selected secp256r1 but client has no P-256 key share".into(),
+                )
             })?;
-            let server_tls_pub = P256PublicKey::from_sec1_bytes(&server_pub_bytes)
-                .map_err(|e| ProxyError::Protocol(format!("invalid secp256r1 ServerHello key_share: {e}")))?;
+            let server_tls_pub =
+                P256PublicKey::from_sec1_bytes(&server_pub_bytes).map_err(|e| {
+                    ProxyError::Protocol(format!("invalid secp256r1 ServerHello key_share: {e}"))
+                })?;
             client_p256_secret
                 .diffie_hellman(&server_tls_pub)
                 .raw_secret_bytes()
@@ -670,8 +689,7 @@ pub(crate) async fn complete_tls13_handshake(
                             // finished_key = Expand-Label(server_hs_traffic, "finished", "", H)
                             // verify_data = HMAC(finished_key, Hash(transcript_so_far))
                             let transcript_hash = cs.hash(&transcript);
-                            let expected =
-                                cs.hmac(&hs_keys.server_finished_key, &transcript_hash);
+                            let expected = cs.hmac(&hs_keys.server_finished_key, &transcript_hash);
                             let body_start = 4; // skip type(1)+len(3)
                             let verify_data = &msg_bytes[body_start..];
                             if verify_data != expected.as_slice() {
@@ -684,7 +702,10 @@ pub(crate) async fn complete_tls13_handshake(
                             found_finished = true;
                         }
                         other => {
-                            debug!(hs_type = other, "ignoring unexpected handshake message type");
+                            debug!(
+                                hs_type = other,
+                                "ignoring unexpected handshake message type"
+                            );
                         }
                     }
                 }
@@ -719,8 +740,14 @@ pub(crate) async fn complete_tls13_handshake(
     finished_msg.push(vd_len as u8);
     finished_msg.extend_from_slice(&client_finished_data);
 
-    let finished_record =
-        encrypt_app_record(cs, &hs_keys.client_key, &hs_keys.client_iv, 0, &finished_msg, RT_HANDSHAKE)?;
+    let finished_record = encrypt_app_record(
+        cs,
+        &hs_keys.client_key,
+        &hs_keys.client_iv,
+        0,
+        &finished_msg,
+        RT_HANDSHAKE,
+    )?;
     tcp.write_all(&finished_record).await?;
 
     debug!("TLS 1.3 handshake complete — application traffic keys derived");
@@ -731,8 +758,8 @@ pub(crate) async fn complete_tls13_handshake(
 
 /// Phases of the TLS record read state machine.
 const RPHASE_PLAINTEXT: u8 = 0; // serve from decrypted buffer
-const RPHASE_HEADER: u8 = 1;    // accumulating 5-byte record header
-const RPHASE_BODY: u8 = 2;      // accumulating record body
+const RPHASE_HEADER: u8 = 1; // accumulating 5-byte record header
+const RPHASE_BODY: u8 = 2; // accumulating record body
 
 pin_project! {
     /// A TLS 1.3 application-data stream.
@@ -837,8 +864,7 @@ impl AsyncRead for Tls13Stream {
                     }
                     *me.header_pos += n;
                 }
-                let body_len =
-                    u16::from_be_bytes([me.header_buf[3], me.header_buf[4]]) as usize;
+                let body_len = u16::from_be_bytes([me.header_buf[3], me.header_buf[4]]) as usize;
                 me.body_buf.resize(body_len, 0);
                 *me.body_pos = 0;
                 *me.read_phase = RPHASE_BODY;
@@ -888,10 +914,7 @@ impl AsyncRead for Tls13Stream {
                                         // loop back to phase 0 to serve data
                                     }
                                     RT_ALERT => {
-                                        if inner.len() >= 2
-                                            && inner[0] == 1
-                                            && inner[1] == 0
-                                        {
+                                        if inner.len() >= 2 && inner[0] == 1 && inner[1] == 0 {
                                             // close_notify → clean EOF
                                             return Poll::Ready(Ok(()));
                                         }
@@ -946,8 +969,10 @@ impl AsyncWrite for Tls13Stream {
         // ── Flush pending encrypted record from a previous partial write ──────
         if !me.write_buf.is_empty() {
             while *me.write_pos < me.write_buf.len() {
-                let n =
-                    ready!(me.tcp.as_mut().poll_write(cx, &me.write_buf[*me.write_pos..]))?;
+                let n = ready!(me
+                    .tcp
+                    .as_mut()
+                    .poll_write(cx, &me.write_buf[*me.write_pos..]))?;
                 if n == 0 {
                     return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
                 }
@@ -968,16 +993,26 @@ impl AsyncWrite for Tls13Stream {
         let chunk_len = buf.len().min(16384);
         *me.write_chunk_len = chunk_len;
 
-        let record =
-            encrypt_app_record(*me.cs, me.client_key, me.client_iv, *me.client_seq, &buf[..chunk_len], RT_APPLICATION_DATA)
-                .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
+        let record = encrypt_app_record(
+            *me.cs,
+            me.client_key,
+            me.client_iv,
+            *me.client_seq,
+            &buf[..chunk_len],
+            RT_APPLICATION_DATA,
+        )
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
         *me.client_seq += 1;
         *me.write_buf = record;
         *me.write_pos = 0;
 
         // ── Write the record to TCP (may be partial) ──────────────────────────
         while *me.write_pos < me.write_buf.len() {
-            match me.tcp.as_mut().poll_write(cx, &me.write_buf[*me.write_pos..]) {
+            match me
+                .tcp
+                .as_mut()
+                .poll_write(cx, &me.write_buf[*me.write_pos..])
+            {
                 Poll::Ready(Ok(0)) => {
                     return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)))
                 }

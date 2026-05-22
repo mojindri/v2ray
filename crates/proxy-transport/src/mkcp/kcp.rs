@@ -143,7 +143,7 @@ impl Kcp {
             return -1;
         }
         let mss = self.mss as usize;
-        let count = (buf.len() + mss - 1) / mss;
+        let count = buf.len().div_ceil(mss);
         if count >= 256 {
             return -2;
         }
@@ -427,11 +427,7 @@ impl Kcp {
             self.rx_srtt = rtt;
             self.rx_rttval = rtt / 2;
         } else {
-            let delta = if rtt > self.rx_srtt {
-                rtt - self.rx_srtt
-            } else {
-                self.rx_srtt - rtt
-            };
+            let delta = rtt.abs_diff(self.rx_srtt);
             self.rx_rttval = (3 * self.rx_rttval + delta) / 4;
             self.rx_srtt = (7 * self.rx_srtt + rtt) / 8;
             if self.rx_srtt < 1 {

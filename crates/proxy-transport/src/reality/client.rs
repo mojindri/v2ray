@@ -131,9 +131,7 @@ struct ClientKeyShares {
 
 /// Generate the REALITY-auth x25519 key material plus a TLS P-256 key share
 /// for origins that select `secp256r1`.
-fn make_client_key_shares(
-    server_public_key: [u8; 32],
-) -> ClientKeyShares {
+fn make_client_key_shares(server_public_key: [u8; 32]) -> ClientKeyShares {
     let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
     let client_public = PublicKey::from(&client_secret);
     let client_pub_bytes = *client_public.as_bytes();

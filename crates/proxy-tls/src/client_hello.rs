@@ -43,14 +43,7 @@ impl ClientHelloBuilder {
         x25519_pub: Option<&[u8; 32]>,
         rng: &mut impl Rng,
     ) -> BytesMut {
-        self.build_with_additional_key_share(
-            sni,
-            random,
-            session_id,
-            x25519_pub,
-            None,
-            rng,
-        )
+        self.build_with_additional_key_share(sni, random, session_id, x25519_pub, None, rng)
     }
 
     /// Build a ClientHello with an optional additional secp256r1 key share.
@@ -133,13 +126,8 @@ impl ClientHelloBuilder {
         buf.put_u8(0x01); // compression_methods length
         buf.put_u8(0x00); // null compression
 
-        let extensions = self.build_extensions(
-            sni,
-            grease_cipher,
-            grease_ext,
-            x25519_pub,
-            secp256r1_pub,
-        );
+        let extensions =
+            self.build_extensions(sni, grease_cipher, grease_ext, x25519_pub, secp256r1_pub);
         buf.put_u16(extensions.len() as u16);
         buf.extend_from_slice(&extensions);
 
@@ -238,13 +226,7 @@ mod tests {
         let needle = b"proxy.example.org";
         assert!(hello.windows(needle.len()).any(|w| w == needle));
     }
-
-
-
-
 }
-
-
 
 #[cfg(test)]
 mod hard_clienthello_tests {
@@ -312,9 +294,8 @@ mod hard_clienthello_tests {
             return Err("truncated u24".into());
         }
 
-        let v = ((input[*p] as usize) << 16)
-            | ((input[*p + 1] as usize) << 8)
-            | input[*p + 2] as usize;
+        let v =
+            ((input[*p] as usize) << 16) | ((input[*p + 1] as usize) << 8) | input[*p + 2] as usize;
 
         *p += 3;
         Ok(v)
@@ -353,9 +334,7 @@ mod hard_clienthello_tests {
         hp += 1;
 
         if handshake_type != 0x01 {
-            return Err(format!(
-                "unexpected handshake type: {handshake_type:#04x}"
-            ));
+            return Err(format!("unexpected handshake type: {handshake_type:#04x}"));
         }
 
         let handshake_len = parse_u24(record_body, &mut hp)?;
@@ -419,8 +398,7 @@ mod hard_clienthello_tests {
             return Err("truncated compression_methods".into());
         }
 
-        let compression_methods =
-            record_body[hp..hp + compression_methods_len].to_vec();
+        let compression_methods = record_body[hp..hp + compression_methods_len].to_vec();
         hp += compression_methods_len;
 
         let extensions_len = parse_u16(record_body, &mut hp)? as usize;
@@ -473,10 +451,7 @@ mod hard_clienthello_tests {
         })
     }
 
-    fn extension<'a>(
-        parsed: &'a ParsedClientHello,
-        ext_type: u16,
-    ) -> Option<&'a ParsedExtension> {
+    fn extension<'a>(parsed: &'a ParsedClientHello, ext_type: u16) -> Option<&'a ParsedExtension> {
         parsed.extensions.iter().find(|e| e.ext_type == ext_type)
     }
 
@@ -648,8 +623,7 @@ mod hard_clienthello_tests {
     fn generated_client_hello_is_strictly_parseable() {
         let hello = build_test_hello();
 
-        let parsed = parse_client_hello(&hello)
-            .expect("generated ClientHello must strictly parse");
+        let parsed = parse_client_hello(&hello).expect("generated ClientHello must strictly parse");
 
         assert_eq!(parsed.record_type, 0x16);
         assert_eq!(parsed.record_version, 0x0301);
@@ -698,8 +672,7 @@ mod hard_clienthello_tests {
 
         let actual = ja3_string(&parsed);
 
-        let expected =
-            "771,\
+        let expected = "771,\
 4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,\
 0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,\
 29-23-24,\
@@ -726,10 +699,7 @@ mod hard_clienthello_tests {
             .filter(|v| !is_grease_u16(*v))
             .collect();
 
-        assert_eq!(
-            non_grease,
-            FingerprintProfile::chrome_131().cipher_suites
-        );
+        assert_eq!(non_grease, FingerprintProfile::chrome_131().cipher_suites);
     }
 
     #[test]
@@ -825,7 +795,9 @@ mod hard_clienthello_tests {
         );
 
         assert!(
-            alpn.data.windows(b"http/1.1".len()).any(|w| w == b"http/1.1"),
+            alpn.data
+                .windows(b"http/1.1".len())
+                .any(|w| w == b"http/1.1"),
             "ALPN does not contain http/1.1"
         );
 
@@ -965,7 +937,10 @@ mod hard_clienthello_tests {
 
             let sni_ext = extension(&parsed, 0x0000).expect("missing SNI extension");
             assert!(
-                sni_ext.data.windows(sni.as_bytes().len()).any(|w| w == sni.as_bytes()),
+                sni_ext
+                    .data
+                    .windows(sni.as_bytes().len())
+                    .any(|w| w == sni.as_bytes()),
                 "SNI extension does not contain hostname {sni}"
             );
         }
@@ -1000,11 +975,10 @@ mod hard_clienthello_tests {
 
         let generated = build_test_hello();
 
-        let parsed_golden = parse_client_hello(&golden)
-            .expect("golden ClientHello must parse");
+        let parsed_golden = parse_client_hello(&golden).expect("golden ClientHello must parse");
 
-        let parsed_generated = parse_client_hello(&generated)
-            .expect("generated ClientHello must parse");
+        let parsed_generated =
+            parse_client_hello(&generated).expect("generated ClientHello must parse");
 
         assert_eq!(
             ja3_string(&parsed_generated),
