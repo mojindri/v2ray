@@ -54,7 +54,11 @@ pub struct StreamSettingsConfig {
     pub shadow_tls_settings: Option<ShadowTlsConfig>,
 
     /// mKCP-specific settings.
-    #[serde(default, rename = "kcpSettings", skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "kcpSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub kcp_settings: Option<KcpConfig>,
 }
 
@@ -276,8 +280,18 @@ pub struct KcpConfig {
     #[serde(default = "default_kcp_buf")]
     pub write_buffer_size: u32,
 }
-fn default_kcp_header() -> String { "none".into() }
-fn default_kcp_mtu() -> u16 { 1350 }
-fn default_kcp_tti() -> u64 { 50 }
-fn default_kcp_capacity() -> u32 { 5 }
-fn default_kcp_buf() -> u32 { 2 }
+fn default_kcp_header() -> String {
+    "none".into()
+}
+fn default_kcp_mtu() -> u16 {
+    1350
+}
+fn default_kcp_tti() -> u64 {
+    50
+}
+fn default_kcp_capacity() -> u32 {
+    5
+}
+fn default_kcp_buf() -> u32 {
+    2
+}

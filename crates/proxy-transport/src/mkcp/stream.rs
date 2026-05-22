@@ -14,12 +14,20 @@ pub struct MkcpStream {
 
 impl MkcpStream {
     pub fn new(tx: mpsc::UnboundedSender<Bytes>, rx: mpsc::Receiver<Bytes>) -> Self {
-        Self { tx, rx, read_buf: BytesMut::new() }
+        Self {
+            tx,
+            rx,
+            read_buf: BytesMut::new(),
+        }
     }
 }
 
 impl AsyncRead for MkcpStream {
-    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
         if !self.read_buf.is_empty() {
             let n = self.read_buf.len().min(buf.remaining());
             buf.put_slice(&self.read_buf[..n]);
@@ -30,7 +38,9 @@ impl AsyncRead for MkcpStream {
             Poll::Ready(Some(data)) => {
                 let n = data.len().min(buf.remaining());
                 buf.put_slice(&data[..n]);
-                if n < data.len() { self.read_buf.extend_from_slice(&data[n..]); }
+                if n < data.len() {
+                    self.read_buf.extend_from_slice(&data[n..]);
+                }
                 Poll::Ready(Ok(()))
             }
             Poll::Ready(None) => Poll::Ready(Ok(())),
@@ -40,12 +50,23 @@ impl AsyncRead for MkcpStream {
 }
 
 impl AsyncWrite for MkcpStream {
-    fn poll_write(self: Pin<&mut Self>, _cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+    fn poll_write(
+        self: Pin<&mut Self>,
+        _cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
         match self.tx.send(Bytes::copy_from_slice(buf)) {
             Ok(()) => Poll::Ready(Ok(buf.len())),
-            Err(_) => Poll::Ready(Err(io::Error::new(io::ErrorKind::BrokenPipe, "KCP driver closed"))),
+            Err(_) => Poll::Ready(Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "KCP driver closed",
+            ))),
         }
     }
-    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> { Poll::Ready(Ok(())) }
-    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> { Poll::Ready(Ok(())) }
+    fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
+    fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(Ok(()))
+    }
 }
