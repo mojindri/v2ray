@@ -27,6 +27,44 @@ use proxy_app::features::OutboundHandler;
 
 use super::codec::{encode_request, Command};
 
+/// Send a VLESS request header over an already-established stream.
+///
+/// Use this when the transport layer (e.g. REALITY) has already set up
+/// the connection and you just need to run the VLESS handshake on top.
+///
+/// # Arguments
+/// * `stream` — an already-connected stream (e.g. from `RealityClient::dial()`)
+/// * `uuid` — the 16-byte user UUID
+/// * `flow` — the VLESS flow string (empty for no special flow)
+/// * `dest` — the destination the client wants to reach
+///
+/// # Returns
+/// The same stream, positioned after the VLESS response header, ready for
+/// bidirectional data relay.
+pub async fn connect_vless_on_stream(
+    mut stream: BoxedStream,
+    uuid: &[u8; 16],
+    flow: &str,
+    dest: &Address,
+) -> Result<BoxedStream, ProxyError> {
+    let header = encode_request(uuid, flow, Command::Tcp, dest);
+    stream.write_all(&header).await?;
+
+    // Read VLESS response header: VER(1) + ADDONS_LEN(1) + ADDONS(N)
+    let ver = stream.read_u8().await?;
+    if ver != 0x00 {
+        return Err(ProxyError::Protocol(format!(
+            "VLESS server responded with unexpected version {ver:#x}"
+        )));
+    }
+    let addons_len = stream.read_u8().await? as usize;
+    if addons_len > 0 {
+        let mut addons = vec![0u8; addons_len];
+        stream.read_exact(&mut addons).await?;
+    }
+    Ok(stream)
+}
+
 /// VLESS outbound configuration.
 #[derive(Debug, Clone)]
 pub struct VlessOutboundConfig {

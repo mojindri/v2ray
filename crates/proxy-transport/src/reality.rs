@@ -328,36 +328,36 @@ impl RealityServer {
         }
     }
 
-    /// Accept an incoming TCP connection and authenticate it as REALITY.
+    /// Accept an incoming connection and authenticate it as REALITY.
     ///
     /// Returns:
     ///   - `Ok(stream)` if authentication succeeded. The stream is a `PrependedStream`
     ///     that replays the already-read bytes so rustls sees the complete ClientHello.
-    ///   - `Err(...)` after silently forwarding the connection to the fallback (so
-    ///     the caller should not send any error response to the client).
-    pub async fn accept(&self, mut tcp: TcpStream) -> Result<BoxedStream, ProxyError> {
+    ///   - `Err(ProxyError::FallbackRequired)` after silently forwarding the connection
+    ///     to the fallback (the caller should not send any error response to the client).
+    pub async fn accept(&self, mut stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
         // Read the 5-byte TLS record header to determine record length.
         let mut record_header = [0u8; 5];
-        tcp.read_exact(&mut record_header).await?;
+        stream.read_exact(&mut record_header).await?;
 
         // Validate that this looks like a TLS ClientHello:
         //   record_header[0] = 0x16 (content_type = handshake)
         //   record_header[1..3] = legacy_version (should be 0x03, 0x01)
         if record_header[0] != 0x16 {
             debug!("not a TLS record (byte[0]={:#04x}) — forwarding to fallback", record_header[0]);
-            return self.do_fallback(tcp, record_header.to_vec()).await;
+            return self.do_fallback(stream, record_header.to_vec()).await;
         }
 
         let record_len = u16::from_be_bytes([record_header[3], record_header[4]]) as usize;
         if record_len > 16384 {
             // TLS records are limited to 16 KiB by spec. Anything larger is suspect.
             debug!("oversized record ({record_len} bytes) — forwarding to fallback");
-            return self.do_fallback(tcp, record_header.to_vec()).await;
+            return self.do_fallback(stream, record_header.to_vec()).await;
         }
 
         // Read the ClientHello body.
         let mut handshake_body = vec![0u8; record_len];
-        tcp.read_exact(&mut handshake_body).await?;
+        stream.read_exact(&mut handshake_body).await?;
 
         // Parse the ClientHello fields.
         let fields = match parse_client_hello(&handshake_body) {
@@ -366,7 +366,7 @@ impl RealityServer {
                 debug!(error = %e, "ClientHello parse failed — forwarding to fallback");
                 let mut all_bytes = record_header.to_vec();
                 all_bytes.extend_from_slice(&handshake_body);
-                return self.do_fallback(tcp, all_bytes).await;
+                return self.do_fallback(stream, all_bytes).await;
             }
         };
 
@@ -377,13 +377,68 @@ impl RealityServer {
                 // Prepend the already-read bytes so rustls sees the full ClientHello.
                 let mut replay = record_header.to_vec();
                 replay.extend_from_slice(&handshake_body);
-                Ok(Box::new(PrependedStream::new(tcp, replay)))
+                Ok(Box::new(PrependedStream::new(stream, replay)))
             }
             Err(e) => {
                 debug!(error = %e, "REALITY authentication failed — forwarding to fallback");
                 let mut all_bytes = record_header.to_vec();
                 all_bytes.extend_from_slice(&handshake_body);
-                self.do_fallback(tcp, all_bytes).await
+                self.do_fallback(stream, all_bytes).await
+            }
+        }
+    }
+
+    /// Accept a connection and perform REALITY authentication.
+    ///
+    /// Unlike `accept()`, this does NOT prepend the ClientHello bytes to the return stream.
+    /// After authentication, returns the raw stream positioned at the byte AFTER the
+    /// ClientHello. This is used in Phase 2 (without TLS) so the VLESS layer can
+    /// read its header immediately from the stream.
+    ///
+    /// In a production deployment with TLS, use `accept()` instead — it replays
+    /// the ClientHello so rustls can complete a real TLS 1.3 handshake.
+    pub async fn accept_direct(&self, mut stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
+        // Read the 5-byte TLS record header to determine record length.
+        let mut record_header = [0u8; 5];
+        stream.read_exact(&mut record_header).await?;
+
+        if record_header[0] != 0x16 {
+            debug!("not a TLS record (byte[0]={:#04x}) — forwarding to fallback", record_header[0]);
+            return self.do_fallback(stream, record_header.to_vec()).await;
+        }
+
+        let record_len = u16::from_be_bytes([record_header[3], record_header[4]]) as usize;
+        if record_len > 16384 {
+            debug!("oversized record ({record_len} bytes) — forwarding to fallback");
+            return self.do_fallback(stream, record_header.to_vec()).await;
+        }
+
+        let mut handshake_body = vec![0u8; record_len];
+        stream.read_exact(&mut handshake_body).await?;
+
+        let fields = match parse_client_hello(&handshake_body) {
+            Ok(f) => f,
+            Err(e) => {
+                debug!(error = %e, "ClientHello parse failed — forwarding to fallback");
+                let mut all_bytes = record_header.to_vec();
+                all_bytes.extend_from_slice(&handshake_body);
+                return self.do_fallback(stream, all_bytes).await;
+            }
+        };
+
+        match self.authenticate(&fields, &handshake_body) {
+            Ok(()) => {
+                debug!("REALITY authentication succeeded (direct mode — no ClientHello replay)");
+                // Return the raw stream. The ClientHello bytes have been consumed.
+                // The next byte the caller reads will be the first byte AFTER the ClientHello
+                // (which in a VLESS-over-REALITY connection is the VLESS header).
+                Ok(stream)
+            }
+            Err(e) => {
+                debug!(error = %e, "REALITY authentication failed — forwarding to fallback");
+                let mut all_bytes = record_header.to_vec();
+                all_bytes.extend_from_slice(&handshake_body);
+                self.do_fallback(stream, all_bytes).await
             }
         }
     }
@@ -467,7 +522,7 @@ impl RealityServer {
     ///
     /// The prober connects and gets back a genuine TLS handshake from the real
     /// destination. We never close the connection abruptly.
-    async fn do_fallback(&self, tcp: TcpStream, already_read: Vec<u8>) -> Result<BoxedStream, ProxyError> {
+    async fn do_fallback(&self, mut stream: BoxedStream, already_read: Vec<u8>) -> Result<BoxedStream, ProxyError> {
         warn!(fallback = %self.config.fallback, "forwarding to fallback");
 
         let mut fallback = TcpStream::connect(self.config.fallback).await
@@ -477,8 +532,7 @@ impl RealityServer {
         fallback.write_all(&already_read).await?;
 
         // Then relay bidirectionally.
-        let inbound: BoxedStream = Box::new(PrependedStream::new(tcp, vec![]));
-        tokio::io::copy_bidirectional(&mut { inbound }, &mut fallback)
+        tokio::io::copy_bidirectional(&mut stream, &mut fallback)
             .await
             .ok();
 
