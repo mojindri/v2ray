@@ -131,7 +131,9 @@ impl InboundHandler for Ss2022Inbound {
 async fn read_header_ciphertext(stream: &mut BoxedStream) -> Result<Vec<u8>, ProxyError> {
     let len = stream.read_u16().await? as usize;
     if len == 0 || len > 512 {
-        return Err(ProxyError::Protocol("SS-2022: invalid header length".into()));
+        return Err(ProxyError::Protocol(
+            "SS-2022: invalid header length".into(),
+        ));
     }
     let mut ct = vec![0u8; len + 16];
     stream.read_exact(&mut ct).await?;
@@ -185,12 +187,8 @@ fn parse_header(data: &[u8], source: SocketAddr) -> Result<(Address, usize), Pro
             if data.len() < pos + 6 {
                 return Err(ProxyError::Protocol("SS-2022: truncated IPv4".into()));
             }
-            let ip = std::net::Ipv4Addr::from([
-                data[pos],
-                data[pos + 1],
-                data[pos + 2],
-                data[pos + 3],
-            ]);
+            let ip =
+                std::net::Ipv4Addr::from([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
             let port = u16::from_be_bytes([data[pos + 4], data[pos + 5]]);
             pos += 6;
             Address::Ipv4(ip, port)

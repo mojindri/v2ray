@@ -69,10 +69,7 @@ fn ss2022_server_config(ss_port: u16) -> Arc<proxy_config::schema::Config> {
 }
 
 /// Build a client config: SOCKS5 inbound + SS-2022 outbound.
-fn ss2022_client_config(
-    socks_port: u16,
-    ss_server_port: u16,
-) -> Arc<proxy_config::schema::Config> {
+fn ss2022_client_config(socks_port: u16, ss_server_port: u16) -> Arc<proxy_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -133,10 +130,9 @@ async fn ss2022_full_chain_echo() {
     let _server = proxy_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
-    let _client =
-        proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
-            .await
-            .unwrap();
+    let _client = proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
+        .await
+        .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -161,10 +157,9 @@ async fn ss2022_large_payload_echo() {
     let _server = proxy_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
-    let _client =
-        proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
-            .await
-            .unwrap();
+    let _client = proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
+        .await
+        .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -214,7 +209,10 @@ async fn anti_replay_filter() {
     let replay = SaltReplay::new();
     let salt = [0xABu8; 32];
 
-    assert!(replay.check_and_insert(&salt), "first use should be accepted");
+    assert!(
+        replay.check_and_insert(&salt),
+        "first use should be accepted"
+    );
     assert!(
         !replay.check_and_insert(&salt),
         "duplicate use should be rejected"

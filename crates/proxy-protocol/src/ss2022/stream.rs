@@ -56,12 +56,12 @@ pub struct Ss2022Stream {
 
     // Read state
     read_counter: u64,
-    read_buf: BytesMut,     // decrypted plaintext waiting to be consumed
-    read_raw: BytesMut,     // raw ciphertext accumulated from inner
+    read_buf: BytesMut, // decrypted plaintext waiting to be consumed
+    read_raw: BytesMut, // raw ciphertext accumulated from inner
 
     // Write state
     write_counter: u64,
-    write_buf: BytesMut,    // encrypted bytes waiting to be flushed
+    write_buf: BytesMut, // encrypted bytes waiting to be flushed
 }
 
 impl Ss2022Stream {
