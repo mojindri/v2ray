@@ -1,13 +1,18 @@
 //! End-to-end example: SOCKS5 -> VLESS over REALITY -> Freedom.
 //!
-//! This proves the Phase 2 direct REALITY path transfers real bytes. It does
-//! not perform full TLS yet; REALITY authenticates the ClientHello and then
-//! hands the stream directly to VLESS.
+//! This proves the local REALITY path transfers real bytes end to end.
+//!
+//! The outbound side now completes the Phase 3 TLS handshake, and the inbound
+//! side unwraps REALITY plus a local TLS session before handing bytes to VLESS.
+//! The test remains "Phase 2" only in the sense that it exercises the
+//! localhost example topology rather than the live Xray interop harness.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::time::timeout;
 
 const TEST_UUID: &str = "a3482e88-686a-4a58-8126-99c9df64b7bf";
 const REALITY_PRIVATE_KEY: &str =
@@ -161,14 +166,25 @@ async fn phase2_reality_vless_to_freedom_transfers_data() {
         .await
         .expect("client instance failed");
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
 
-    let mut stream = socks5_connect(socks_port, "127.0.0.1", echo_port).await;
+    let mut stream = timeout(
+        Duration::from_secs(5),
+        socks5_connect(socks_port, "127.0.0.1", echo_port),
+    )
+    .await
+    .expect("SOCKS5 connect path timed out");
     let payload = b"HELLO PHASE2 REALITY";
-    stream.write_all(payload).await.unwrap();
+    timeout(Duration::from_secs(5), stream.write_all(payload))
+        .await
+        .expect("payload write timed out")
+        .unwrap();
 
     let mut echoed = vec![0u8; payload.len()];
-    stream.read_exact(&mut echoed).await.unwrap();
+    timeout(Duration::from_secs(5), stream.read_exact(&mut echoed))
+        .await
+        .expect("echo read timed out")
+        .unwrap();
     assert_eq!(echoed, payload);
 
     echo_task.abort();

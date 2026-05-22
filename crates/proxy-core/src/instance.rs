@@ -167,7 +167,14 @@ impl Instance {
                 // REALITY: unwrap REALITY TLS camouflage first.
                 let reality = build_reality_server(in_cfg)
                     .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
+                RealityConnectionHandler::new(
+                    reality,
+                    Arc::clone(&handler),
+                    dispatcher_for_handler,
+                )
+                .with_context(|| {
+                    format!("building REALITY connection handler for inbound '{}'", in_cfg.tag)
+                })?
             } else if uses_tls(&in_cfg.stream_settings)
                 || uses_ws(&in_cfg.stream_settings)
                 || uses_grpc(&in_cfg.stream_settings)

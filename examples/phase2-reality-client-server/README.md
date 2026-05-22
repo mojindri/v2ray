@@ -19,9 +19,14 @@ The example is intentionally local so it can be tested without a VPS:
 - `server.json` listens for REALITY-protected VLESS on `127.0.0.1:11443`.
 - The server uses `freedom` to connect to the target requested through SOCKS5.
 
-Important caveat: this is the current Phase 2 direct REALITY mode. It
-authenticates a Chrome-like ClientHello and then hands the stream directly to
-VLESS. Full TLS completion with certificates is still not implemented.
+Important caveat: this example no longer uses the old "direct REALITY" shortcut.
+The REALITY client now completes the TLS handshake, and the local server side
+unwraps that TLS session before handing application bytes to VLESS.
+
+For the localhost example, the server uses an internal throwaway certificate to
+finish TLS after REALITY authentication. This is enough for local end-to-end
+tests, but it is not the same thing as live Xray REALITY camouflage against a
+real cover origin.
 
 The automated proof that bytes transfer through this chain is:
 

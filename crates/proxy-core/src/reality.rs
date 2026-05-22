@@ -13,7 +13,10 @@ use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{SecurityType, StreamSettingsConfig};
 use proxy_protocol::vless::connect_vless_on_stream;
-use proxy_transport::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
+use proxy_transport::{
+    dev_self_signed, tls_accept, RealityClient, RealityClientConfig, RealityServer,
+    RealityServerConfig,
+};
 
 /// Return true when a config section asks for REALITY transport.
 pub(crate) fn uses_reality(stream_settings: &Option<StreamSettingsConfig>) -> bool {
@@ -25,6 +28,8 @@ pub(crate) fn uses_reality(stream_settings: &Option<StreamSettingsConfig>) -> bo
 /// Connection adapter that unwraps REALITY before handing bytes to VLESS.
 pub(crate) struct RealityConnectionHandler {
     reality: Arc<RealityServer>,
+    cert_pem: String,
+    key_pem: String,
     inbound: Arc<dyn InboundHandler>,
     dispatcher: Arc<dyn Dispatcher>,
 }
@@ -34,12 +39,17 @@ impl RealityConnectionHandler {
         reality: Arc<RealityServer>,
         inbound: Arc<dyn InboundHandler>,
         dispatcher: Arc<dyn Dispatcher>,
-    ) -> Arc<Self> {
-        Arc::new(Self {
+    ) -> Result<Arc<Self>> {
+        let (cert_pem, key_pem) =
+            dev_self_signed().context("generating REALITY dev TLS certificate")?;
+
+        Ok(Arc::new(Self {
             reality,
+            cert_pem,
+            key_pem,
             inbound,
             dispatcher,
-        })
+        }))
     }
 }
 
@@ -50,7 +60,11 @@ impl ConnectionHandler for RealityConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let stream = self.reality.accept_direct(stream).await?;
+        // REALITY auth consumes the outer camouflage ClientHello, then we
+        // complete a local TLS handshake so protocol handlers receive
+        // application bytes instead of raw TLS records.
+        let stream = self.reality.accept(stream).await?;
+        let stream = tls_accept(stream, &self.cert_pem, &self.key_pem, &[]).await?;
         self.inbound
             .handle(stream, source, Arc::clone(&self.dispatcher))
             .await
