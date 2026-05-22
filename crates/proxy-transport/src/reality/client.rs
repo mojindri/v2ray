@@ -62,15 +62,19 @@ impl RealityClient {
 
         // Build once with a zero session_id. Those zero bytes become the AAD.
         // Do not rebuild later: rebuilding would choose different GREASE values.
-        let mut rng = rand::thread_rng();
-        let builder = ClientHelloBuilder::chrome_131();
-        let hello_bytes = builder.build(
-            &self.config.sni,
-            &random,
-            &zero_session_id,
-            Some(&client_pub_bytes),
-            &mut rng,
-        );
+        let hello_bytes = {
+            // `ThreadRng` is not Send, so keep it inside this small scope.
+            // Nothing from this block may live across the later `write_all().await`.
+            let mut rng = rand::thread_rng();
+            let builder = ClientHelloBuilder::chrome_131();
+            builder.build(
+                &self.config.sni,
+                &random,
+                &zero_session_id,
+                Some(&client_pub_bytes),
+                &mut rng,
+            )
+        };
 
         let aad = &hello_bytes[5..]; // skip the TLS record header
         let encrypted_token =
@@ -78,7 +82,9 @@ impl RealityClient {
 
         // Patch the ciphertext directly into the session_id slot.
         let mut final_hello = hello_bytes;
-        let sid_start = 5 + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY + 1;
+        // The constant points at the first session_id byte inside the
+        // handshake body. Add only the 5-byte TLS record header here.
+        let sid_start = 5 + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
         final_hello[sid_start..sid_start + 32].copy_from_slice(&encrypted_token);
 
         tcp.write_all(&final_hello).await?;
