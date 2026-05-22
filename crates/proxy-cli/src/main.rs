@@ -144,7 +144,7 @@ fn main() {
         }
 
         Command::X25519 => cmd_x25519(),
-        Command::Uuid   => cmd_uuid(),
+        Command::Uuid => cmd_uuid(),
 
         Command::Version => {
             println!("proxy-rs {}", env!("CARGO_PKG_VERSION"));
@@ -194,7 +194,8 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
     // `Instance::from_config()` reads the current config snapshot, builds
     // all inbound/outbound handlers, and starts all TCP listener tasks.
     let config = manager.get();
-    let instance = Instance::from_config(config).await
+    let instance = Instance::from_config(config)
+        .await
         .context("building proxy instance from config")?;
 
     info!("proxy-rs started — waiting for connections");
@@ -219,8 +220,8 @@ async fn shutdown_signal(instance: Instance) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
-        let mut sigterm = signal(SignalKind::terminate())
-            .expect("failed to register SIGTERM handler");
+        let mut sigterm =
+            signal(SignalKind::terminate()).expect("failed to register SIGTERM handler");
 
         tokio::select! {
             _ = &mut listeners_done => {
@@ -265,18 +266,23 @@ async fn test_config(config_path: PathBuf) -> Result<()> {
 /// X25519 is the elliptic-curve Diffie-Hellman algorithm used in REALITY.
 /// The server holds the private key; the public key goes in client configs.
 fn cmd_x25519() {
-    use rand::rngs::OsRng;
-    use x25519_dalek::{StaticSecret, PublicKey};
+    use x25519_dalek::{PublicKey, StaticSecret};
 
     // `StaticSecret` is a long-term key suitable for REALITY configuration.
     // It is generated from the OS CSPRNG and can be serialised to bytes.
-    let secret = StaticSecret::random_from_rng(OsRng);
+    let secret = StaticSecret::random();
     let public = PublicKey::from(&secret);
 
     // Print as hex so the user can paste them into a JSON config file.
     // The private key stays on the server; the public key goes in client configs.
-    println!("Private key (server config): {}", hex::encode(secret.to_bytes()));
-    println!("Public key  (client config): {}", hex::encode(public.as_bytes()));
+    println!(
+        "Private key (server config): {}",
+        hex::encode(secret.to_bytes())
+    );
+    println!(
+        "Public key  (client config): {}",
+        hex::encode(public.as_bytes())
+    );
 }
 
 // ── `uuid` subcommand ─────────────────────────────────────────────────────────
@@ -308,8 +314,7 @@ fn init_tracing() {
 
     // `EnvFilter::try_from_default_env()` reads `RUST_LOG`.
     // If that env var isn't set, fall back to "info".
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new("info"));
+    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
 
     fmt()
         .with_env_filter(filter)

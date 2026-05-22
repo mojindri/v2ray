@@ -18,9 +18,9 @@ use async_trait::async_trait;
 use tokio::net::TcpStream;
 use tracing::debug;
 
-use proxy_common::{Address, BoxedStream, ProxyError};
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
+use proxy_common::{Address, BoxedStream, ProxyError};
 
 /// The freedom outbound: connects directly to the destination.
 pub struct FreedomOutbound {
@@ -41,11 +41,7 @@ impl OutboundHandler for FreedomOutbound {
         &self.tag
     }
 
-    async fn connect(
-        &self,
-        _ctx: &Context,
-        dest: &Address,
-    ) -> Result<BoxedStream, ProxyError> {
+    async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         // Resolve the destination to a socket address.
         let socket_addr = resolve(dest).await?;
 
@@ -78,7 +74,9 @@ async fn resolve(dest: &Address) -> Result<SocketAddr, ProxyError> {
                 .collect();
 
             // Use the first resolved address.
-            addrs.into_iter().next()
+            addrs
+                .into_iter()
+                .next()
                 .ok_or_else(|| ProxyError::DnsResolutionFailed(name.clone()))
         }
     }

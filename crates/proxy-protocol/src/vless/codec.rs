@@ -151,7 +151,12 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
     let atyp = reader.read_u8().await?;
     let dest = read_address(reader, atyp, port).await?;
 
-    Ok(VlessRequest { uuid, command, dest, flow })
+    Ok(VlessRequest {
+        uuid,
+        command,
+        dest,
+        flow,
+    })
 }
 
 /// Read a destination address based on the ATYP byte.
@@ -207,10 +212,14 @@ fn parse_flow_from_addons(data: &[u8]) -> String {
 
         // Wire type 2 = length-delimited (string, bytes, embedded message).
         if wire_type == 2 {
-            if cursor >= data.len() { break; }
+            if cursor >= data.len() {
+                break;
+            }
             let len = data[cursor] as usize;
             cursor += 1;
-            if cursor + len > data.len() { break; }
+            if cursor + len > data.len() {
+                break;
+            }
 
             if field_number == 1 {
                 // Field 1 is the flow string.
@@ -240,12 +249,7 @@ fn parse_flow_from_addons(data: &[u8]) -> String {
 /// * `flow`    — optional flow string (e.g. "xtls-rprx-vision"); empty for normal connections
 /// * `command` — TCP or UDP
 /// * `dest`    — the destination address and port
-pub fn encode_request(
-    uuid: &[u8; 16],
-    flow: &str,
-    command: Command,
-    dest: &Address,
-) -> Bytes {
+pub fn encode_request(uuid: &[u8; 16], flow: &str, command: Command, dest: &Address) -> Bytes {
     let mut buf = BytesMut::with_capacity(256);
 
     // Version byte.
@@ -265,9 +269,9 @@ pub fn encode_request(
         // Total addons length: 1 (tag) + 1 (length) + flow_bytes.len()
         let addons_len = 2 + flow_bytes.len();
         buf.put_u8(addons_len as u8);
-        buf.put_u8(0x0A);                      // field 1, wire type 2
-        buf.put_u8(flow_bytes.len() as u8);    // string length
-        buf.put_slice(flow_bytes);             // the string
+        buf.put_u8(0x0A); // field 1, wire type 2
+        buf.put_u8(flow_bytes.len() as u8); // string length
+        buf.put_slice(flow_bytes); // the string
     }
 
     // Command byte.
@@ -325,20 +329,23 @@ mod tests {
     async fn decode_tcp_ipv4() {
         let uuid = [0xABu8; 16];
         let mut data = vec![
-            0x00,                   // VER = 0
+            0x00, // VER = 0
         ];
         data.extend_from_slice(&uuid);
-        data.push(0x00);           // ADDONS_LEN = 0
-        data.push(CMD_TCP);        // CMD = TCP
+        data.push(0x00); // ADDONS_LEN = 0
+        data.push(CMD_TCP); // CMD = TCP
         data.extend_from_slice(&443u16.to_be_bytes()); // PORT = 443
-        data.push(ATYP_IPV4);     // ATYP = IPv4
+        data.push(ATYP_IPV4); // ATYP = IPv4
         data.extend_from_slice(&[93, 184, 216, 34]); // 93.184.216.34
 
         let req = decode_from_bytes(&data).await.unwrap();
 
         assert_eq!(req.uuid, uuid);
         assert_eq!(req.command, Command::Tcp);
-        assert_eq!(req.dest, Address::Ipv4(Ipv4Addr::new(93, 184, 216, 34), 443));
+        assert_eq!(
+            req.dest,
+            Address::Ipv4(Ipv4Addr::new(93, 184, 216, 34), 443)
+        );
         assert!(req.flow.is_empty());
     }
 
@@ -349,10 +356,10 @@ mod tests {
         let domain = b"example.com";
         let mut data = vec![0x00]; // VER
         data.extend_from_slice(&uuid);
-        data.push(0x00);           // ADDONS_LEN = 0
-        data.push(CMD_TCP);        // CMD
+        data.push(0x00); // ADDONS_LEN = 0
+        data.push(CMD_TCP); // CMD
         data.extend_from_slice(&443u16.to_be_bytes());
-        data.push(ATYP_DOMAIN);   // ATYP = domain
+        data.push(ATYP_DOMAIN); // ATYP = domain
         data.push(domain.len() as u8);
         data.extend_from_slice(domain);
 

@@ -15,18 +15,15 @@
 //! 3. Extract the first bytes of the TCP payload (before TLS, if any).
 //! 4. Paste them as hex strings below.
 
-use std::net::{Ipv4Addr, SocketAddr};
+use std::net::Ipv4Addr;
 
 use proxy_common::Address;
-use proxy_protocol::vless::codec::{encode_request, decode_request, Command};
+use proxy_protocol::vless::codec::{decode_request, encode_request, Command};
 
 // The UUID used in all test vectors.
 // This is a real UUID that was used to generate the captures.
 const TEST_UUID: [u8; 16] = [
-    0xa3, 0x48, 0x2e, 0x88,
-    0x68, 0x6a, 0x4a, 0x58,
-    0x81, 0x26, 0x99, 0xc9,
-    0xdf, 0x64, 0xb7, 0xbf,
+    0xa3, 0x48, 0x2e, 0x88, 0x68, 0x6a, 0x4a, 0x58, 0x81, 0x26, 0x99, 0xc9, 0xdf, 0x64, 0xb7, 0xbf,
 ];
 
 // ── Encoder golden tests ──────────────────────────────────────────────────────
@@ -56,8 +53,11 @@ fn encode_vless_tcp_ipv4_golden() {
     expected.push(0x01); // ATYP = IPv4
     expected.extend_from_slice(&[127, 0, 0, 1]); // 127.0.0.1
 
-    assert_eq!(bytes.as_ref(), expected.as_slice(),
-        "VLESS TCP IPv4 encoding does not match reference bytes");
+    assert_eq!(
+        bytes.as_ref(),
+        expected.as_slice(),
+        "VLESS TCP IPv4 encoding does not match reference bytes"
+    );
 }
 
 /// Verifies that encoding a TCP VLESS request to a domain destination produces
@@ -86,8 +86,11 @@ fn encode_vless_tcp_domain_golden() {
     expected.push(b"example.com".len() as u8);
     expected.extend_from_slice(b"example.com");
 
-    assert_eq!(bytes.as_ref(), expected.as_slice(),
-        "VLESS TCP domain encoding does not match reference bytes");
+    assert_eq!(
+        bytes.as_ref(),
+        expected.as_slice(),
+        "VLESS TCP domain encoding does not match reference bytes"
+    );
 }
 
 // ── Decoder roundtrip tests ───────────────────────────────────────────────────

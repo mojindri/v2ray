@@ -19,6 +19,11 @@
 //!   - **SO_MARK** (optional, Linux only): sets a routing mark on outbound
 //!     packets. Used to bypass the proxy's own routing rules and send traffic
 //!     directly to the network (prevents routing loops in TUN mode).
+//!
+//! Linux note for beginners:
+//! `SO_REUSEPORT` and `SO_MARK` are OS-level socket knobs. They do not change
+//! the proxy protocol bytes. They only tell the Linux kernel how to schedule or
+//! route packets for this socket.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -27,8 +32,8 @@ use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
 use tracing::{debug, error, info};
 
-use proxy_common::{BoxedStream, ProxyError};
 use proxy_app::features::ConnectionHandler;
+use proxy_common::{BoxedStream, ProxyError};
 
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone)]
@@ -37,6 +42,10 @@ pub struct TcpConfig {
     /// The mark is used by `iptables` / `ip rule` to route the packets through
     /// a specific network interface, bypassing the proxy's own routing table.
     /// Set to `None` if you do not use policy routing.
+    ///
+    /// Linux only: other platforms ignore this field because `SO_MARK` is a
+    /// Linux socket option. A typical use is TUN mode, where the proxy must
+    /// avoid accidentally routing its own outbound connection back into itself.
     pub so_mark: Option<u32>,
 
     /// Whether to enable TCP Fast Open on outbound connections.
@@ -123,10 +132,12 @@ impl TcpServerTransport {
         // TCP_NODELAY: disable Nagle's algorithm.
         // Without this, the OS buffers small writes and sends them together.
         // For proxy traffic this adds latency — we want each write sent immediately.
-        sock.set_nodelay(true)?;
+        sock.set_tcp_nodelay(true)?;
 
         // SO_REUSEPORT: allow multiple sockets to bind to the same port.
-        // This enables the accept loop to be distributed across CPU cores.
+        // On Linux this lets the kernel spread incoming connections across
+        // several listener sockets. For now we still create one listener, but
+        // setting it here keeps the transport ready for multi-listener scaling.
         sock.set_reuse_port(true)?;
 
         Ok(())
@@ -135,6 +146,10 @@ impl TcpServerTransport {
 
 /// Client-side TCP transport: dials outbound connections.
 pub struct TcpClientTransport {
+    // `config` is only read on Linux today because the only client-side option
+    // we currently apply from it is `SO_MARK`. Keep the field on all platforms
+    // so the public struct layout and constructor stay the same.
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TcpConfig,
 }
 
@@ -153,12 +168,19 @@ impl TcpClientTransport {
 
         // Apply socket options.
         let sock = SockRef::from(&stream);
-        sock.set_nodelay(true)?;
+        sock.set_tcp_nodelay(true)?;
 
         // Apply SO_MARK if configured (Linux only).
-        // SO_MARK lets the OS route this socket's packets through a specific
-        // routing table, bypassing the main table. This prevents routing loops
-        // when the proxy itself runs in TUN mode.
+        //
+        // Think of `mark` as a small integer label attached to every packet
+        // sent from this socket. Linux routing rules can match that label:
+        //
+        //   ip rule add fwmark <mark> table <table>
+        //
+        // That is useful in TUN mode: traffic from normal apps enters the
+        // proxy through the virtual interface, but traffic created by the proxy
+        // itself must leave through the real network interface. Marking the
+        // proxy's own sockets is how Linux can tell those two cases apart.
         #[cfg(target_os = "linux")]
         if let Some(mark) = self.config.so_mark {
             use nix::sys::socket::{setsockopt, sockopt::Mark};

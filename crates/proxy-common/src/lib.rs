@@ -24,3 +24,12 @@ pub use address::{Address, Network};
 pub use buf::BufferPool;
 pub use error::ProxyError;
 pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream};
+
+// Linux-only relay optimization support.
+//
+// `try_into_tcp_stream` is not part of normal protocol handling. It exists so
+// the Linux dispatcher relay can ask, "is this boxed stream still a plain TCP
+// socket that can use splice(2)?" Non-Linux builds do not export it because
+// they never compile the splice relay path.
+#[cfg(target_os = "linux")]
+pub use stream::try_into_tcp_stream;

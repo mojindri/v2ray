@@ -4,6 +4,7 @@ description = "Application layer: router, dispatcher, DNS resolver, FakeIP, heal
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
 
 [dependencies]
 proxy-common          = { path = "../proxy-common" }
@@ -26,3 +27,4 @@ anyhow.workspace           = true
 serde.workspace            = true
 metrics.workspace          = true
 once_cell.workspace        = true
+libc.workspace             = true
