@@ -21,7 +21,7 @@ use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::{ConnectionHandler, InboundHandler};
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_transport::{tls_accept, ws_accept};
+use proxy_transport::{grpc_accept, tls_accept, ws_accept};
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -37,6 +37,13 @@ pub(crate) fn uses_ws(stream_settings: &Option<StreamSettingsConfig>) -> bool {
     stream_settings
         .as_ref()
         .is_some_and(|s| s.network == NetworkType::Ws)
+}
+
+/// Returns `true` when the config requests gRPC transport.
+pub(crate) fn uses_grpc(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.network == NetworkType::Grpc)
 }
 
 // ── TLS inbound handler ───────────────────────────────────────────────────────
@@ -102,6 +109,36 @@ impl ConnectionHandler for WsConnectionHandler {
     }
 }
 
+// ── gRPC inbound handler ──────────────────────────────────────────────────────
+
+/// A `ConnectionHandler` that performs a gRPC server handshake, then delegates
+/// to the wrapped inner handler.
+pub(crate) struct GrpcConnectionHandler {
+    service_name: String,
+    inner: Arc<dyn ConnectionHandler>,
+}
+
+impl GrpcConnectionHandler {
+    pub(crate) fn new(service_name: impl Into<String>, inner: Arc<dyn ConnectionHandler>) -> Arc<Self> {
+        Arc::new(Self {
+            service_name: service_name.into(),
+            inner,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl ConnectionHandler for GrpcConnectionHandler {
+    async fn handle_connection(
+        &self,
+        stream: BoxedStream,
+        source: SocketAddr,
+    ) -> Result<(), ProxyError> {
+        let grpc_stream = grpc_accept(stream, &self.service_name).await?;
+        self.inner.handle_connection(grpc_stream, source).await
+    }
+}
+
 // ── Plain inbound adapter ─────────────────────────────────────────────────────
 
 /// Adapter that lets the transport layer call an `InboundHandler` through
@@ -149,6 +186,17 @@ pub(crate) fn build_conn_handler(
     // Add WebSocket layer if requested.
     if uses_ws(stream_settings) {
         handler = WsConnectionHandler::new(handler);
+    }
+
+    // Add gRPC layer if requested (mutually exclusive with WS).
+    if uses_grpc(stream_settings) {
+        let service_name = stream_settings
+            .as_ref()
+            .and_then(|s| s.grpc_settings.as_ref())
+            .map(|g| g.service_name.as_str())
+            .unwrap_or("GunService")
+            .to_string();
+        handler = GrpcConnectionHandler::new(service_name, handler);
     }
 
     // Add TLS layer if requested.

@@ -46,6 +46,7 @@ use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
 
+use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
 use crate::outbound_transport::{uses_outbound_transport, TransportVlessOutbound};
 use crate::reality::{
@@ -53,7 +54,8 @@ use crate::reality::{
     RealityVlessOutbound,
 };
 use crate::trojan::{build_trojan_inbound, build_trojan_outbound};
-use crate::ws_tls::{build_conn_handler, uses_tls, uses_ws};
+use crate::vmess::{build_vmess_inbound, build_vmess_outbound};
+use crate::ws_tls::{build_conn_handler, uses_grpc, uses_tls, uses_ws};
 
 /// The running proxy instance.
 pub struct Instance {
@@ -89,6 +91,8 @@ impl Instance {
                     .with_context(|| format!("building Hysteria2 outbound '{}'", out_cfg.tag))?,
                 Protocol::Trojan => build_trojan_outbound(out_cfg)
                     .with_context(|| format!("building Trojan outbound '{}'", out_cfg.tag))?,
+                Protocol::Vmess => build_vmess_outbound(out_cfg)
+                    .with_context(|| format!("building VMess outbound '{}'", out_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("outbound protocol {:?} not yet implemented", p)
                 }
@@ -139,6 +143,10 @@ impl Instance {
                     .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?,
                 Protocol::Trojan => build_trojan_inbound(in_cfg)
                     .with_context(|| format!("building Trojan inbound '{}'", in_cfg.tag))?,
+                Protocol::Vmess => build_vmess_inbound(in_cfg)
+                    .with_context(|| format!("building VMess inbound '{}'", in_cfg.tag))?,
+                Protocol::Http => build_http_inbound(in_cfg)
+                    .with_context(|| format!("building HTTP CONNECT inbound '{}'", in_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("inbound protocol {:?} not yet implemented", p)
                 }
@@ -155,8 +163,11 @@ impl Instance {
                 let reality = build_reality_server(in_cfg)
                     .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
                 RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
-            } else if uses_tls(&in_cfg.stream_settings) || uses_ws(&in_cfg.stream_settings) {
-                // Phase 4: TLS and/or WebSocket layering.
+            } else if uses_tls(&in_cfg.stream_settings)
+                || uses_ws(&in_cfg.stream_settings)
+                || uses_grpc(&in_cfg.stream_settings)
+            {
+                // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
                 build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
                     .with_context(|| {
                         format!(

@@ -14,11 +14,13 @@
 //! 3. The instance runs until `instance.stop()` is called or a fatal error occurs
 //! 4. On SIGHUP → hot-reload config without stopping listeners
 
+mod http;
 mod hysteria2;
 pub mod instance;
 mod outbound_transport;
 mod reality;
 mod trojan;
+mod vmess;
 mod ws_tls;
 
 pub use instance::Instance;

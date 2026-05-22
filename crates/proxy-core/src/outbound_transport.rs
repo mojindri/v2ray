@@ -23,7 +23,7 @@ use proxy_common::{Address, BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
 use proxy_protocol::vless::connect_vless_on_stream;
-use proxy_transport::{tls_connect, ws_connect, WsConnectConfig};
+use proxy_transport::{grpc_connect, tls_connect, ws_connect, WsConnectConfig};
 
 /// VLESS outbound that honors `streamSettings.network = "ws"` and
 /// `streamSettings.security = "tls"` before sending the VLESS header.
@@ -128,6 +128,24 @@ async fn connect_transport(
         stream = tls_connect(stream, server_name, &alpn, allow_insecure).await?;
     }
 
+    if uses_grpc(stream_settings) {
+        let settings = stream_settings.as_ref().expect("checked by uses_grpc");
+        let grpc_cfg = settings.grpc_settings.as_ref();
+        let service_name = grpc_cfg
+            .map(|g| g.service_name.as_str())
+            .unwrap_or("GunService");
+
+        let authority = settings
+            .tls_settings
+            .as_ref()
+            .map(|t| t.server_name.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("localhost");
+
+        stream = grpc_connect(stream, authority, service_name).await?;
+        return Ok(stream);
+    }
+
     if uses_ws(stream_settings) {
         let settings = stream_settings.as_ref().expect("checked by uses_ws");
         let ws = settings.ws_settings.as_ref();
@@ -179,7 +197,13 @@ async fn connect_transport(
 }
 
 pub(crate) fn uses_outbound_transport(stream_settings: &Option<StreamSettingsConfig>) -> bool {
-    uses_tls(stream_settings) || uses_ws(stream_settings)
+    uses_tls(stream_settings) || uses_ws(stream_settings) || uses_grpc(stream_settings)
+}
+
+fn uses_grpc(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.network == NetworkType::Grpc)
 }
 
 fn uses_tls(stream_settings: &Option<StreamSettingsConfig>) -> bool {
