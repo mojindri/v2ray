@@ -16,8 +16,8 @@
 //! is what the protocol layer receives. The protocol layer never knows which
 //! transport is underneath.
 
-pub mod tcp;
 pub mod reality;
+pub mod tcp;
 
 // Phase 2+ (remaining)
 // pub mod tls;
@@ -33,5 +33,5 @@ pub mod reality;
 // pub mod grpc;
 // pub mod mkcp;
 
-pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
+pub use tcp::{TcpClientTransport, TcpServerTransport};

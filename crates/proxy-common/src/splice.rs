@@ -62,7 +62,7 @@ mod linux {
     /// `read_fd`  — data flows OUT of the kernel buffer through this end.
     /// `write_fd` — data flows INTO the kernel buffer through this end.
     struct Pipe {
-        read_fd:  RawFd,
+        read_fd: RawFd,
         write_fd: RawFd,
     }
 
@@ -72,19 +72,24 @@ mod linux {
             let mut fds = [0i32; 2];
             // SAFETY: pipe2 is safe to call with a valid array; O_NONBLOCK makes
             // the fds non-blocking so they can be used with epoll/Tokio.
-            let ret = unsafe {
-                libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC)
-            };
+            let ret = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_NONBLOCK | libc::O_CLOEXEC) };
             if ret != 0 {
                 return Err(std::io::Error::last_os_error());
             }
-            let pipe = Pipe { read_fd: fds[0], write_fd: fds[1] };
+            let pipe = Pipe {
+                read_fd: fds[0],
+                write_fd: fds[1],
+            };
 
             // Try to increase the pipe capacity. This is advisory — if the kernel
             // refuses (e.g. /proc/sys/fs/pipe-max-size is lower), we silently
             // continue with the default capacity.
             unsafe {
-                libc::fcntl(pipe.write_fd, libc::F_SETPIPE_SZ, PIPE_CAPACITY as libc::c_int);
+                libc::fcntl(
+                    pipe.write_fd,
+                    libc::F_SETPIPE_SZ,
+                    PIPE_CAPACITY as libc::c_int,
+                );
             }
 
             Ok(pipe)
@@ -209,7 +214,9 @@ mod linux {
     struct AsyncRawFd(RawFd);
 
     impl AsRawFd for AsyncRawFd {
-        fn as_raw_fd(&self) -> RawFd { self.0 }
+        fn as_raw_fd(&self) -> RawFd {
+            self.0
+        }
     }
 
     /// Bidirectional zero-copy relay between two TCP streams using `splice(2)`.
@@ -220,10 +227,7 @@ mod linux {
     ///
     /// Returns `(a_to_b_bytes, b_to_a_bytes)` when both directions finish.
     /// Either side closing the connection terminates both directions.
-    pub async fn splice_bidirectional(
-        a: &TcpStream,
-        b: &TcpStream,
-    ) -> std::io::Result<(u64, u64)> {
+    pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> std::io::Result<(u64, u64)> {
         let a_fd = a.as_raw_fd();
         let b_fd = b.as_raw_fd();
 
@@ -235,7 +239,6 @@ mod linux {
             splice_one_direction(b_fd, a_fd),
         )
     }
-
 }
 
 #[cfg(target_os = "linux")]

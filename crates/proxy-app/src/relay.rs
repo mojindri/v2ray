@@ -113,10 +113,10 @@ mod platform {
         let download =
             tokio::task::spawn_blocking(move || splice_one_way(outbound_reader, inbound));
 
-        let (upload, download) = tokio::try_join!(
-            async { upload.await.map_err(io::Error::other)? },
-            async { download.await.map_err(io::Error::other)? },
-        )?;
+        let (upload, download) =
+            tokio::try_join!(async { upload.await.map_err(io::Error::other)? }, async {
+                download.await.map_err(io::Error::other)?
+            },)?;
 
         Ok((upload, download))
     }
@@ -132,11 +132,7 @@ mod platform {
         loop {
             // Move bytes from the source socket into the pipe. `read == 0`
             // means EOF: the peer closed its write side.
-            let read = splice(
-                reader.as_raw_fd(),
-                pipe.write_fd,
-                SPLICE_CHUNK_SIZE,
-            )?;
+            let read = splice(reader.as_raw_fd(), pipe.write_fd, SPLICE_CHUNK_SIZE)?;
             if read == 0 {
                 // Tell the destination there will be no more bytes in this
                 // direction, but do not close the whole connection. The other

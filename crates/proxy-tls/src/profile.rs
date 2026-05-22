@@ -127,10 +127,7 @@ impl FingerprintProfile {
             ],
 
             // ALPN — Chrome prefers HTTP/2 but falls back to HTTP/1.1.
-            alpn: vec![
-                "h2".to_string(),
-                "http/1.1".to_string(),
-            ],
+            alpn: vec!["h2".to_string(), "http/1.1".to_string()],
 
             // Signature algorithms — Chrome 131's supported list.
             // These are "SignatureScheme" values from RFC 8446.
@@ -151,8 +148,9 @@ impl FingerprintProfile {
     ///
     /// The JSON format matches `fingerprints/chrome-131.json`.
     pub fn from_json_file(path: &std::path::Path) -> anyhow::Result<Self> {
-        let raw = std::fs::read_to_string(path)
-            .map_err(|e| anyhow::anyhow!("failed to read fingerprint file {}: {}", path.display(), e))?;
+        let raw = std::fs::read_to_string(path).map_err(|e| {
+            anyhow::anyhow!("failed to read fingerprint file {}: {}", path.display(), e)
+        })?;
         // Strip JSON comments (lines starting with "_comment") by pre-processing.
         // A proper JSON parser would reject these — we remove them first.
         let cleaned: String = raw
@@ -174,8 +172,11 @@ mod tests {
     #[test]
     fn chrome_131_cipher_suite_count() {
         let p = FingerprintProfile::chrome_131();
-        assert_eq!(p.cipher_suites.len(), 15,
-            "Chrome 131 should have 15 static cipher suites (GREASE added dynamically)");
+        assert_eq!(
+            p.cipher_suites.len(),
+            15,
+            "Chrome 131 should have 15 static cipher suites (GREASE added dynamically)"
+        );
     }
 
     // Checks that the Chrome 131 profile has the correct number of extensions.
@@ -183,8 +184,11 @@ mod tests {
     #[test]
     fn chrome_131_extension_count() {
         let p = FingerprintProfile::chrome_131();
-        assert_eq!(p.extensions.len(), 15,
-            "Chrome 131 should have 15 static extensions");
+        assert_eq!(
+            p.extensions.len(),
+            15,
+            "Chrome 131 should have 15 static extensions"
+        );
     }
 
     // Checks that x25519 (group 29) is the first supported group, which is what
