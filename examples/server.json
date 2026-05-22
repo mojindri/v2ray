@@ -1,0 +1,37 @@
+{
+  "_comment": "Server-side config. Run this on the remote server (VPS).",
+  "_comment2": "The proxy listens for VLESS connections on port 10443 and forwards traffic to real destinations.",
+  "_comment3": "Replace the UUID below with your own (run: proxy-rs uuid).",
+
+  "log": {
+    "level": "info"
+  },
+
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 10443,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "demo-user@example.com",
+            "flow": ""
+          }
+        ],
+        "fallback": {
+          "dest": "127.0.0.1:80"
+        }
+      }
+    }
+  ],
+
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ]
+}

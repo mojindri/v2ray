@@ -131,7 +131,7 @@ caps        = "0.5"
 clap        = { version = "4", features = ["derive", "env"] }
 
 # ── Misc utilities ─────────────────────────────────────────────────────────────
-rand        = "0.8"
+rand        = { version = "0.8", features = ["small_rng"] }
 hex         = "0.4"
 base64      = "0.22"
 num_cpus    = "1"

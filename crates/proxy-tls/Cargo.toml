@@ -13,3 +13,5 @@ serde.workspace       = true
 serde_json.workspace  = true
 thiserror.workspace   = true
 once_cell.workspace   = true
+anyhow.workspace      = true
+x25519-dalek.workspace = true

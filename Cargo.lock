@@ -2365,6 +2365,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "crossbeam-queue",
+ "libc",
  "parking_lot",
  "thiserror 1.0.69",
  "tokio",
@@ -2473,6 +2474,7 @@ dependencies = [
 name = "proxy-tls"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "bytes",
  "once_cell",
  "proxy-common",
@@ -2480,6 +2482,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 1.0.69",
+ "x25519-dalek",
 ]
 
 [[package]]

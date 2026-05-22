@@ -17,11 +17,11 @@
 //! transport is underneath.
 
 pub mod tcp;
+pub mod reality;
 
-// Phase 2+
+// Phase 2+ (remaining)
 // pub mod tls;
 // pub mod websocket;
-// pub mod reality;
 
 // Phase 3+
 // pub mod quic;
@@ -34,3 +34,4 @@ pub mod tcp;
 // pub mod mkcp;
 
 pub use tcp::{TcpClientTransport, TcpServerTransport};
+pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
