@@ -43,6 +43,29 @@ impl ClientHelloBuilder {
         x25519_pub: Option<&[u8; 32]>,
         rng: &mut impl Rng,
     ) -> BytesMut {
+        self.build_with_additional_key_share(
+            sni,
+            random,
+            session_id,
+            x25519_pub,
+            None,
+            rng,
+        )
+    }
+
+    /// Build a ClientHello with an optional additional secp256r1 key share.
+    ///
+    /// REALITY uses this to offer both x25519 and P-256 on the first flight so
+    /// origins that prefer `secp256r1` do not force a HelloRetryRequest.
+    pub fn build_with_additional_key_share(
+        &self,
+        sni: &str,
+        random: &[u8; 32],
+        session_id: &[u8; 32],
+        x25519_pub: Option<&[u8; 32]>,
+        secp256r1_pub: Option<&[u8]>,
+        rng: &mut impl Rng,
+    ) -> BytesMut {
         let grease_cipher = grease_u16(rng);
         let grease_ext = grease_u16(rng);
 
@@ -64,6 +87,7 @@ impl ClientHelloBuilder {
             grease_cipher,
             grease_ext,
             key_bytes,
+            secp256r1_pub,
         );
 
         let mut handshake = BytesMut::with_capacity(4 + body.len());
@@ -90,6 +114,7 @@ impl ClientHelloBuilder {
         grease_cipher: u16,
         grease_ext: u16,
         x25519_pub: &[u8; 32],
+        secp256r1_pub: Option<&[u8]>,
     ) -> BytesMut {
         let mut buf = BytesMut::with_capacity(512);
 
@@ -108,7 +133,13 @@ impl ClientHelloBuilder {
         buf.put_u8(0x01); // compression_methods length
         buf.put_u8(0x00); // null compression
 
-        let extensions = self.build_extensions(sni, grease_cipher, grease_ext, x25519_pub);
+        let extensions = self.build_extensions(
+            sni,
+            grease_cipher,
+            grease_ext,
+            x25519_pub,
+            secp256r1_pub,
+        );
         buf.put_u16(extensions.len() as u16);
         buf.extend_from_slice(&extensions);
 
@@ -766,6 +797,19 @@ mod hard_clienthello_tests {
         assert_eq!(versions[1], 0x0304, "TLS 1.3 missing");
         assert_eq!(versions[2], 0x0303, "TLS 1.2 missing");
         assert_eq!(versions[3], 0x0302, "TLS 1.1 compatibility missing");
+    }
+
+    #[test]
+    fn compress_certificate_extension_has_single_brotli_algorithm() {
+        let hello = build_test_hello();
+        let parsed = parse_client_hello(&hello).unwrap();
+        let ext = extension(&parsed, 0x001B).expect("missing compress_certificate extension");
+
+        assert_eq!(
+            ext.data,
+            vec![0x02, 0x00, 0x02],
+            "compress_certificate must encode one Brotli algorithm without trailing bytes"
+        );
     }
 
     #[test]

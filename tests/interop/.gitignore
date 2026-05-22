@@ -1,0 +1,10 @@
+# Generated Xray JSON configs (rebuilt by `make configs`)
+configs/xray-server.json
+configs/xray-client.json
+
+# Packet captures and reports — potentially large
+pcaps/
+reports/
+
+# Intermediate key generation file
+keys/keypair.txt
