@@ -80,11 +80,7 @@ pub trait OutboundHandler: Send + Sync + 'static {
     /// # Arguments
     /// * `ctx` — connection context (for logging and routing decisions)
     /// * `dest` — the destination the client wants to reach
-    async fn connect(
-        &self,
-        ctx: &Context,
-        dest: &Address,
-    ) -> Result<BoxedStream, ProxyError>;
+    async fn connect(&self, ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError>;
 }
 
 /// A low-level connection handler, used by transport layers.

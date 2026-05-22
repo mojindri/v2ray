@@ -88,13 +88,12 @@ impl ConfigManager {
 
         // Create the OS file watcher. `RecommendedWatcher` uses inotify on Linux,
         // FSEvents on macOS, ReadDirectoryChangesW on Windows.
-        let mut watcher: RecommendedWatcher =
-            notify::recommended_watcher(move |res| {
-                // `blocking_send` is safe here because the channel buffer is 16,
-                // and file-change events are infrequent. If the buffer is full,
-                // we drop the event — the next change will trigger another reload.
-                let _ = tx.blocking_send(res);
-            })?;
+        let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |res| {
+            // `blocking_send` is safe here because the channel buffer is 16,
+            // and file-change events are infrequent. If the buffer is full,
+            // we drop the event — the next change will trigger another reload.
+            let _ = tx.blocking_send(res);
+        })?;
 
         watcher.watch(&self.path, RecursiveMode::NonRecursive)?;
 
@@ -137,22 +136,21 @@ impl ConfigManager {
     /// parse the JSON, and validate the result.
     async fn read_and_validate(path: &Path) -> anyhow::Result<Config> {
         // Read the raw bytes from disk.
-        let raw = tokio::fs::read_to_string(path).await.map_err(|e| {
-            anyhow::anyhow!("failed to read config file {}: {}", path.display(), e)
-        })?;
+        let raw = tokio::fs::read_to_string(path)
+            .await
+            .map_err(|e| anyhow::anyhow!("failed to read config file {}: {}", path.display(), e))?;
 
         // Substitute ${ENV_VAR} placeholders before parsing.
         let substituted = substitute(&raw);
 
         // Parse JSON into the Config struct.
-        let config: Config = serde_json::from_str(&substituted).map_err(|e| {
-            anyhow::anyhow!("config JSON parse error: {}", e)
-        })?;
+        let config: Config = serde_json::from_str(&substituted)
+            .map_err(|e| anyhow::anyhow!("config JSON parse error: {}", e))?;
 
         // Validate the parsed config (check port ranges, required fields, etc.).
-        config.validate().map_err(|e| {
-            anyhow::anyhow!("config validation error: {}", e)
-        })?;
+        config
+            .validate()
+            .map_err(|e| anyhow::anyhow!("config validation error: {}", e))?;
 
         Ok(config)
     }

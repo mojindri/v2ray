@@ -15,6 +15,7 @@ pub mod context;
 pub mod dispatcher;
 pub mod dns;
 pub mod features;
+mod relay;
 pub mod router;
 
 pub use context::Context;

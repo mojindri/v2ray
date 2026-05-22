@@ -10,19 +10,18 @@
 //!
 //! # The relay loop
 //!
-//! The relay is implemented using `tokio::io::copy_bidirectional`. This runs
-//! two concurrent copy loops:
+//! The default relay is implemented using `tokio::io::copy_bidirectional`. This
+//! runs two concurrent copy loops:
 //!   - Inbound → Outbound: read from the client, write to the server
 //!   - Outbound → Inbound: read from the server, write to the client
 //!
 //! Both loops run until either side closes the connection or an error occurs.
 //!
-//! # Future enhancement: splice(2)
+//! # Linux splice(2)
 //!
-//! On Linux, `tokio::io::copy_bidirectional` goes through userspace (kernel →
-//! userspace → kernel). For XTLS Vision, we will replace this with the Linux
-//! `splice(2)` syscall, which copies directly between file descriptors in the
-//! kernel, bypassing userspace entirely. This is implemented in Phase 2.
+//! On Linux, raw TCP-to-TCP relays use `splice(2)`, which moves bytes through
+//! kernel pipes without copying them into userspace. Non-Linux builds and
+//! non-raw streams keep using `copy_bidirectional`.
 
 use std::sync::Arc;
 use std::time::Instant;
@@ -98,10 +97,9 @@ impl Dispatcher for DefaultDispatcher {
         debug!(outbound = %route.outbound_tag, "route selected");
 
         // Step 2: Find the outbound handler.
-        let outbound = self.outbounds.get(&route.outbound_tag)
-            .ok_or_else(|| ProxyError::Protocol(
-                format!("outbound '{}' not found", route.outbound_tag)
-            ))?;
+        let outbound = self.outbounds.get(&route.outbound_tag).ok_or_else(|| {
+            ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
+        })?;
 
         // Step 3: Open a connection to the destination via the outbound.
         let start = Instant::now();
@@ -123,15 +121,15 @@ impl Dispatcher for DefaultDispatcher {
 
         // Step 4: Relay bytes bidirectionally until either side closes.
         //
-        // copy_bidirectional runs two concurrent copy loops:
+        // The relay helper uses Linux splice(2) for raw TCP-to-TCP streams and
+        // falls back to copy_bidirectional for every other stream type.
+        //
+        // Both paths run two concurrent copy loops:
         //   inbound → outbound (client sending data to the server)
         //   outbound → inbound (server sending data back to the client)
         //
         // It returns the total bytes sent in each direction when finished.
-        let result = tokio::io::copy_bidirectional(
-            &mut { inbound_stream },
-            &mut { outbound_stream },
-        ).await;
+        let result = crate::relay::relay_bidirectional(inbound_stream, outbound_stream).await;
 
         let elapsed = start.elapsed();
 
