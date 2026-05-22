@@ -30,16 +30,19 @@ pub use auth::AuthError;
 pub use proto::{AuthRequest, AuthResponse, TcpRequest, TcpResponse};
 
 use std::net::SocketAddr;
+use std::pin::Pin;
 use std::sync::Arc;
+use std::task::{Context as TaskContext, Poll};
 
 use anyhow::Result;
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::OutboundHandler;
 use proxy_common::{Address, BoxedStream, ProxyError, ReunionStream};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tracing::{debug, info, warn};
 
-use crate::quic::{BrutalCCFactory, build_server_endpoint};
+use crate::quic::{build_server_endpoint, ensure_crypto_provider, BrutalCCFactory};
 
 /// Configuration for a Hysteria2 inbound server.
 #[derive(Debug, Clone)]
@@ -203,16 +206,13 @@ impl Hysteria2Client {
         // Build the QUIC client endpoint with Brutal CC applied.
         let target_bps = self.config.up_mbps * 1_000_000 / 8;
         let mut transport_config = quinn::TransportConfig::default();
-        transport_config
-            .congestion_controller_factory(Arc::new(BrutalCCFactory::new(target_bps)));
+        transport_config.congestion_controller_factory(Arc::new(BrutalCCFactory::new(target_bps)));
         let transport_arc = Arc::new(transport_config);
 
         // Build a fresh ClientConfig for this connection.
-        let client_config = build_hysteria2_client_config(
-            self.config.skip_cert_verify,
-            transport_arc,
-        )
-        .map_err(|e| ProxyError::Transport(e.to_string()))?;
+        let client_config =
+            build_hysteria2_client_config(self.config.skip_cert_verify, transport_arc)
+                .map_err(|e| ProxyError::Transport(e.to_string()))?;
 
         // Bind a client endpoint (any local port).
         let endpoint = quinn::Endpoint::client("0.0.0.0:0".parse().unwrap())
@@ -258,8 +258,52 @@ impl Hysteria2Client {
         tcp::client_write_request(&mut send, dest).await?;
         tcp::client_read_response(&mut recv).await?;
 
-        // Return a combined stream for bidirectional relay.
-        Ok(Box::new(ReunionStream::new(recv, send)))
+        // Return a combined stream for bidirectional relay. Keep the QUIC
+        // connection and endpoint alive for as long as the stream is alive;
+        // dropping them here would reset the stream during relay.
+        Ok(Box::new(Hysteria2Stream {
+            inner: ReunionStream::new(recv, send),
+            _conn: conn,
+            _endpoint: endpoint,
+        }))
+    }
+}
+
+/// A proxied Hysteria2 TCP stream plus the QUIC objects that keep it alive.
+struct Hysteria2Stream {
+    inner: ReunionStream<quinn::RecvStream, quinn::SendStream>,
+    _conn: quinn::Connection,
+    _endpoint: quinn::Endpoint,
+}
+
+impl AsyncRead for Hysteria2Stream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for Hysteria2Stream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut TaskContext<'_>) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
 
@@ -285,11 +329,7 @@ impl OutboundHandler for Hysteria2OutboundHandler {
         &self.tag
     }
 
-    async fn connect(
-        &self,
-        _ctx: &Context,
-        dest: &Address,
-    ) -> Result<BoxedStream, ProxyError> {
+    async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         self.client.connect_and_dial(dest).await
     }
 }
@@ -305,7 +345,9 @@ fn build_hysteria2_client_config(
     use anyhow::Context as _;
     use quinn::crypto::rustls::QuicClientConfig;
 
-    let tls_config = if skip_verify {
+    ensure_crypto_provider();
+
+    let mut tls_config = if skip_verify {
         // Accept any server certificate — for testing only.
         rustls::ClientConfig::builder()
             .dangerous()
@@ -322,9 +364,9 @@ fn build_hysteria2_client_config(
             .with_root_certificates(roots)
             .with_no_client_auth()
     };
+    tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
-    let quic_config = QuicClientConfig::try_from(tls_config)
-        .context("build QuicClientConfig")?;
+    let quic_config = QuicClientConfig::try_from(tls_config).context("build QuicClientConfig")?;
     let mut config = quinn::ClientConfig::new(Arc::new(quic_config));
     config.transport_config(transport);
     Ok(config)

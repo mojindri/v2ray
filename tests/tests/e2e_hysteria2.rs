@@ -8,12 +8,12 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use proxy_transport::{BrutalCCFactory, dev_self_signed};
 use proxy_transport::hysteria2::auth::AuthError;
 use proxy_transport::hysteria2::proto::{
     decode_auth_request, decode_auth_response, encode_auth_request, encode_auth_response,
     AuthRequest, AuthResponse,
 };
+use proxy_transport::BrutalCCFactory;
 
 // ── Test 1: Legitimate client can authenticate ─────────────────────────────────
 
@@ -115,15 +115,19 @@ async fn server_accepts_correct_password() {
 
     let (mut server_side, mut client_side) = duplex(4096);
 
-    let server_task = tokio::spawn(async move {
-        server_auth(&mut server_side, "secret").await
-    });
+    let server_task = tokio::spawn(async move { server_auth(&mut server_side, "secret").await });
 
     let client_result = client_auth(&mut client_side, "secret", 50, 100).await;
     let server_result = server_task.await.unwrap();
 
-    assert!(client_result.is_ok(), "client auth failed: {client_result:?}");
-    assert!(server_result.is_ok(), "server auth failed: {server_result:?}");
+    assert!(
+        client_result.is_ok(),
+        "client auth failed: {client_result:?}"
+    );
+    assert!(
+        server_result.is_ok(),
+        "server auth failed: {server_result:?}"
+    );
 
     // Returned bandwidth should match what the client requested.
     let (up, down) = client_result.unwrap();
@@ -153,7 +157,7 @@ fn brutal_cc_factory_builds_controller_with_minimum_window() {
 /// This is the defining property of Brutal CC.
 #[test]
 fn brutal_cc_ignores_congestion_events() {
-    use proxy_transport::congestion::{Controller, ControllerFactory};
+    use proxy_transport::congestion::ControllerFactory;
 
     let factory = Arc::new(BrutalCCFactory::new(12_500_000));
     let mut ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
@@ -174,7 +178,7 @@ fn brutal_cc_ignores_congestion_events() {
 /// Verify that after multiple congestion events, the window is still >= MIN_WINDOW.
 #[test]
 fn brutal_cc_window_stays_bounded_after_repeated_events() {
-    use proxy_transport::congestion::{Controller, ControllerFactory};
+    use proxy_transport::congestion::ControllerFactory;
 
     let factory = Arc::new(BrutalCCFactory::new(1)); // 1 byte/s — very low rate
     let mut ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
@@ -196,6 +200,9 @@ fn brutal_cc_window_stays_bounded_after_repeated_events() {
 #[test]
 fn dev_self_signed_produces_valid_pem() {
     let (cert_pem, key_pem) = proxy_transport::dev_self_signed().unwrap();
-    assert!(cert_pem.contains("BEGIN CERTIFICATE"), "cert_pem missing header");
+    assert!(
+        cert_pem.contains("BEGIN CERTIFICATE"),
+        "cert_pem missing header"
+    );
     assert!(key_pem.contains("PRIVATE KEY"), "key_pem missing header");
 }

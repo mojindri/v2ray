@@ -1736,6 +1736,7 @@ dependencies = [
  "rcgen 0.14.8",
  "serde_json",
  "tokio",
+ "tracing-subscriber",
  "x25519-dalek",
 ]
 

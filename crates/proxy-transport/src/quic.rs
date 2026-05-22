@@ -21,6 +21,14 @@ use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::RootCertStore;
 
+/// Install the rustls crypto provider used by this workspace.
+///
+/// Several dependencies may enable different rustls provider features. Calling
+/// this before building TLS configs makes QUIC startup deterministic.
+pub(crate) fn ensure_crypto_provider() {
+    let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
+}
+
 /// Build a QUIC server endpoint.
 ///
 /// Parses the certificate and private key from PEM strings, sets up TLS with
@@ -30,11 +38,9 @@ use rustls::RootCertStore;
 /// * `addr`     — UDP socket address to bind
 /// * `cert_pem` — PEM-encoded certificate chain
 /// * `key_pem`  — PEM-encoded private key (PKCS#8 or PKCS#1)
-pub fn build_server_endpoint(
-    addr: SocketAddr,
-    cert_pem: &str,
-    key_pem: &str,
-) -> Result<Endpoint> {
+pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) -> Result<Endpoint> {
+    ensure_crypto_provider();
+
     let (certs, key) = parse_cert_and_key(cert_pem, key_pem)?;
 
     let mut tls_config = rustls::ServerConfig::builder()
@@ -54,7 +60,9 @@ pub fn build_server_endpoint(
     // when the client disappears without sending a proper close.
     let mut transport = TransportConfig::default();
     transport.max_idle_timeout(Some(
-        Duration::from_secs(30).try_into().expect("30s fits in IdleTimeout"),
+        Duration::from_secs(30)
+            .try_into()
+            .expect("30s fits in IdleTimeout"),
     ));
     server_config.transport_config(Arc::new(transport));
 
@@ -67,11 +75,14 @@ pub fn build_server_endpoint(
 /// This is useful for development with self-signed certificates but MUST NOT
 /// be used in production.
 pub fn build_client_endpoint(skip_verify: bool) -> Result<Endpoint> {
-    let tls_config = if skip_verify {
+    ensure_crypto_provider();
+
+    let mut tls_config = if skip_verify {
         build_no_verify_client_tls()
     } else {
         build_default_client_tls()?
     };
+    tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
     let quic_client_config = QuicClientConfig::try_from(tls_config)
         .context("failed to build QUIC client config from TLS config")?;
@@ -300,8 +311,8 @@ mod tests {
 
     #[test]
     fn brutal_cc_factory_builds_controller() {
-        use std::sync::Arc;
         use quinn::congestion::ControllerFactory;
+        use std::sync::Arc;
         let factory = Arc::new(BrutalCCFactory::new(12_500_000));
         // ControllerFactory::build takes self: Arc<Self>, so clone to preserve the factory.
         let ctrl = Arc::clone(&factory).build(std::time::Instant::now(), 1200);
