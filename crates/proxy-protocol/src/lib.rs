@@ -14,6 +14,7 @@
 pub mod freedom;
 pub mod http_connect;
 pub mod socks;
+pub mod ss2022;
 pub mod trojan;
 pub mod vless;
 pub mod vmess;
@@ -26,6 +27,3 @@ pub mod vmess;
 
 // Phase 4+
 // pub mod shadowtls;
-
-// Phase 6+
-// pub mod ss2022;

@@ -53,6 +53,7 @@ use crate::reality::{
     build_reality_client, build_reality_server, uses_reality, RealityConnectionHandler,
     RealityVlessOutbound,
 };
+use crate::ss2022::{build_ss2022_inbound, build_ss2022_outbound};
 use crate::trojan::{build_trojan_inbound, build_trojan_outbound};
 use crate::vmess::{build_vmess_inbound, build_vmess_outbound};
 use crate::ws_tls::{build_conn_handler, uses_grpc, uses_tls, uses_ws};
@@ -93,6 +94,8 @@ impl Instance {
                     .with_context(|| format!("building Trojan outbound '{}'", out_cfg.tag))?,
                 Protocol::Vmess => build_vmess_outbound(out_cfg)
                     .with_context(|| format!("building VMess outbound '{}'", out_cfg.tag))?,
+                Protocol::Shadowsocks => build_ss2022_outbound(out_cfg)
+                    .with_context(|| format!("building SS-2022 outbound '{}'", out_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("outbound protocol {:?} not yet implemented", p)
                 }
@@ -147,6 +150,8 @@ impl Instance {
                     .with_context(|| format!("building VMess inbound '{}'", in_cfg.tag))?,
                 Protocol::Http => build_http_inbound(in_cfg)
                     .with_context(|| format!("building HTTP CONNECT inbound '{}'", in_cfg.tag))?,
+                Protocol::Shadowsocks => build_ss2022_inbound(in_cfg)
+                    .with_context(|| format!("building SS-2022 inbound '{}'", in_cfg.tag))?,
                 ref p => {
                     anyhow::bail!("inbound protocol {:?} not yet implemented", p)
                 }
@@ -193,6 +198,19 @@ impl Instance {
                 }
             });
             tasks.push(task);
+        }
+
+        // ── Optional: start metrics/health HTTP server ───────────────────────
+        if let Some(metrics_addr) = &config.metrics_addr {
+            match proxy_app::metrics::start_metrics_server(metrics_addr) {
+                Ok(handle) => {
+                    info!(addr = %metrics_addr, "metrics server started");
+                    tasks.push(handle);
+                }
+                Err(e) => {
+                    error!(addr = %metrics_addr, error = %e, "metrics server failed to start");
+                }
+            }
         }
 
         Ok(Self { tasks })
