@@ -1,0 +1,46 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 17080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-shadowtls-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "YOUR_SERVER_IP",
+        "port": 443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "shadowtls",
+        "shadowTlsSettings": {
+          "version": 3,
+          "password": "CHANGE_ME_USE_A_STRONG_RANDOM_PASSWORD",
+          "dest": "www.apple.com:443"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "vless-shadowtls-out"
+      }
+    ]
+  }
+}

@@ -8,9 +8,7 @@
 
 use std::net::IpAddr;
 
-use hickory_resolver::config::{
-    ConnectionConfig, NameServerConfig, ResolverConfig, GOOGLE,
-};
+use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig, GOOGLE};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
 use tracing::debug;

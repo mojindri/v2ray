@@ -79,9 +79,10 @@ impl DnsModule {
         let resolver = DnsResolver::new(&config.servers).await?;
         let cache = DnsCache::new(512);
         let fakeip = if config.fake_ip_enabled {
-            Some(FakeIpPool::new(&config.fake_ip_range).map_err(|e| {
-                ProxyError::Protocol(format!("FakeIP pool init failed: {e}"))
-            })?)
+            Some(
+                FakeIpPool::new(&config.fake_ip_range)
+                    .map_err(|e| ProxyError::Protocol(format!("FakeIP pool init failed: {e}")))?,
+            )
         } else {
             None
         };
@@ -134,10 +135,7 @@ impl DnsModule {
     /// Returns `true` if the IP falls within the configured FakeIP pool range.
     pub fn is_fake_ip(&self, ip: IpAddr) -> bool {
         match ip {
-            IpAddr::V4(v4) => self
-                .fakeip
-                .as_ref()
-                .is_some_and(|pool| pool.is_fake(v4)),
+            IpAddr::V4(v4) => self.fakeip.as_ref().is_some_and(|pool| pool.is_fake(v4)),
             IpAddr::V6(_) => false,
         }
     }
@@ -146,9 +144,9 @@ impl DnsModule {
     ///
     /// Filtered domains should be resolved normally rather than with FakeIP.
     pub fn is_filtered(&self, domain: &str) -> bool {
-        self.filter.iter().any(|f| {
-            domain == f || domain.ends_with(&format!(".{f}"))
-        })
+        self.filter
+            .iter()
+            .any(|f| domain == f || domain.ends_with(&format!(".{f}")))
     }
 }
 

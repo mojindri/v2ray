@@ -27,8 +27,7 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// Returns the first 8 bytes of HMAC-SHA256(key=psk, data=server_random).
 pub fn compute_marker(psk: &[u8], server_random: &[u8; 32]) -> [u8; 8] {
-    let mut mac =
-        HmacSha256::new_from_slice(psk).expect("HMAC accepts any key length");
+    let mut mac = HmacSha256::new_from_slice(psk).expect("HMAC accepts any key length");
     mac.update(server_random);
     let result = mac.finalize().into_bytes();
 

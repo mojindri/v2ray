@@ -99,9 +99,7 @@ mod tests {
 
     use prost::Message;
 
-    use crate::geo::proto::{
-        Cidr, Domain, DomainType, GeoIp, GeoIpList, GeoSite, GeoSiteList,
-    };
+    use crate::geo::proto::{Cidr, Domain, DomainType, GeoIp, GeoIpList, GeoSite, GeoSiteList};
 
     /// Encode a GeoIPList to bytes.
     fn encode_geoip(list: &GeoIpList) -> Vec<u8> {
@@ -165,7 +163,7 @@ mod tests {
             entry: vec![GeoIp {
                 country_code: "CN".into(),
                 cidr: vec![Cidr {
-                    ip: vec![1, 0, 1, 0],  // 1.0.1.0
+                    ip: vec![1, 0, 1, 0], // 1.0.1.0
                     prefix: 24,
                 }],
                 inverse_match: false,

@@ -196,8 +196,7 @@ impl CompiledRule {
         geosite: &HashMap<String, GeoSiteMatcher>,
     ) -> bool {
         // Check inbound tag restriction first (cheapest check).
-        if !self.inbound_tags.is_empty()
-            && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
+        if !self.inbound_tags.is_empty() && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
         {
             return false;
         }
@@ -243,14 +242,12 @@ impl CompiledRule {
         if has_ip_restriction {
             match ctx.dest.ip() {
                 Some(ip) => {
-                    let literal_ok =
-                        self.ip_matcher.as_ref().is_none_or(|im| im.matches(ip));
+                    let literal_ok = self.ip_matcher.as_ref().is_none_or(|im| im.matches(ip));
                     let geoip_ok = self.geoip_codes.is_empty()
-                        || self.geoip_codes.iter().any(|code| {
-                            geoip
-                                .get(code.as_str())
-                                .is_some_and(|m| m.match_ip(ip))
-                        });
+                        || self
+                            .geoip_codes
+                            .iter()
+                            .any(|code| geoip.get(code.as_str()).is_some_and(|m| m.match_ip(ip)));
                     if !(literal_ok && geoip_ok) {
                         return false;
                     }

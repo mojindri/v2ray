@@ -79,10 +79,9 @@ pub async fn shadowtls_accept(
     let remaining = payload_len - 8;
     let prefix = if remaining > 0 {
         let mut rest = vec![0u8; remaining];
-        stream
-            .read_exact(&mut rest)
-            .await
-            .map_err(|e| ProxyError::Transport(format!("ShadowTLS server: read payload rest: {e}")))?;
+        stream.read_exact(&mut rest).await.map_err(|e| {
+            ProxyError::Transport(format!("ShadowTLS server: read payload rest: {e}"))
+        })?;
         rest
     } else {
         vec![]

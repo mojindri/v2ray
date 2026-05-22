@@ -31,11 +31,7 @@ impl GeoIpMatcher {
     /// CIDR entries that cannot be parsed (malformed IP bytes or mismatched
     /// prefix length) are skipped with a warning rather than causing a panic.
     pub fn from_proto(entry: &GeoIp) -> Self {
-        let ranges = entry
-            .cidr
-            .iter()
-            .filter_map(parse_cidr)
-            .collect();
+        let ranges = entry.cidr.iter().filter_map(parse_cidr).collect();
         Self { ranges }
     }
 
@@ -85,10 +81,7 @@ mod tests {
     use std::net::Ipv4Addr;
 
     fn make_matcher(cidrs: &[&str]) -> GeoIpMatcher {
-        let ranges = cidrs
-            .iter()
-            .map(|s| s.parse::<IpNet>().unwrap())
-            .collect();
+        let ranges = cidrs.iter().map(|s| s.parse::<IpNet>().unwrap()).collect();
         GeoIpMatcher::from_ranges(ranges)
     }
 

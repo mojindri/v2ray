@@ -1,0 +1,87 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "fake_ip": {
+      "enabled": true,
+      "pool": "198.18.0.0/15"
+    }
+  },
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 17080,
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "fakedns"
+        ]
+      }
+    },
+    {
+      "tag": "http-local",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 17118
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "YOUR_SERVER_IP",
+        "port": 443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "127.0.0.1/8",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16",
+          "geoip:CN"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "domain": [
+          "geosite:CN",
+          "suffix:local",
+          "domain:localhost"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "port": "80,443,8000-9000",
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}

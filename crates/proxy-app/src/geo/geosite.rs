@@ -132,8 +132,8 @@ impl GeoSiteMatcher {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::proto::Domain;
+    use super::*;
 
     fn make_matcher(
         full: &[&str],

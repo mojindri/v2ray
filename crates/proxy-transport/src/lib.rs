@@ -44,8 +44,8 @@ pub use hysteria2::{
 pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed};
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
-pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use shadowtls::{compute_marker, shadowtls_accept, shadowtls_connect, write_marker_record};
+pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};
 

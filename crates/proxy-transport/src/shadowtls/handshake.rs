@@ -52,9 +52,11 @@ pub async fn relay_handshake(
     client: &mut BoxedStream,
     backend_addr: &str,
 ) -> Result<([u8; 32], bool), ProxyError> {
-    let mut backend = TcpStream::connect(backend_addr)
-        .await
-        .map_err(|e| ProxyError::Transport(format!("ShadowTLS: cannot connect to backend {backend_addr}: {e}")))?;
+    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+        ProxyError::Transport(format!(
+            "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
+        ))
+    })?;
 
     let server_random = do_relay(client, &mut backend).await?;
     Ok((server_random, true))
@@ -161,7 +163,13 @@ async fn write_tls_record<S: AsyncWrite + Unpin>(
     payload: &[u8],
 ) -> Result<(), ProxyError> {
     let len = payload.len() as u16;
-    let header = [record_type, version[0], version[1], (len >> 8) as u8, len as u8];
+    let header = [
+        record_type,
+        version[0],
+        version[1],
+        (len >> 8) as u8,
+        len as u8,
+    ];
     stream
         .write_all(&header)
         .await
@@ -205,8 +213,8 @@ mod tests {
     fn extract_server_random_happy() {
         let mut payload = vec![0u8; 38];
         payload[0] = TLS_HANDSHAKE_SERVER_HELLO; // type
-        // length bytes [1..4] = 0
-        // version bytes [4..6] = 0x03 0x03
+                                                 // length bytes [1..4] = 0
+                                                 // version bytes [4..6] = 0x03 0x03
         payload[4] = 0x03;
         payload[5] = 0x03;
         // server_random [6..38]

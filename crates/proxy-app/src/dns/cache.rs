@@ -58,10 +58,8 @@ impl DnsCache {
     /// `ttl_secs` is how many seconds the entry should be considered valid.
     pub fn insert(&self, domain: &str, ips: Vec<IpAddr>, ttl_secs: u64) {
         let expires = Instant::now() + Duration::from_secs(ttl_secs);
-        self.entries.insert(
-            domain.to_string(),
-            CacheEntry { ips, expires },
-        );
+        self.entries
+            .insert(domain.to_string(), CacheEntry { ips, expires });
     }
 
     /// Remove all expired entries.
