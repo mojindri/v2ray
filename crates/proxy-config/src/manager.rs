@@ -73,9 +73,17 @@ impl ConfigManager {
     /// Start watching the config file for changes.
     ///
     /// This method runs indefinitely. Spawn it as a background task:
-    /// ```rust,ignore
-    /// let mgr = Arc::clone(&manager);
-    /// tokio::spawn(async move { mgr.watch().await });
+    /// ```no_run
+    /// use std::sync::Arc;
+    ///
+    /// use proxy_config::ConfigManager;
+    ///
+    /// async fn spawn_watch(manager: Arc<ConfigManager>) {
+    ///     let mgr = Arc::clone(&manager);
+    ///     tokio::spawn(async move {
+    ///         let _ = mgr.watch().await;
+    ///     });
+    /// }
     /// ```
     ///
     /// When the file changes:

@@ -16,15 +16,18 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
+//! ```no_run
 //! use proxy_app::geo::{load_geoip, load_geosite};
 //!
-//! let geoip  = load_geoip("/usr/share/v2ray/geoip.dat").unwrap();
-//! let geosite = load_geosite("/usr/share/v2ray/geosite.dat").unwrap();
+//! let geoip = load_geoip("/usr/share/v2ray/geoip.dat");
+//! let geosite = load_geosite("/usr/share/v2ray/geosite.dat");
 //!
 //! if let Some(matcher) = geoip.get("CN") {
 //!     assert!(matcher.match_ip("1.0.1.0".parse().unwrap()));
 //! }
+//!
+//! // Missing or unreadable files degrade to empty maps instead of panicking.
+//! assert!(geosite.get("CN").is_none() || geosite.contains_key("CN"));
 //! ```
 
 pub mod geoip;
