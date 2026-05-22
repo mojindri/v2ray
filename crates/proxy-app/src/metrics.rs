@@ -137,7 +137,10 @@ async fn readyz(State(state): State<MetricsState>) -> impl IntoResponse {
 async fn metrics_handler(State(state): State<MetricsState>) -> impl IntoResponse {
     let body = state.prometheus_handle.render();
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4",
+        )],
         body,
     )
 }
@@ -168,12 +171,7 @@ pub fn record_connection_accepted(inbound: &str, protocol: &str) {
 ///
 /// Call this after the relay finishes to decrement the active gauge and
 /// record bytes / duration.
-pub fn record_connection_closed(
-    inbound: &str,
-    rx_bytes: u64,
-    tx_bytes: u64,
-    duration: Duration,
-) {
+pub fn record_connection_closed(inbound: &str, rx_bytes: u64, tx_bytes: u64, duration: Duration) {
     metrics::gauge!(
         "proxy_active_connections",
         "inbound" => inbound.to_owned()
