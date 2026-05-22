@@ -11,6 +11,7 @@ impl ClientHelloBuilder {
         grease_group: u16,
         grease_ext: u16,
         x25519_pub: &[u8; 32],
+        secp256r1_pub: Option<&[u8]>,
     ) -> BytesMut {
         let mut buf = BytesMut::with_capacity(256);
 
@@ -26,7 +27,7 @@ impl ClientHelloBuilder {
                 0x0005 => self.ext_status_request(&mut buf),
                 0x000D => self.ext_signature_algorithms(&mut buf),
                 0x0012 => self.ext_signed_cert_timestamp(&mut buf),
-                0x0033 => self.ext_key_share(&mut buf, grease_group, x25519_pub),
+                0x0033 => self.ext_key_share(&mut buf, grease_group, x25519_pub, secp256r1_pub),
                 0x002D => self.ext_psk_key_exchange_modes(&mut buf),
                 0x002B => self.ext_supported_versions(&mut buf),
                 0x001B => self.ext_compress_certificate(&mut buf),
@@ -116,7 +117,13 @@ impl ClientHelloBuilder {
         put_extension(buf, 0x0012, &[]);
     }
 
-    fn ext_key_share(&self, buf: &mut BytesMut, grease_group: u16, x25519_pub: &[u8; 32]) {
+    fn ext_key_share(
+        &self,
+        buf: &mut BytesMut,
+        grease_group: u16,
+        x25519_pub: &[u8; 32],
+        secp256r1_pub: Option<&[u8]>,
+    ) {
         let mut client_shares = BytesMut::new();
 
         // GREASE key share, then the real x25519 share used by REALITY ECDH.
@@ -126,6 +133,11 @@ impl ClientHelloBuilder {
         client_shares.put_u16(29); // x25519 named group
         client_shares.put_u16(32);
         client_shares.put_slice(x25519_pub);
+        if let Some(pubkey) = secp256r1_pub {
+            client_shares.put_u16(23); // secp256r1 named group
+            client_shares.put_u16(pubkey.len() as u16);
+            client_shares.put_slice(pubkey);
+        }
 
         let mut data = BytesMut::new();
         data.put_u16(client_shares.len() as u16);
@@ -151,7 +163,9 @@ impl ClientHelloBuilder {
     }
 
     fn ext_compress_certificate(&self, buf: &mut BytesMut) {
-        put_extension(buf, 0x001B, &[0x02, 0x00, 0x02, 0x00, 0x01]);
+        // RFC 8879: a u8 length prefix followed by 2-byte algorithm IDs.
+        // Chrome advertises Brotli (0x0002) here.
+        put_extension(buf, 0x001B, &[0x02, 0x00, 0x02]);
     }
 
     fn ext_padding(&self, buf: &mut BytesMut) {

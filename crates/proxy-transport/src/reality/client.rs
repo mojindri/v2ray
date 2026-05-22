@@ -5,16 +5,22 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 use aes_gcm::{Aes128Gcm, Key, Nonce};
 use anyhow::Result;
 use hkdf::Hkdf;
+use p256::ecdh::EphemeralSecret as P256EphemeralSecret;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::elliptic_curve::sec1::ToEncodedPoint;
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
 use tracing::debug;
-use x25519_dalek::{EphemeralSecret, PublicKey};
+use x25519_dalek::{PublicKey, StaticSecret};
 
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_tls::ClientHelloBuilder;
 
-use super::{REALITY_HKDF_INFO, REALITY_TOKEN_VERSION, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
+use super::{
+    tls13::{complete_tls13_handshake, Tls13Stream},
+    REALITY_HKDF_INFO, REALITY_TOKEN_VERSION, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY,
+};
 
 /// REALITY client configuration read from the outbound config.
 pub struct RealityClientConfig {
@@ -30,7 +36,7 @@ pub struct RealityClientConfig {
     /// The cover-domain SNI to place in the ClientHello.
     pub sni: String,
 
-    /// Which browser fingerprint profile to use. Phase 2 supports Chrome.
+    /// Which browser fingerprint profile to use. Phase 3 supports Chrome.
     pub fingerprint: String,
 }
 
@@ -44,20 +50,27 @@ impl RealityClient {
         Self { config }
     }
 
-    /// Connect to the REALITY server and perform the REALITY handshake.
+    /// Connect to the REALITY server and complete the full TLS 1.3 handshake.
     ///
-    /// On success, returns a stream that already sent the authenticated
-    /// ClientHello. The VLESS layer can then write its payload on the same TCP
-    /// stream in the current Phase 2 direct mode.
+    /// Phase 3: after sending the REALITY-authenticated ClientHello, we continue
+    /// the TLS handshake (derive keys, decrypt server messages, send Finished)
+    /// so that `hs.c.isHandshakeComplete` is true on the Xray side.  The
+    /// returned stream is ready for application-data I/O.
     pub async fn dial(&self) -> Result<BoxedStream, ProxyError> {
         let mut tcp = TcpStream::connect(self.config.server).await?;
         tcp.set_nodelay(true)?;
 
         debug!(server = %self.config.server, sni = %self.config.sni, "REALITY dial");
 
-        let (client_pub_bytes, shared_secret) =
-            make_client_key_share(self.config.server_public_key);
-        let (random, auth_key) = derive_auth_key(shared_secret.as_bytes())?;
+        // Generate a StaticSecret so we can do two DH operations:
+        //   1. ECDH(client_eph, server_static)  → REALITY auth key
+        //   2. ECDH(client_eph, server_tls_eph) → TLS 1.3 handshake secret
+        // Some cover origins prefer P-256 and trigger a HelloRetryRequest if we
+        // offer only x25519, so we also include a secp256r1 key share in the
+        // first ClientHello.
+        let key_shares = make_client_key_shares(self.config.server_public_key);
+
+        let (random, auth_key) = derive_auth_key(key_shares.auth_shared_secret.as_bytes())?;
         let zero_session_id = [0u8; 32];
 
         // Build once with a zero session_id. Those zero bytes become the AAD.
@@ -67,11 +80,12 @@ impl RealityClient {
             // Nothing from this block may live across the later `write_all().await`.
             let mut rng = rand::thread_rng();
             let builder = ClientHelloBuilder::chrome_131();
-            builder.build(
+            builder.build_with_additional_key_share(
                 &self.config.sni,
                 &random,
                 &zero_session_id,
-                Some(&client_pub_bytes),
+                Some(&key_shares.x25519_public),
+                Some(key_shares.secp256r1_public.as_slice()),
                 &mut rng,
             )
         };
@@ -90,20 +104,56 @@ impl RealityClient {
         tcp.write_all(&final_hello).await?;
         debug!(server = %self.config.server, "REALITY ClientHello sent");
 
-        Ok(Box::new(tcp))
+        // ── Phase 3: complete TLS 1.3 handshake ──────────────────────────────
+        // final_hello[5..] is the ClientHello handshake body (without the 5-byte
+        // TLS record header). It forms the start of the TLS transcript.
+        let client_hello_hs_body = &final_hello[5..];
+        let app_keys = complete_tls13_handshake(
+            &mut tcp,
+            client_hello_hs_body,
+            &key_shares.x25519_secret,
+            Some(&key_shares.secp256r1_secret),
+        )
+        .await?;
+
+        debug!(server = %self.config.server, "REALITY Phase 3 handshake complete");
+        Ok(Box::new(Tls13Stream::new(tcp, app_keys)))
     }
 }
 
-fn make_client_key_share(server_public_key: [u8; 32]) -> ([u8; 32], x25519_dalek::SharedSecret) {
-    // One ephemeral key pair is used both for ECDH and for the ClientHello
-    // key_share extension, so the server can derive the same secret.
-    let client_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+struct ClientKeyShares {
+    x25519_public: [u8; 32],
+    x25519_secret: StaticSecret,
+    auth_shared_secret: x25519_dalek::SharedSecret,
+    secp256r1_public: Vec<u8>,
+    secp256r1_secret: P256EphemeralSecret,
+}
+
+/// Generate the REALITY-auth x25519 key material plus a TLS P-256 key share
+/// for origins that select `secp256r1`.
+fn make_client_key_shares(
+    server_public_key: [u8; 32],
+) -> ClientKeyShares {
+    let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
     let client_public = PublicKey::from(&client_secret);
     let client_pub_bytes = *client_public.as_bytes();
     let server_pub_key = PublicKey::from(server_public_key);
+    // REALITY auth DH: ECDH(client_eph, server_static) — does NOT consume the secret.
     let shared_secret = client_secret.diffie_hellman(&server_pub_key);
+    let secp256r1_secret = P256EphemeralSecret::random(&mut OsRng);
+    let secp256r1_public = secp256r1_secret
+        .public_key()
+        .to_encoded_point(false)
+        .as_bytes()
+        .to_vec();
 
-    (client_pub_bytes, shared_secret)
+    ClientKeyShares {
+        x25519_public: client_pub_bytes,
+        x25519_secret: client_secret,
+        auth_shared_secret: shared_secret,
+        secp256r1_public,
+        secp256r1_secret,
+    }
 }
 
 fn derive_auth_key(shared_secret: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), ProxyError> {

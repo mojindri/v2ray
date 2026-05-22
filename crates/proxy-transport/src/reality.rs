@@ -20,6 +20,7 @@
 mod client;
 mod parser;
 mod server;
+pub(crate) mod tls13;
 
 pub use client::{RealityClient, RealityClientConfig};
 pub use parser::{parse_client_hello, ClientHelloFields};

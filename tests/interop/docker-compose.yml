@@ -1,0 +1,35 @@
+services:
+
+  # ── Fallback destination ──────────────────────────────────────────────────────
+  # Any connection that fails REALITY auth is forwarded here.
+  # Nginx on plain HTTP so we can detect fallback by the HTTP-shaped response.
+  nginx-fallback:
+    image: nginx:alpine
+    volumes:
+      - ./configs/nginx.conf:/etc/nginx/nginx.conf:ro
+    # Not exposed to host — Xray reaches it via the compose network.
+
+  # ── Xray-core REALITY server ──────────────────────────────────────────────────
+  xray-server:
+    image: ghcr.io/xtls/xray-core:latest
+    volumes:
+      - ./configs/xray-server.json:/usr/local/etc/xray/config.json:ro
+    command: ["run", "-c", "/usr/local/etc/xray/config.json"]
+    ports:
+      - "8443:8443"   # REALITY listener — exposed to host for Rust tests
+    depends_on:
+      - nginx-fallback
+    restart: unless-stopped
+
+  # ── Xray-core REALITY client (direction-2 tests) ──────────────────────────────
+  # Connects to our Rust REALITY server running on the host.
+  # Only started when ENABLE_XRAY_CLIENT=1 is set.
+  xray-client:
+    image: ghcr.io/xtls/xray-core:latest
+    volumes:
+      - ./configs/xray-client.json:/usr/local/etc/xray/config.json:ro
+    command: ["run", "-c", "/usr/local/etc/xray/config.json"]
+    # Uses host network so it can reach our Rust server on 127.0.0.1:9443.
+    network_mode: host
+    profiles:
+      - xray-client   # opt-in: docker compose --profile xray-client up
