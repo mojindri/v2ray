@@ -215,6 +215,60 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrependedStream<S> {
     }
 }
 
+/// Combines separate read and write halves into a single bidirectional stream.
+///
+/// QUIC gives separate `RecvStream` and `SendStream` halves. This adapter
+/// merges them so they satisfy `AsyncRead + AsyncWrite` together — the
+/// interface every protocol and outbound handler expects.
+///
+/// # Usage
+///
+/// ```rust,ignore
+/// let (send, recv) = conn.open_bi().await?;
+/// let stream: BoxedStream = Box::new(ReunionStream::new(recv, send));
+/// ```
+pub struct ReunionStream<R, W> {
+    /// The reading half of the stream (bytes from the remote end).
+    read: R,
+    /// The writing half of the stream (bytes going to the remote end).
+    write: W,
+}
+
+impl<R, W> ReunionStream<R, W> {
+    /// Create a new `ReunionStream` from separate read and write halves.
+    pub fn new(read: R, write: W) -> Self {
+        Self { read, write }
+    }
+}
+
+impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> AsyncRead for ReunionStream<R, W> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.read).poll_read(cx, buf)
+    }
+}
+
+impl<R: AsyncRead + Unpin, W: AsyncWrite + Unpin> AsyncWrite for ReunionStream<R, W> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.write).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.write).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.write).poll_shutdown(cx)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,0 +1,38 @@
+{
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8080,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "user@example.com"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/proxy"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}

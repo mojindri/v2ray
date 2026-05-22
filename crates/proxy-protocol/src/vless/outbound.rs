@@ -29,8 +29,8 @@ use super::codec::{encode_request, Command};
 
 /// Send a VLESS request header over an already-established stream.
 ///
-/// Use this when the transport layer (e.g. REALITY) has already set up
-/// the connection and you just need to run the VLESS handshake on top.
+/// Use this when the transport layer (e.g. REALITY or WebSocket) has already
+/// set up the connection and you just need to run the VLESS handshake on top.
 ///
 /// # Arguments
 /// * `stream` — an already-connected stream (e.g. from `RealityClient::dial()`)
@@ -49,6 +49,9 @@ pub async fn connect_vless_on_stream(
 ) -> Result<BoxedStream, ProxyError> {
     let header = encode_request(uuid, flow, Command::Tcp, dest);
     stream.write_all(&header).await?;
+    // Flush explicitly so that WebSocket and other buffered transports send
+    // the VLESS header immediately without waiting for more data.
+    stream.flush().await?;
 
     // Read VLESS response header: VER(1) + ADDONS_LEN(1) + ADDONS(N)
     let ver = stream.read_u8().await?;
@@ -120,6 +123,7 @@ impl OutboundHandler for VlessOutbound {
         // This tells the server which user we are and where we want to connect.
         let header = encode_request(&self.config.uuid, &self.config.flow, Command::Tcp, dest);
         stream.write_all(&header).await?;
+        stream.flush().await?;
 
         // Step 3: Read the VLESS response header from the server.
         // The response is: VER (1 byte) + ADDONS_LEN (1 byte) + ADDONS (N bytes).

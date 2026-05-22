@@ -18,7 +18,8 @@ pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
-    GrpcConfig, RealityConfig, SniffingConfig, StreamSettingsConfig, TlsConfig, WsConfig,
+    GrpcConfig, Hysteria2Config, RealityConfig, SniffingConfig, StreamSettingsConfig, TlsConfig,
+    WsConfig,
 };
 
 use serde::{Deserialize, Serialize};
@@ -57,6 +58,17 @@ pub struct Config {
     /// Management API settings.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub api: Option<serde_json::Value>,
+
+    /// Metrics/health HTTP server listen address, e.g. `"127.0.0.1:8080"`.
+    ///
+    /// When set, the proxy starts a Prometheus metrics endpoint at this address.
+    #[serde(
+        default,
+        rename = "metricsAddr",
+        alias = "metrics_addr",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub metrics_addr: Option<String>,
 }
 
 #[cfg(test)]

@@ -19,19 +19,32 @@
 pub mod reality;
 pub mod tcp;
 
-// Phase 2+ (remaining)
-// pub mod tls;
-// pub mod websocket;
+// Phase 3: QUIC and Hysteria2
+pub mod hysteria2;
+pub mod quic;
 
-// Phase 3+
-// pub mod quic;
+// Phase 4: TLS and WebSocket transports
+pub mod tls;
+pub mod ws;
 
 // Phase 4+
 // pub mod tun;
 
-// Phase 5+
-// pub mod grpc;
-// pub mod mkcp;
+// Phase 5: gRPC transport
+pub mod grpc;
 
+pub use grpc::{decode_grpc_frame, encode_grpc_frame, grpc_accept, grpc_connect, GrpcStream};
+pub use hysteria2::{
+    Hysteria2Client, Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server,
+    Hysteria2ServerConfig,
+};
+pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed};
+pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
 pub use tcp::{TcpClientTransport, TcpServerTransport};
+pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
+pub use ws::{ws_accept, ws_connect, WsConnectConfig};
+
+// Re-export quinn's congestion module so downstream crates can implement
+// or use congestion controllers without depending on quinn directly.
+pub use quinn::congestion;

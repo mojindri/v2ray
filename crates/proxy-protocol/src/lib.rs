@@ -12,8 +12,12 @@
 //! | `vless`   | 1     | VLESS inbound + outbound |
 
 pub mod freedom;
+pub mod http_connect;
 pub mod socks;
+pub mod ss2022;
+pub mod trojan;
 pub mod vless;
+pub mod vmess;
 
 // Phase 2+
 // pub mod reality; (transport — handled in proxy-transport)
@@ -23,9 +27,3 @@ pub mod vless;
 
 // Phase 4+
 // pub mod shadowtls;
-
-// Phase 6+
-// pub mod vmess;
-// pub mod trojan;
-// pub mod ss2022;
-// pub mod http;
