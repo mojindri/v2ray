@@ -33,6 +33,8 @@ use regex::RegexSet;
 
 use proxy_common::{Address, Network, ProxyError};
 
+use crate::geo::{GeoIpMatcher, GeoSiteMatcher};
+
 /// The result of a routing decision: which outbound to use.
 #[derive(Debug, Clone)]
 pub struct Route {
@@ -74,19 +76,42 @@ pub struct LiveRouter {
 
 impl LiveRouter {
     /// Build a router from a list of rules and a default outbound tag.
-    pub fn new(rules: Vec<CompiledRule>, default_tag: String) -> Arc<Self> {
+    ///
+    /// `geoip` and `geosite` are optional geo databases. Pass empty `HashMap`s
+    /// if geo data is not available.
+    pub fn new(
+        rules: Vec<CompiledRule>,
+        default_tag: String,
+        geoip: HashMap<String, GeoIpMatcher>,
+        geosite: HashMap<String, GeoSiteMatcher>,
+    ) -> Arc<Self> {
         Arc::new(Self {
-            inner: ArcSwap::from_pointee(RouterInner { rules, default_tag }),
+            inner: ArcSwap::from_pointee(RouterInner {
+                rules,
+                default_tag,
+                geoip,
+                geosite,
+            }),
         })
     }
 
-    /// Hot-swap the routing rules and default tag.
+    /// Hot-swap the routing rules, default tag, and geo data.
     ///
     /// The swap is atomic: any concurrent routing decisions in progress will
     /// use either the old rules or the new rules, never a mix.
-    pub fn swap(&self, rules: Vec<CompiledRule>, default_tag: String) {
-        self.inner
-            .store(Arc::new(RouterInner { rules, default_tag }));
+    pub fn swap(
+        &self,
+        rules: Vec<CompiledRule>,
+        default_tag: String,
+        geoip: HashMap<String, GeoIpMatcher>,
+        geosite: HashMap<String, GeoSiteMatcher>,
+    ) {
+        self.inner.store(Arc::new(RouterInner {
+            rules,
+            default_tag,
+            geoip,
+            geosite,
+        }));
     }
 }
 
@@ -97,7 +122,7 @@ impl Router for LiveRouter {
 
         // Evaluate rules in order; first match wins.
         for rule in &inner.rules {
-            if rule.matches(ctx) {
+            if rule.matches_with_geo(ctx, &inner.geoip, &inner.geosite) {
                 return Ok(Route {
                     outbound_tag: rule.outbound_tag.clone(),
                 });
@@ -117,6 +142,10 @@ struct RouterInner {
     rules: Vec<CompiledRule>,
     /// Fallback outbound tag when no rule matches.
     default_tag: String,
+    /// GeoIP data indexed by uppercase country code.
+    geoip: HashMap<String, GeoIpMatcher>,
+    /// GeoSite data indexed by uppercase group name.
+    geosite: HashMap<String, GeoSiteMatcher>,
 }
 
 /// A single compiled routing rule, ready for fast matching.
@@ -132,8 +161,14 @@ pub struct CompiledRule {
     /// Domain matcher, if this rule matches by domain.
     pub domain_matcher: Option<DomainMatcher>,
 
+    /// GeoSite codes to match against (e.g. `["CN", "GOOGLE"]`).
+    pub geosite_codes: Vec<String>,
+
     /// IP matcher, if this rule matches by IP address.
     pub ip_matcher: Option<IpMatcher>,
+
+    /// GeoIP codes to match against (e.g. `["CN", "private"]`).
+    pub geoip_codes: Vec<String>,
 
     /// Port ranges this rule applies to. Empty means "any port".
     pub port_ranges: Vec<(u16, u16)>,
@@ -144,9 +179,25 @@ pub struct CompiledRule {
 
 impl CompiledRule {
     /// Returns `true` if all conditions in this rule match the given context.
+    ///
+    /// This version does not use geo data. Use `matches_with_geo` when geo
+    /// databases are available.
     pub fn matches(&self, ctx: &RoutingContext<'_>) -> bool {
+        self.matches_with_geo(ctx, &HashMap::new(), &HashMap::new())
+    }
+
+    /// Returns `true` if all conditions in this rule match the given context,
+    /// using the provided GeoIP and GeoSite databases for `geoip:` / `geosite:`
+    /// rule patterns.
+    pub fn matches_with_geo(
+        &self,
+        ctx: &RoutingContext<'_>,
+        geoip: &HashMap<String, GeoIpMatcher>,
+        geosite: &HashMap<String, GeoSiteMatcher>,
+    ) -> bool {
         // Check inbound tag restriction first (cheapest check).
-        if !self.inbound_tags.is_empty() && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
+        if !self.inbound_tags.is_empty()
+            && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
         {
             return false;
         }
@@ -163,11 +214,23 @@ impl CompiledRule {
             }
         }
 
-        // Check domain restriction.
-        if let Some(dm) = &self.domain_matcher {
+        // Check domain restriction (literal patterns + geosite codes).
+        let has_domain_restriction =
+            self.domain_matcher.is_some() || !self.geosite_codes.is_empty();
+        if has_domain_restriction {
             match ctx.dest {
                 Address::Domain(name, _) => {
-                    if !dm.matches(name) {
+                    let literal_ok = self
+                        .domain_matcher
+                        .as_ref()
+                        .is_none_or(|dm| dm.matches(name));
+                    let geosite_ok = self.geosite_codes.is_empty()
+                        || self.geosite_codes.iter().any(|code| {
+                            geosite
+                                .get(code.as_str())
+                                .is_some_and(|m| m.match_domain(name))
+                        });
+                    if !(literal_ok && geosite_ok) {
                         return false;
                     }
                 }
@@ -175,11 +238,20 @@ impl CompiledRule {
             }
         }
 
-        // Check IP restriction.
-        if let Some(im) = &self.ip_matcher {
+        // Check IP restriction (literal CIDR ranges + geoip codes).
+        let has_ip_restriction = self.ip_matcher.is_some() || !self.geoip_codes.is_empty();
+        if has_ip_restriction {
             match ctx.dest.ip() {
                 Some(ip) => {
-                    if !im.matches(ip) {
+                    let literal_ok =
+                        self.ip_matcher.as_ref().is_none_or(|im| im.matches(ip));
+                    let geoip_ok = self.geoip_codes.is_empty()
+                        || self.geoip_codes.iter().any(|code| {
+                            geoip
+                                .get(code.as_str())
+                                .is_some_and(|m| m.match_ip(ip))
+                        });
+                    if !(literal_ok && geoip_ok) {
                         return false;
                     }
                 }

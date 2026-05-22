@@ -117,7 +117,7 @@ impl Instance {
             vec![]
         };
 
-        let router = LiveRouter::new(rules, default_tag);
+        let router = LiveRouter::new(rules, default_tag, Default::default(), Default::default());
 
         // ── Step 3: Create dispatcher ────────────────────────────────────────
         let dispatcher = DefaultDispatcher::new(router, outbound_map);
@@ -354,7 +354,9 @@ fn build_rules(
             let mut suffix = Vec::new();
             let mut keywords = Vec::new();
             let mut regexes = Vec::new();
+            let mut geosite_codes = Vec::new();
             let mut ip_ranges = Vec::new();
+            let mut geoip_codes = Vec::new();
 
             for pattern in &r.domain {
                 if let Some(rest) = pattern.strip_prefix("domain:") {
@@ -365,6 +367,8 @@ fn build_rules(
                     keywords.push(rest.to_string());
                 } else if let Some(rest) = pattern.strip_prefix("regexp:") {
                     regexes.push(rest.to_string());
+                } else if let Some(rest) = pattern.strip_prefix("geosite:") {
+                    geosite_codes.push(rest.to_uppercase());
                 } else {
                     // Default to domain exact match
                     full.push(pattern.clone());
@@ -372,7 +376,9 @@ fn build_rules(
             }
 
             for pattern in &r.ip {
-                if !pattern.starts_with("geoip:") {
+                if let Some(rest) = pattern.strip_prefix("geoip:") {
+                    geoip_codes.push(rest.to_uppercase());
+                } else {
                     ip_ranges.push(pattern.clone());
                 }
             }
@@ -398,7 +404,9 @@ fn build_rules(
             Ok(proxy_app::router::CompiledRule {
                 outbound_tag: r.outbound_tag.clone(),
                 domain_matcher,
+                geosite_codes,
                 ip_matcher,
+                geoip_codes,
                 port_ranges,
                 inbound_tags: r.inbound_tag.clone(),
             })

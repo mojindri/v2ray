@@ -33,6 +33,9 @@ pub mod ws;
 // Phase 5: gRPC transport
 pub mod grpc;
 
+// Phase 7: ShadowTLS v3 transport
+pub mod shadowtls;
+
 pub use grpc::{decode_grpc_frame, encode_grpc_frame, grpc_accept, grpc_connect, GrpcStream};
 pub use hysteria2::{
     Hysteria2Client, Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server,
@@ -42,6 +45,7 @@ pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed};
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
 pub use tcp::{TcpClientTransport, TcpServerTransport};
+pub use shadowtls::{compute_marker, shadowtls_accept, shadowtls_connect, write_marker_record};
 pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};
 

@@ -56,4 +56,7 @@ pub enum SecurityType {
     Tls,
     /// REALITY TLS camouflage.
     Reality,
+    /// ShadowTLS v3 — wraps another protocol inside a real TLS handshake.
+    #[serde(rename = "shadowtls")]
+    ShadowTls,
 }

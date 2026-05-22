@@ -18,6 +18,7 @@ lru.workspace              = true
 parking_lot.workspace      = true
 arc-swap.workspace         = true
 ipnet.workspace            = true
+prost.workspace            = true
 regex.workspace            = true
 aho-corasick.workspace     = true
 hickory-resolver.workspace = true

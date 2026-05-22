@@ -44,6 +44,14 @@ pub struct StreamSettingsConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub grpc_settings: Option<GrpcConfig>,
+
+    /// ShadowTLS-specific settings.
+    #[serde(
+        default,
+        rename = "shadowTlsSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub shadow_tls_settings: Option<ShadowTlsConfig>,
 }
 
 /// TLS configuration used when `security = "tls"`.
@@ -221,4 +229,25 @@ pub struct Hysteria2Config {
 /// 100 Mbps is a reasonable default for most modern connections.
 fn default_mbps() -> u64 {
     100
+}
+
+/// ShadowTLS v3 configuration.
+///
+/// ShadowTLS wraps a real TLS handshake in front of another proxy protocol so
+/// that it looks like a legitimate HTTPS connection to an external observer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ShadowTlsConfig {
+    /// Pre-shared key (password) used to derive the HMAC marker.
+    pub password: String,
+
+    /// Real TLS backend the server relays the handshake to, e.g. `"www.apple.com:443"`.
+    pub dest: String,
+
+    /// Protocol version. This implementation only supports version 3.
+    #[serde(default = "default_shadowtls_version")]
+    pub version: u8,
+}
+
+fn default_shadowtls_version() -> u8 {
+    3
 }
