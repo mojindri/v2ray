@@ -42,5 +42,5 @@ pub mod outbound;
 pub mod registry;
 
 pub use inbound::VlessInbound;
-pub use outbound::{VlessOutbound, VlessOutboundConfig, connect_vless_on_stream};
+pub use outbound::{connect_vless_on_stream, VlessOutbound, VlessOutboundConfig};
 pub use registry::{VlessUser, VlessUserRegistry};
