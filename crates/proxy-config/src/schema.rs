@@ -18,7 +18,8 @@ pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
-    GrpcConfig, RealityConfig, SniffingConfig, StreamSettingsConfig, TlsConfig, WsConfig,
+    GrpcConfig, Hysteria2Config, RealityConfig, SniffingConfig, StreamSettingsConfig, TlsConfig,
+    WsConfig,
 };
 
 use serde::{Deserialize, Serialize};

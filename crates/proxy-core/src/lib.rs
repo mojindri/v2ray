@@ -16,5 +16,6 @@
 
 pub mod instance;
 mod reality;
+mod hysteria2;
 
 pub use instance::Instance;

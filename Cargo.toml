@@ -43,11 +43,13 @@ futures     = "0.3"
 # ── TLS (pure Rust) ────────────────────────────────────────────────────────────
 rustls      = { version = "0.23.40", default-features = false, features = ["aws_lc_rs", "tls12"] }
 tokio-rustls = "0.26"
-rustls-acme = "0.15"
-rcgen       = "0.14"
+rustls-acme         = "0.15"
+rcgen               = "0.14"
+rustls-native-certs = "0.8"
 
 # ── QUIC ───────────────────────────────────────────────────────────────────────
 quinn       = { version = "0.11.9", features = ["runtime-tokio", "rustls-aws-lc-rs"] }
+quinn-proto = { version = "0.11.14", default-features = false }
 
 # ── WebSocket ──────────────────────────────────────────────────────────────────
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-webpki-roots"] }

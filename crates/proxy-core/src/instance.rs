@@ -37,6 +37,7 @@ use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
 
+use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
 use crate::reality::{
     build_reality_client, build_reality_server, uses_reality, RealityConnectionHandler,
     RealityVlessOutbound,
@@ -72,8 +73,10 @@ impl Instance {
                 Protocol::Freedom => FreedomOutbound::new(&out_cfg.tag),
                 Protocol::Vless => build_vless_outbound(out_cfg)
                     .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?,
+                Protocol::Hysteria2 => build_hysteria2_outbound(out_cfg)
+                    .with_context(|| format!("building Hysteria2 outbound '{}'", out_cfg.tag))?,
                 ref p => {
-                    anyhow::bail!("outbound protocol {:?} not yet implemented in Phase 1", p)
+                    anyhow::bail!("outbound protocol {:?} not yet implemented", p)
                 }
             };
             info!(tag = %handler.tag(), "registered outbound");
@@ -106,12 +109,22 @@ impl Instance {
                 .parse()
                 .with_context(|| format!("invalid listen address for inbound '{}'", in_cfg.tag))?;
 
+            // Hysteria2 runs its own QUIC server — it does not use TcpServerTransport.
+            if in_cfg.protocol == Protocol::Hysteria2 {
+                info!(tag = %in_cfg.tag, addr = %addr, "starting Hysteria2 inbound listener");
+                let dispatcher_for_h2 = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
+                let task = start_hysteria2_inbound(in_cfg, dispatcher_for_h2)
+                    .with_context(|| format!("starting Hysteria2 inbound '{}'", in_cfg.tag))?;
+                tasks.push(task);
+                continue;
+            }
+
             let handler: Arc<dyn InboundHandler> = match in_cfg.protocol {
                 Protocol::Socks => Socks5Inbound::new(&in_cfg.tag),
                 Protocol::Vless => build_vless_inbound(in_cfg)
                     .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?,
                 ref p => {
-                    anyhow::bail!("inbound protocol {:?} not yet implemented in Phase 1", p)
+                    anyhow::bail!("inbound protocol {:?} not yet implemented", p)
                 }
             };
 

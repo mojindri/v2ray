@@ -8,7 +8,7 @@
 //! What lives here:
 //! - [`address`]   — the universal `Address` type (IPv4 / IPv6 / domain name)
 //! - [`stream`]    — the `BoxedStream` type: a single trait object that every
-//!                   protocol and transport speaks to each other through
+//!   protocol and transport speaks to each other through
 //! - [`error`]     — the `ProxyError` enum used across the whole project
 //! - [`buf`]       — a buffer pool for reusing memory allocations
 
@@ -23,7 +23,7 @@ pub mod stream;
 pub use address::{Address, Network};
 pub use buf::BufferPool;
 pub use error::ProxyError;
-pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream};
+pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream, ReunionStream};
 
 // Linux-only relay optimization support.
 //

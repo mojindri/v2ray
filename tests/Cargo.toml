@@ -21,6 +21,8 @@ tokio.workspace     = true
 anyhow.workspace    = true
 hex.workspace       = true
 serde_json.workspace = true
+rcgen.workspace     = true
+quinn.workspace     = true
 
 [lib]
 name = "integration_tests"

@@ -36,7 +36,7 @@ use proxy_app::features::ConnectionHandler;
 use proxy_common::{BoxedStream, ProxyError};
 
 /// Configuration for the TCP transport.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TcpConfig {
     /// If `Some(mark)`, outbound sockets are tagged with this routing mark.
     /// The mark is used by `iptables` / `ip rule` to route the packets through
@@ -54,14 +54,6 @@ pub struct TcpConfig {
     pub tcp_fast_open: bool,
 }
 
-impl Default for TcpConfig {
-    fn default() -> Self {
-        Self {
-            so_mark: None,
-            tcp_fast_open: false,
-        }
-    }
-}
 
 /// Server-side TCP transport: listens on a port and accepts connections.
 ///

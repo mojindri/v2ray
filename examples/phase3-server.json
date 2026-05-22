@@ -1,0 +1,22 @@
+{
+  "inbounds": [{
+    "tag": "hysteria2-in",
+    "protocol": "hysteria2",
+    "listen": "0.0.0.0",
+    "port": 443,
+    "settings": {
+      "auth": "YOUR_PASSWORD_HERE",
+      "upMbps": 100,
+      "downMbps": 100
+    },
+    "streamSettings": {
+      "network": "quic",
+      "security": "tls",
+      "tlsSettings": {
+        "certificateFile": "/etc/proxy/cert.pem",
+        "keyFile": "/etc/proxy/key.pem"
+      }
+    }
+  }],
+  "outbounds": [{"tag": "direct", "protocol": "freedom"}]
+}

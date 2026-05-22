@@ -1,0 +1,13 @@
+{
+  "inbounds": [{"tag":"socks","protocol":"socks","listen":"127.0.0.1","port":1080}],
+  "outbounds": [{
+    "tag": "hysteria2-out",
+    "protocol": "hysteria2",
+    "settings": {
+      "server": "your-server.example.com:443",
+      "auth": "YOUR_PASSWORD_HERE",
+      "upMbps": 50,
+      "downMbps": 50
+    }
+  }]
+}
