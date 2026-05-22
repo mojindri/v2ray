@@ -3,7 +3,7 @@
 # Run `make help` to see all available commands.
 # Run `make` (no arguments) to build the project.
 
-.PHONY: all build test check fmt lint audit update-geoip clean help
+.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke clean help
 
 # Default target: build in release mode.
 all: build
@@ -43,9 +43,22 @@ lint:
 audit:
 	cargo audit
 
+## fuzz-build: Build all cargo-fuzz targets with nightly.
+fuzz-build:
+	cargo +nightly fuzz build --manifest-path fuzz/Cargo.toml
+
+## fuzz-smoke: Run each fuzz target for a short deterministic smoke pass.
+fuzz-smoke:
+	cargo +nightly fuzz run reality_client_hello --manifest-path fuzz/Cargo.toml -- -runs=100
+	cargo +nightly fuzz run vmess_aead_header --manifest-path fuzz/Cargo.toml -- -runs=100
+	cargo +nightly fuzz run vless_header --manifest-path fuzz/Cargo.toml -- -runs=100
+	cargo +nightly fuzz run hysteria2_frame --manifest-path fuzz/Cargo.toml -- -runs=100
+	cargo +nightly fuzz run shadowtls_handshake --manifest-path fuzz/Cargo.toml -- -runs=100
+	cargo +nightly fuzz run ss2022_chunk --manifest-path fuzz/Cargo.toml -- -runs=100
+
 ## deny: Check dependency licenses and for duplicate crates.
 deny:
-	cargo deny check
+        cargo deny check
 
 ## ci: Run everything that CI runs, in order.
 ci: fmt-check lint test audit
