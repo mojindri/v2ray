@@ -19,6 +19,7 @@ mod hysteria2;
 pub mod instance;
 mod outbound_transport;
 mod reality;
+mod ss2022;
 mod trojan;
 mod vmess;
 mod ws_tls;

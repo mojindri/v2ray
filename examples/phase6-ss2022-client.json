@@ -1,0 +1,49 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+
+  "metricsAddr": "127.0.0.1:9090",
+
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    },
+    {
+      "tag": "http-local",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 8118
+    }
+  ],
+
+  "outbounds": [
+    {
+      "tag": "ss-proxy",
+      "protocol": "shadowsocks",
+      "settings": {
+        "address": "YOUR_SERVER_IP",
+        "port": 8388,
+        "method": "2022-blake3-aes-256-gcm",
+        "password": "CHANGE_ME_USE_A_STRONG_RANDOM_PASSWORD"
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    }
+  ],
+
+  "routing": {
+    "rules": [
+      {
+        "ip": ["127.0.0.1/8", "192.168.0.0/16", "10.0.0.0/8"],
+        "outbound_tag": "direct"
+      }
+    ]
+  }
+}

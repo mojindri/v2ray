@@ -15,6 +15,7 @@ pub mod context;
 pub mod dispatcher;
 pub mod dns;
 pub mod features;
+pub mod metrics;
 mod relay;
 pub mod router;
 
