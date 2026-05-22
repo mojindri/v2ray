@@ -29,7 +29,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_transport::reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
+use proxy_transport::reality::{
+    RealityClient, RealityClientConfig, RealityServer, RealityServerConfig,
+};
 
 /// Bind to port 0 and return the assigned port.
 /// This avoids port conflicts between concurrent tests.

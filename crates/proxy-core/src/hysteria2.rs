@@ -11,7 +11,9 @@ use anyhow::{Context as _, Result};
 
 use proxy_app::dispatcher::Dispatcher;
 use proxy_config::schema::{InboundConfig, OutboundConfig};
-use proxy_transport::{Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server, Hysteria2ServerConfig};
+use proxy_transport::{
+    Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server, Hysteria2ServerConfig,
+};
 
 /// Build and launch a Hysteria2 server inbound, returning a join handle for
 /// the server task.
@@ -40,7 +42,10 @@ pub(crate) fn build_hysteria2_outbound(
     cfg: &OutboundConfig,
 ) -> Result<Arc<dyn proxy_app::features::OutboundHandler>> {
     let client_config = parse_client_config(cfg)?;
-    Ok(Hysteria2OutboundHandler::new(client_config, cfg.tag.clone()))
+    Ok(Hysteria2OutboundHandler::new(
+        client_config,
+        cfg.tag.clone(),
+    ))
 }
 
 // ── Config parsing ────────────────────────────────────────────────────────────
@@ -49,24 +54,25 @@ pub(crate) fn build_hysteria2_outbound(
 fn parse_server_config(cfg: &InboundConfig) -> Result<Hysteria2ServerConfig> {
     let s = &cfg.settings;
 
-    let password = s["auth"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let password = s["auth"].as_str().unwrap_or_default().to_string();
 
     let up_mbps = s["upMbps"].as_u64().unwrap_or(100);
     let down_mbps = s["downMbps"].as_u64().unwrap_or(100);
 
     // Read TLS cert+key from stream_settings.tlsSettings.
-    let stream = cfg
-        .stream_settings
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Hysteria2 inbound '{tag}' missing streamSettings", tag = cfg.tag))?;
+    let stream = cfg.stream_settings.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Hysteria2 inbound '{tag}' missing streamSettings",
+            tag = cfg.tag
+        )
+    })?;
 
-    let tls = stream
-        .tls_settings
-        .as_ref()
-        .ok_or_else(|| anyhow::anyhow!("Hysteria2 inbound '{tag}' missing tlsSettings", tag = cfg.tag))?;
+    let tls = stream.tls_settings.as_ref().ok_or_else(|| {
+        anyhow::anyhow!(
+            "Hysteria2 inbound '{tag}' missing tlsSettings",
+            tag = cfg.tag
+        )
+    })?;
 
     let cert_path = require_field(&tls.certificate_file, "tlsSettings.certificateFile")?;
     let key_path = require_field(&tls.key_file, "tlsSettings.keyFile")?;
@@ -78,7 +84,12 @@ fn parse_server_config(cfg: &InboundConfig) -> Result<Hysteria2ServerConfig> {
 
     let addr: SocketAddr = format!("{}:{}", cfg.listen, cfg.port)
         .parse()
-        .with_context(|| format!("invalid Hysteria2 listen address '{}:{}'", cfg.listen, cfg.port))?;
+        .with_context(|| {
+            format!(
+                "invalid Hysteria2 listen address '{}:{}'",
+                cfg.listen, cfg.port
+            )
+        })?;
 
     Ok(Hysteria2ServerConfig {
         addr,
@@ -101,10 +112,7 @@ fn parse_client_config(cfg: &OutboundConfig) -> Result<Hysteria2ClientConfig> {
         .parse()
         .with_context(|| format!("invalid Hysteria2 server address '{server_str}'"))?;
 
-    let password = s["auth"]
-        .as_str()
-        .unwrap_or_default()
-        .to_string();
+    let password = s["auth"].as_str().unwrap_or_default().to_string();
 
     let up_mbps = s["upMbps"].as_u64().unwrap_or(100);
     let down_mbps = s["downMbps"].as_u64().unwrap_or(100);

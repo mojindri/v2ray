@@ -143,16 +143,16 @@ mod tests {
     /// Multiple passwords: any valid one is accepted.
     #[test]
     fn multi_password_validation() {
-        let handler = TrojanInbound::new(
-            "test",
-            &["pass1".to_string(), "pass2".to_string()],
-        );
+        let handler = TrojanInbound::new("test", &["pass1".to_string(), "pass2".to_string()]);
 
         for pw in &["pass1", "pass2"] {
             let token_str = compute_token(pw);
             let mut arr = [0u8; TOKEN_LEN];
             arr.copy_from_slice(token_str.as_bytes());
-            assert!(handler.validate_token(&arr), "password '{pw}' should be valid");
+            assert!(
+                handler.validate_token(&arr),
+                "password '{pw}' should be valid"
+            );
         }
 
         let bad_str = compute_token("pass3");

@@ -11,15 +11,17 @@ use anyhow::{Context as _, Result};
 use proxy_app::features::{InboundHandler, OutboundHandler};
 use proxy_protocol::trojan::{TrojanInbound, TrojanOutbound, TrojanOutboundConfig};
 
+use crate::outbound_transport::{uses_outbound_transport, TransportTrojanOutbound};
+
 /// Build a Trojan inbound handler from config.
 pub(crate) fn build_trojan_inbound(
     cfg: &proxy_config::schema::InboundConfig,
 ) -> Result<Arc<dyn InboundHandler>> {
     // Collect passwords from config JSON.
     // Expected shape: { "clients": [{ "password": "..." }, ...] }
-    let clients = cfg.settings["clients"].as_array().ok_or_else(|| {
-        anyhow::anyhow!("Trojan inbound '{}' missing 'clients' array", cfg.tag)
-    })?;
+    let clients = cfg.settings["clients"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("Trojan inbound '{}' missing 'clients' array", cfg.tag))?;
 
     let passwords: Vec<String> = clients
         .iter()
@@ -28,11 +30,7 @@ pub(crate) fn build_trojan_inbound(
             c["password"]
                 .as_str()
                 .ok_or_else(|| {
-                    anyhow::anyhow!(
-                        "Trojan client #{} in '{}' missing 'password'",
-                        i,
-                        cfg.tag
-                    )
+                    anyhow::anyhow!("Trojan client #{} in '{}' missing 'password'", i, cfg.tag)
                 })
                 .map(|s| s.to_string())
         })
@@ -54,9 +52,9 @@ pub(crate) fn build_trojan_outbound(
     let server_str = settings["address"]
         .as_str()
         .ok_or_else(|| anyhow::anyhow!("Trojan outbound '{}' missing 'address'", cfg.tag))?;
-    let port = settings["port"].as_u64().ok_or_else(|| {
-        anyhow::anyhow!("Trojan outbound '{}' missing 'port'", cfg.tag)
-    })?;
+    let port = settings["port"]
+        .as_u64()
+        .ok_or_else(|| anyhow::anyhow!("Trojan outbound '{}' missing 'port'", cfg.tag))?;
     let server: SocketAddr = format!("{server_str}:{port}")
         .parse()
         .with_context(|| format!("invalid Trojan server address '{server_str}:{port}'"))?;
@@ -66,8 +64,17 @@ pub(crate) fn build_trojan_outbound(
         .ok_or_else(|| anyhow::anyhow!("Trojan outbound '{}' missing 'password'", cfg.tag))?
         .to_string();
 
-    Ok(TrojanOutbound::new(
-        &cfg.tag,
-        TrojanOutboundConfig { server, password },
-    ))
+    if uses_outbound_transport(&cfg.stream_settings) {
+        Ok(TransportTrojanOutbound::new(
+            &cfg.tag,
+            server,
+            password,
+            cfg.stream_settings.clone(),
+        ))
+    } else {
+        Ok(TrojanOutbound::new(
+            &cfg.tag,
+            TrojanOutboundConfig { server, password },
+        ))
+    }
 }

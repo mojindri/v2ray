@@ -47,6 +47,7 @@ use proxy_protocol::vless::{
 };
 
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
+use crate::outbound_transport::{uses_outbound_transport, TransportVlessOutbound};
 use crate::reality::{
     build_reality_client, build_reality_server, uses_reality, RealityConnectionHandler,
     RealityVlessOutbound,
@@ -148,32 +149,28 @@ impl Instance {
             let dispatcher_for_handler = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
 
             // Choose the connection handler stack based on stream settings.
-            let conn_handler: Arc<dyn ConnectionHandler> =
-                if uses_reality(&in_cfg.stream_settings) {
-                    // REALITY: unwrap REALITY TLS camouflage first.
-                    let reality = build_reality_server(in_cfg)
-                        .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                    RealityConnectionHandler::new(
-                        reality,
-                        Arc::clone(&handler),
-                        dispatcher_for_handler,
-                    )
-                } else if uses_tls(&in_cfg.stream_settings) || uses_ws(&in_cfg.stream_settings) {
-                    // Phase 4: TLS and/or WebSocket layering.
-                    build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
-                        .with_context(|| {
-                            format!(
-                                "building TLS/WS connection handler for inbound '{}'",
-                                in_cfg.tag
-                            )
-                        })?
-                } else {
-                    // Plain TCP: no transport wrapping.
-                    Arc::new(InboundConnectionHandler {
-                        inbound: Arc::clone(&handler),
-                        dispatcher: dispatcher_for_handler,
-                    })
-                };
+            let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
+            {
+                // REALITY: unwrap REALITY TLS camouflage first.
+                let reality = build_reality_server(in_cfg)
+                    .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
+                RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
+            } else if uses_tls(&in_cfg.stream_settings) || uses_ws(&in_cfg.stream_settings) {
+                // Phase 4: TLS and/or WebSocket layering.
+                build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
+                    .with_context(|| {
+                        format!(
+                            "building TLS/WS connection handler for inbound '{}'",
+                            in_cfg.tag
+                        )
+                    })?
+            } else {
+                // Plain TCP: no transport wrapping.
+                Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
+                })
+            };
 
             // Start the TCP accept loop for this inbound.
             let transport = proxy_transport::TcpServerTransport::new(
@@ -269,6 +266,14 @@ fn build_vless_outbound(
     if uses_reality(&cfg.stream_settings) {
         let reality = build_reality_client(cfg, server)?;
         Ok(RealityVlessOutbound::new(&cfg.tag, reality, uuid, flow))
+    } else if uses_outbound_transport(&cfg.stream_settings) {
+        Ok(TransportVlessOutbound::new(
+            &cfg.tag,
+            server,
+            uuid,
+            flow,
+            cfg.stream_settings.clone(),
+        ))
     } else {
         Ok(VlessOutbound::new(
             &cfg.tag,

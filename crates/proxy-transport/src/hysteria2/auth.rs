@@ -16,8 +16,8 @@
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::proto::{
-    AuthRequest, AuthResponse, decode_auth_request, decode_auth_response, encode_auth_request,
-    encode_auth_response,
+    decode_auth_request, decode_auth_response, encode_auth_request, encode_auth_response,
+    AuthRequest, AuthResponse,
 };
 
 /// Errors that can occur during Hysteria2 authentication.
@@ -53,7 +53,10 @@ impl From<anyhow::Error> for AuthError {
 /// - `AuthError::WrongPassword` — client provided a wrong password.
 /// - `AuthError::Protocol` — malformed auth frame.
 /// - `AuthError::Io` — network I/O error.
-pub async fn server_auth<S>(stream: &mut S, expected_password: &str) -> Result<(u64, u64), AuthError>
+pub async fn server_auth<S>(
+    stream: &mut S,
+    expected_password: &str,
+) -> Result<(u64, u64), AuthError>
 where
     S: AsyncRead + AsyncWrite + Unpin,
 {

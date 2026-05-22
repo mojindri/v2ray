@@ -17,8 +17,8 @@ use proxy_common::{Address, ProxyError};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::proto::{
-    Destination, TcpRequest, TcpResponse, decode_tcp_request, decode_tcp_response,
-    encode_tcp_request, encode_tcp_response,
+    decode_tcp_request, decode_tcp_response, encode_tcp_request, encode_tcp_response, Destination,
+    TcpRequest, TcpResponse,
 };
 
 /// Server: read the TCP proxy request from the client.
@@ -29,7 +29,9 @@ use super::proto::{
 /// # Errors
 ///
 /// Returns a `ProxyError` if the frame is malformed or the address is invalid.
-pub async fn server_read_request<R: AsyncRead + Unpin>(stream: &mut R) -> Result<Address, ProxyError> {
+pub async fn server_read_request<R: AsyncRead + Unpin>(
+    stream: &mut R,
+) -> Result<Address, ProxyError> {
     let req = decode_tcp_request(stream)
         .await
         .map_err(|e| ProxyError::Protocol(format!("bad TCP request: {e}")))?;
@@ -74,9 +76,7 @@ pub async fn client_write_request<W: AsyncWrite + Unpin>(
 ///
 /// Returns `Ok(())` if the server confirmed it can reach the destination.
 /// Returns a `ProxyError` if the server reported an error or the frame is invalid.
-pub async fn client_read_response<R: AsyncRead + Unpin>(
-    stream: &mut R,
-) -> Result<(), ProxyError> {
+pub async fn client_read_response<R: AsyncRead + Unpin>(stream: &mut R) -> Result<(), ProxyError> {
     let resp = decode_tcp_response(stream)
         .await
         .map_err(|e| ProxyError::Protocol(format!("bad TCP response: {e}")))?;

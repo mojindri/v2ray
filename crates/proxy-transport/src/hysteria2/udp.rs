@@ -117,8 +117,7 @@ pub fn decode_udp_datagram(mut data: &[u8]) -> Result<UdpDatagram> {
             let name_len = data.get_u8() as usize;
             anyhow::ensure!(data.len() >= name_len + 2, "truncated domain name");
             let name_bytes = &data[..name_len];
-            let name =
-                std::str::from_utf8(name_bytes).context("domain name is not valid UTF-8")?;
+            let name = std::str::from_utf8(name_bytes).context("domain name is not valid UTF-8")?;
             let name = name.to_string();
             data.advance(name_len);
             let port = data.get_u16();

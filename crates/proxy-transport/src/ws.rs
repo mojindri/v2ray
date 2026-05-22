@@ -36,8 +36,7 @@ use futures::stream::Stream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio_tungstenite::{
     accept_async_with_config, client_async_with_config, tungstenite,
-    tungstenite::client::IntoClientRequest,
-    tungstenite::protocol::WebSocketConfig,
+    tungstenite::client::IntoClientRequest, tungstenite::protocol::WebSocketConfig,
 };
 use tungstenite::Message;
 
@@ -74,7 +73,10 @@ impl Default for WsConnectConfig {
 /// # Arguments
 /// * `tcp_stream` — the already-connected TCP stream to upgrade
 /// * `cfg` — WebSocket connection parameters (path, host, headers)
-pub async fn ws_connect(tcp_stream: BoxedStream, cfg: WsConnectConfig) -> Result<BoxedStream, ProxyError> {
+pub async fn ws_connect(
+    tcp_stream: BoxedStream,
+    cfg: WsConnectConfig,
+) -> Result<BoxedStream, ProxyError> {
     // Build a URL for tungstenite. It needs a URL even for an already-connected
     // stream (the host/path go into the HTTP Upgrade request headers).
     let host = if cfg.host.is_empty() {

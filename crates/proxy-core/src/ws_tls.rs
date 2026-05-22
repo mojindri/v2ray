@@ -17,8 +17,8 @@ use std::sync::Arc;
 
 use anyhow::Result;
 
-use proxy_app::features::{ConnectionHandler, InboundHandler};
 use proxy_app::dispatcher::Dispatcher;
+use proxy_app::features::{ConnectionHandler, InboundHandler};
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_transport::{tls_accept, ws_accept};

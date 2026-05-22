@@ -200,7 +200,11 @@ pub async fn decode_auth_response<R: AsyncRead + Unpin>(r: &mut R) -> Result<Aut
         .await
         .context("reading padding")?;
 
-    Ok(AuthResponse { ok, up_mbps, down_mbps })
+    Ok(AuthResponse {
+        ok,
+        up_mbps,
+        down_mbps,
+    })
 }
 
 /// Encode and write a `TcpRequest` to `w`.
@@ -255,8 +259,7 @@ pub async fn decode_tcp_request<R: AsyncRead + Unpin>(r: &mut R) -> Result<TcpRe
             r.read_exact(&mut name_bytes)
                 .await
                 .context("reading domain name")?;
-            let name =
-                String::from_utf8(name_bytes).context("domain name is not valid UTF-8")?;
+            let name = String::from_utf8(name_bytes).context("domain name is not valid UTF-8")?;
             let port = r.read_u16().await.context("reading port")?;
             Destination::Domain(name, port)
         }

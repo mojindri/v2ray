@@ -143,7 +143,7 @@ async fn server_accepts_correct_password() {
 fn brutal_cc_factory_builds_controller_with_minimum_window() {
     use proxy_transport::congestion::ControllerFactory;
     let factory = Arc::new(BrutalCCFactory::new(12_500_000)); // 100 Mbps
-    // ControllerFactory::build consumes the Arc — clone to preserve the factory.
+                                                              // ControllerFactory::build consumes the Arc — clone to preserve the factory.
     let ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
     // Window must never drop below 32 KiB.
     assert!(

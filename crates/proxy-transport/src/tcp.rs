@@ -54,7 +54,6 @@ pub struct TcpConfig {
     pub tcp_fast_open: bool,
 }
 
-
 /// Server-side TCP transport: listens on a port and accepts connections.
 ///
 /// For each accepted connection, it spawns a Tokio task that calls the

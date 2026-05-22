@@ -88,10 +88,7 @@ fn skip_cipher_suites(body: &[u8], mut pos: usize) -> Result<usize> {
 }
 
 fn skip_compression_methods(body: &[u8], mut pos: usize) -> Result<usize> {
-    anyhow::ensure!(
-        pos < body.len(),
-        "truncated at compression_methods_len"
-    );
+    anyhow::ensure!(pos < body.len(), "truncated at compression_methods_len");
     let comp_len = body[pos] as usize;
     pos += 1 + comp_len;
     anyhow::ensure!(pos <= body.len(), "truncated compression_methods");
