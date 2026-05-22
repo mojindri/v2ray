@@ -1,0 +1,47 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 11080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-reality-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 11443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "publicKey": "bbf29cec98e1aff519fcd09456d90407804f91ae62be4b8aac48f6d676807865",
+          "shortId": "0123456789abcdef",
+          "serverName": "www.example.com",
+          "fingerprint": "chrome"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "vless-reality-out"
+      }
+    ]
+  }
+}

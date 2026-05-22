@@ -26,7 +26,12 @@ pub struct InboundConfig {
     pub settings: serde_json::Value,
 
     /// Transport settings: TLS, WebSocket, REALITY, etc.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "streamSettings",
+        alias = "stream_settings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub stream_settings: Option<StreamSettingsConfig>,
 
     /// Sniffing settings for detecting inner protocol.
@@ -48,6 +53,11 @@ pub struct OutboundConfig {
     pub settings: serde_json::Value,
 
     /// Transport settings: TLS, WebSocket, REALITY, etc.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        rename = "streamSettings",
+        alias = "stream_settings",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub stream_settings: Option<StreamSettingsConfig>,
 }
