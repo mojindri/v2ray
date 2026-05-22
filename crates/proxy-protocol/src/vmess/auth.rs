@@ -28,9 +28,9 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use aes_gcm::aead::generic_array::GenericArray;
 use aes_gcm::aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes_gcm::aes::Aes128;
-use aes_gcm::aead::generic_array::GenericArray;
 use crc32fast::Hasher as Crc32Hasher;
 use md5::{Digest as Md5Digest, Md5};
 use rand::RngCore;

@@ -33,8 +33,8 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use aes_gcm::{
+    aead::{generic_array::GenericArray, Aead, Payload},
     Aes128Gcm, KeyInit,
-    aead::{Aead, Payload, generic_array::GenericArray},
 };
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -257,10 +257,7 @@ impl AsyncWrite for VmessStream {
         Poll::Ready(Ok(chunk.len()))
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         while !self.write_buf.is_empty() {
             let data = self.write_buf.clone().freeze();
             // (marker for unused import prevention)
@@ -275,10 +272,7 @@ impl AsyncWrite for VmessStream {
         Pin::new(self.inner.as_mut()).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(self.inner.as_mut()).poll_shutdown(cx)
     }
 }

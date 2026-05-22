@@ -157,9 +157,7 @@ impl InboundHandler for VmessInbound {
         // Step 5: Wrap the stream in AEAD chunk framing.
         // For AES-128-GCM we use the request's key/iv directly.
         let vmess_stream: BoxedStream = match request.security {
-            Security::Aes128Gcm => {
-                Box::new(VmessStream::new(stream, &request.key, &request.iv))
-            }
+            Security::Aes128Gcm => Box::new(VmessStream::new(stream, &request.key, &request.iv)),
             Security::ChaCha20Poly1305 => {
                 // ChaCha20-Poly1305 variant uses the same stream type with a
                 // different cipher. For now we fall back to AES-128-GCM since
@@ -180,12 +178,12 @@ pub(super) fn decrypt_length_field(
     auth_id: &[u8; 16],
     enc: &[u8; 18],
 ) -> Result<usize, ProxyError> {
-    use aes_gcm::{
-        Aes128Gcm, KeyInit,
-        aead::{Aead, Payload, generic_array::GenericArray},
-    };
+    use super::codec::{PATH_HEADER_IV, PATH_HEADER_IV_2, PATH_HEADER_KEY, PATH_HEADER_KEY_2};
     use super::kdf::kdf;
-    use super::codec::{PATH_HEADER_IV, PATH_HEADER_KEY, PATH_HEADER_IV_2, PATH_HEADER_KEY_2};
+    use aes_gcm::{
+        aead::{generic_array::GenericArray, Aead, Payload},
+        Aes128Gcm, KeyInit,
+    };
 
     let key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
     let nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);

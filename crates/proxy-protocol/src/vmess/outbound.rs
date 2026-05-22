@@ -114,11 +114,11 @@ fn encrypt_length_field(
     auth_id: &[u8; 16],
     len: u16,
 ) -> Result<Vec<u8>, ProxyError> {
+    use super::codec::{PATH_HEADER_IV, PATH_HEADER_IV_2, PATH_HEADER_KEY, PATH_HEADER_KEY_2};
     use aes_gcm::{
+        aead::{generic_array::GenericArray, Aead, Payload},
         Aes128Gcm, KeyInit,
-        aead::{Aead, Payload, generic_array::GenericArray},
     };
-    use super::codec::{PATH_HEADER_IV, PATH_HEADER_KEY, PATH_HEADER_IV_2, PATH_HEADER_KEY_2};
 
     let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
     let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
@@ -139,8 +139,8 @@ fn encrypt_length_field(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::auth::cmd_key;
+    use super::*;
 
     fn test_uuid() -> [u8; 16] {
         *uuid::Uuid::parse_str("a3482e88-686a-4a58-8126-99c9df64b7bf")
@@ -160,7 +160,8 @@ mod tests {
 
         // Decrypt via inbound helper.
         use super::super::inbound::decrypt_length_field;
-        let decrypted = decrypt_length_field(&key, &auth_id, enc.as_slice().try_into().unwrap()).unwrap();
+        let decrypted =
+            decrypt_length_field(&key, &auth_id, enc.as_slice().try_into().unwrap()).unwrap();
         assert_eq!(decrypted, len as usize);
     }
 }

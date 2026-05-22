@@ -163,9 +163,9 @@ fn parse_request_line(line: &str) -> Result<Address, ProxyError> {
         .rsplit_once(':')
         .ok_or_else(|| ProxyError::Protocol("HTTP CONNECT: malformed target (no port)".into()))?;
 
-    let port: u16 = port_str.parse().map_err(|_| {
-        ProxyError::Protocol(format!("HTTP CONNECT: invalid port '{port_str}'"))
-    })?;
+    let port: u16 = port_str
+        .parse()
+        .map_err(|_| ProxyError::Protocol(format!("HTTP CONNECT: invalid port '{port_str}'")))?;
 
     let host = host.trim_matches(|c| c == '[' || c == ']'); // strip IPv6 brackets
 

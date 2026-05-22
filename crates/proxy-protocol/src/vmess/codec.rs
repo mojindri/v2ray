@@ -39,8 +39,8 @@
 //! v2fly/v2ray-core: `proxy/vmess/encoding/`
 
 use aes_gcm::{
+    aead::{generic_array::GenericArray, Aead, Payload},
     Aes128Gcm, KeyInit,
-    aead::{Aead, Payload, generic_array::GenericArray},
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use rand::RngCore;
@@ -149,14 +149,8 @@ pub fn encode_header(
     let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest);
 
     // Derive AES-128-GCM key and nonce from cmd_key.
-    let enc_key: [u8; 16] = kdf(
-        cmd_key,
-        &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2],
-    );
-    let enc_nonce: [u8; 12] = kdf(
-        cmd_key,
-        &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2],
-    );
+    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
+    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
 
     let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
     let nonce = GenericArray::from_slice(&enc_nonce);
@@ -249,14 +243,8 @@ pub async fn decode_header<R: AsyncRead + Unpin>(
     let mut ciphertext = vec![0u8; enc_len];
     reader.read_exact(&mut ciphertext).await?;
 
-    let enc_key: [u8; 16] = kdf(
-        cmd_key,
-        &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2],
-    );
-    let enc_nonce: [u8; 12] = kdf(
-        cmd_key,
-        &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2],
-    );
+    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
+    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
 
     let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
     let nonce = GenericArray::from_slice(&enc_nonce);
@@ -301,14 +289,18 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
 
     // Port
     if pos + 2 > data.len() {
-        return Err(ProxyError::Protocol("VMess: header truncated at port".into()));
+        return Err(ProxyError::Protocol(
+            "VMess: header truncated at port".into(),
+        ));
     }
     let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
     pos += 2;
 
     // Address type
     if pos >= data.len() {
-        return Err(ProxyError::Protocol("VMess: header truncated at atyp".into()));
+        return Err(ProxyError::Protocol(
+            "VMess: header truncated at atyp".into(),
+        ));
     }
     let atyp = data[pos];
     pos += 1;
@@ -318,7 +310,8 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
             if pos + 4 > data.len() {
                 return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
             }
-            let ip = std::net::Ipv4Addr::new(data[pos], data[pos+1], data[pos+2], data[pos+3]);
+            let ip =
+                std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
             pos += 4;
             Address::Ipv4(ip, port)
         }
@@ -327,27 +320,31 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
                 return Err(ProxyError::Protocol("VMess: truncated IPv6".into()));
             }
             let mut ip6 = [0u8; 16];
-            ip6.copy_from_slice(&data[pos..pos+16]);
+            ip6.copy_from_slice(&data[pos..pos + 16]);
             pos += 16;
             Address::Ipv6(std::net::Ipv6Addr::from(ip6), port)
         }
         ATYP_DOMAIN => {
             if pos >= data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated domain length".into()));
+                return Err(ProxyError::Protocol(
+                    "VMess: truncated domain length".into(),
+                ));
             }
             let dlen = data[pos] as usize;
             pos += 1;
             if pos + dlen > data.len() {
                 return Err(ProxyError::Protocol("VMess: truncated domain".into()));
             }
-            let domain = std::str::from_utf8(&data[pos..pos+dlen])
+            let domain = std::str::from_utf8(&data[pos..pos + dlen])
                 .map_err(|_| ProxyError::Protocol("VMess: domain not UTF-8".into()))?
                 .to_string();
             pos += dlen;
             Address::Domain(domain, port)
         }
         other => {
-            return Err(ProxyError::Protocol(format!("VMess: unknown ATYP {other:#x}")));
+            return Err(ProxyError::Protocol(format!(
+                "VMess: unknown ATYP {other:#x}"
+            )));
         }
     };
 
@@ -358,12 +355,20 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         return Err(ProxyError::Protocol("VMess: truncated checksum".into()));
     }
     let expected = fnv32a(&data[..pos]);
-    let received = u32::from_be_bytes(data[pos..pos+4].try_into().unwrap());
+    let received = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap());
     if expected != received {
-        return Err(ProxyError::Protocol("VMess: header checksum mismatch".into()));
+        return Err(ProxyError::Protocol(
+            "VMess: header checksum mismatch".into(),
+        ));
     }
 
-    Ok(VmessRequest { iv, key, v, security, dest })
+    Ok(VmessRequest {
+        iv,
+        key,
+        v,
+        security,
+        dest,
+    })
 }
 
 // ── FNV-1a ────────────────────────────────────────────────────────────────────
@@ -435,13 +440,16 @@ mod tests {
         let auth_id = test_auth_id();
         let dest = Address::Domain("test.example.com".to_string(), 443);
 
-        let (iv, key, v, ciphertext) = encode_header(&cmd_key, &auth_id, &dest, Security::Aes128Gcm);
+        let (iv, key, v, ciphertext) =
+            encode_header(&cmd_key, &auth_id, &dest, Security::Aes128Gcm);
 
         // Simulate read: put ciphertext into a cursor.
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let mut cursor = std::io::Cursor::new(ciphertext.to_vec());
-            let req = decode_header(&mut cursor, &cmd_key, &auth_id, ciphertext.len()).await.unwrap();
+            let req = decode_header(&mut cursor, &cmd_key, &auth_id, ciphertext.len())
+                .await
+                .unwrap();
             assert_eq!(req.iv, iv);
             assert_eq!(req.key, key);
             assert_eq!(req.v, v);

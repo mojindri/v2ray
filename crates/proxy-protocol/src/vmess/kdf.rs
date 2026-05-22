@@ -14,7 +14,7 @@
 //!
 //! v2fly/v2ray-core: `common/crypto/kdf.go`
 
-use hmac::{Hmac, Mac, KeyInit};
+use hmac::{Hmac, KeyInit, Mac};
 use sha2::Sha256;
 
 type HmacSha256 = Hmac<Sha256>;
@@ -29,7 +29,10 @@ type HmacSha256 = Hmac<Sha256>;
 ///
 /// Panics if `N > 32` (the HMAC-SHA256 output is 32 bytes).
 pub fn kdf<const N: usize>(key: &[u8], paths: &[&[u8]]) -> [u8; N] {
-    assert!(N <= 32, "KDF output cannot exceed 32 bytes (HMAC-SHA256 size)");
+    assert!(
+        N <= 32,
+        "KDF output cannot exceed 32 bytes (HMAC-SHA256 size)"
+    );
 
     // The derivation starts with the base key. Each path segment is added by
     // using the current output as the new key and the path as the message.
