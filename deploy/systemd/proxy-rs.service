@@ -19,13 +19,12 @@ After=network-online.target
 Wants=network-online.target
 
 [Service]
-# Run as an unprivileged user. Create this user with:
-#   useradd --system --no-create-home --shell /sbin/nologin proxy-rs
-User=proxy-rs
-Group=proxy-rs
+# Run as an unprivileged user.
+User=nobody
+Group=nobody
 
 # The binary and config file paths.
-ExecStart=/usr/local/bin/proxy-rs run --config /etc/proxy-rs/config.json
+ExecStart=/usr/local/bin/proxy-rs run -c /etc/proxy-rs/config.json
 
 # Send SIGHUP to trigger a hot config reload (reload users, routing rules, etc.)
 # without stopping the process or dropping existing connections.

@@ -14,7 +14,7 @@
 #              -p 443:443 proxy-rs:latest
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
-FROM rust:slim-bookworm AS builder
+FROM rust:1.83-slim AS builder
 
 WORKDIR /build
 
@@ -50,10 +50,13 @@ COPY fingerprints/ fingerprints/
 RUN cargo build --release --bin proxy-rs
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-# distroless/cc contains only the C standard library and SSL certificates.
-# There is no shell, no package manager, no user tools. This minimises the
-# attack surface if the container is ever compromised.
-FROM gcr.io/distroless/cc-debian12:nonroot
+# debian:bookworm-slim has libc and TLS certs but no unnecessary packages.
+FROM debian:bookworm-slim
+
+# Install CA certificates for TLS outbound verification.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 
 # Copy only the compiled binary from the builder stage.
 COPY --from=builder /build/target/release/proxy-rs /usr/local/bin/proxy-rs
@@ -66,8 +69,8 @@ COPY --from=builder /build/fingerprints/ /usr/local/share/proxy-rs/fingerprints/
 # Example: docker run -v /host/config.json:/etc/proxy-rs/config.json proxy-rs
 VOLUME ["/etc/proxy-rs"]
 
-# Expose common proxy ports. Override in docker-compose.yml for your setup.
-EXPOSE 443 80 1080
+# Expose proxy port and metrics port.
+EXPOSE 443 8080
 
 ENTRYPOINT ["/usr/local/bin/proxy-rs"]
-CMD ["run", "--config", "/etc/proxy-rs/config.json"]
+CMD ["run", "-c", "/etc/proxy-rs/config.json"]

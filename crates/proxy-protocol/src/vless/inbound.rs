@@ -127,8 +127,11 @@ impl InboundHandler for VlessInbound {
 
                         // Send the VLESS response header to the client.
                         // After this, raw bytes follow — no more VLESS framing.
+                        // Flush explicitly so buffered transports (WebSocket) send
+                        // the response immediately.
                         let resp = encode_response();
                         stream.write_all(&resp).await?;
+                        stream.flush().await?;
 
                         // Hand the stream to the dispatcher to relay to the destination.
                         let ctx = Context::new(&self.tag, source).with_user(user.email.clone());

@@ -25,3 +25,6 @@
 # Fuzz corpus and artifacts — too large for git, stored separately.
 fuzz/corpus/
 fuzz/artifacts/
+
+# Claude Code agent metadata — worktree management files, not project code.
+.claude/

@@ -1,0 +1,37 @@
+{
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "trojan-out",
+      "protocol": "trojan",
+      "settings": {
+        "address": "your-server-host-or-ip",
+        "port": 443,
+        "password": "your-strong-password-here"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "your-server-host-or-ip",
+          "allowInsecure": false,
+          "alpn": ["h2", "http/1.1"]
+        }
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "trojan-out"
+      }
+    ]
+  }
+}

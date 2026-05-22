@@ -179,3 +179,46 @@ pub struct SniffingConfig {
     #[serde(default, rename = "destOverride")]
     pub dest_override: Vec<String>,
 }
+
+/// Hysteria2 protocol configuration.
+///
+/// Hysteria2 uses QUIC with the Brutal congestion controller to achieve high
+/// throughput on high-latency, lossy links. This struct is used both for
+/// server inbound and client outbound configuration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct Hysteria2Config {
+    /// Authentication password (both client and server must use the same value).
+    #[serde(default)]
+    pub auth: String,
+
+    /// Target upstream bandwidth in Mbps (client → server direction).
+    ///
+    /// Used to tune the Brutal CC window size. Higher values allow more in-flight
+    /// bytes on high-bandwidth links.
+    #[serde(default = "default_mbps", rename = "upMbps")]
+    pub up_mbps: u64,
+
+    /// Target downstream bandwidth in Mbps (server → client direction).
+    #[serde(default = "default_mbps", rename = "downMbps")]
+    pub down_mbps: u64,
+
+    /// Server address for client config (e.g. "example.com:443" or "1.2.3.4:443").
+    ///
+    /// Not required for server-side config.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub server: String,
+
+    /// Skip TLS certificate verification.
+    ///
+    /// WARNING: Only use this for development and testing. In production, always
+    /// verify the server certificate to prevent man-in-the-middle attacks.
+    #[serde(default, rename = "skipCertVerify")]
+    pub skip_cert_verify: bool,
+}
+
+/// Default bandwidth in Mbps when none is specified.
+///
+/// 100 Mbps is a reasonable default for most modern connections.
+fn default_mbps() -> u64 {
+    100
+}
