@@ -37,6 +37,11 @@ use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
 
+use crate::reality::{
+    build_reality_client, build_reality_server, uses_reality, RealityConnectionHandler,
+    RealityVlessOutbound,
+};
+
 /// The running proxy instance.
 pub struct Instance {
     /// Background task handles. Kept alive as long as `Instance` is alive.
@@ -114,10 +119,18 @@ impl Instance {
 
             // Wrap the inbound in a ConnectionHandler adapter so the transport
             // layer can call it without knowing about the protocol.
-            let conn_handler = Arc::new(InboundConnectionHandler {
-                inbound: Arc::clone(&handler),
-                dispatcher: Arc::clone(&dispatcher) as Arc<dyn Dispatcher>,
-            });
+            let dispatcher_for_handler = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
+            let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
+            {
+                let reality = build_reality_server(in_cfg)
+                    .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
+                RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
+            } else {
+                Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
+                })
+            };
 
             // Start the TCP accept loop for this inbound.
             let transport = proxy_transport::TcpServerTransport::new(
@@ -210,10 +223,15 @@ fn build_vless_outbound(
         .unwrap_or("")
         .to_string();
 
-    Ok(VlessOutbound::new(
-        &cfg.tag,
-        VlessOutboundConfig { server, uuid, flow },
-    ))
+    if uses_reality(&cfg.stream_settings) {
+        let reality = build_reality_client(cfg, server)?;
+        Ok(RealityVlessOutbound::new(&cfg.tag, reality, uuid, flow))
+    } else {
+        Ok(VlessOutbound::new(
+            &cfg.tag,
+            VlessOutboundConfig { server, uuid, flow },
+        ))
+    }
 }
 
 /// Build a VLESS inbound handler from config.

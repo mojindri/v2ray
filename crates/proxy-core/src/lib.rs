@@ -15,5 +15,6 @@
 //! 4. On SIGHUP → hot-reload config without stopping listeners
 
 pub mod instance;
+mod reality;
 
 pub use instance::Instance;
