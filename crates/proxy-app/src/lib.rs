@@ -11,16 +11,20 @@
 //!   4. **Health checking**: periodically testing outbounds and marking them
 //!      dead when they fail, enabling automatic failover.
 
+pub mod balancer;
 pub mod context;
 pub mod dispatcher;
 pub mod dns;
 pub mod features;
 pub mod geo;
+pub mod health;
 pub mod metrics;
 mod relay;
 pub mod router;
 
+pub use balancer::Balancer;
 pub use context::Context;
 pub use dispatcher::Dispatcher;
 pub use features::{ConnectionHandler, InboundHandler, OutboundHandler};
+pub use health::{HealthChecker, HealthStates, OutboundState};
 pub use router::{Route, Router, RoutingContext};

@@ -18,7 +18,7 @@ pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
-    GrpcConfig, Hysteria2Config, RealityConfig, ShadowTlsConfig, SniffingConfig,
+    GrpcConfig, Hysteria2Config, KcpConfig, RealityConfig, ShadowTlsConfig, SniffingConfig,
     StreamSettingsConfig, TlsConfig, WsConfig,
 };
 

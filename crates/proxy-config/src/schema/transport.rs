@@ -52,6 +52,10 @@ pub struct StreamSettingsConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub shadow_tls_settings: Option<ShadowTlsConfig>,
+
+    /// mKCP-specific settings.
+    #[serde(default, rename = "kcpSettings", skip_serializing_if = "Option::is_none")]
+    pub kcp_settings: Option<KcpConfig>,
 }
 
 /// TLS configuration used when `security = "tls"`.
@@ -251,3 +255,29 @@ pub struct ShadowTlsConfig {
 fn default_shadowtls_version() -> u8 {
     3
 }
+
+/// mKCP transport settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct KcpConfig {
+    #[serde(default = "default_kcp_header")]
+    pub header: String,
+    #[serde(default = "default_kcp_mtu")]
+    pub mtu: u16,
+    #[serde(default = "default_kcp_tti")]
+    pub tti: u64,
+    #[serde(default = "default_kcp_capacity")]
+    pub uplink_capacity: u32,
+    #[serde(default = "default_kcp_capacity")]
+    pub downlink_capacity: u32,
+    #[serde(default)]
+    pub congestion: bool,
+    #[serde(default = "default_kcp_buf")]
+    pub read_buffer_size: u32,
+    #[serde(default = "default_kcp_buf")]
+    pub write_buffer_size: u32,
+}
+fn default_kcp_header() -> String { "none".into() }
+fn default_kcp_mtu() -> u16 { 1350 }
+fn default_kcp_tti() -> u64 { 50 }
+fn default_kcp_capacity() -> u32 { 5 }
+fn default_kcp_buf() -> u32 { 2 }

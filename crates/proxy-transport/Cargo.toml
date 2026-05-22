@@ -46,3 +46,4 @@ hmac.workspace              = true
 rand.workspace              = true
 hex.workspace               = true
 base64.workspace            = true
+tun.workspace               = true

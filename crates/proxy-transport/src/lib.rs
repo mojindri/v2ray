@@ -28,10 +28,13 @@ pub mod tls;
 pub mod ws;
 
 // Phase 4+
-// pub mod tun;
+pub mod tun;
 
 // Phase 5: gRPC transport
 pub mod grpc;
+
+// mKCP transport
+pub mod mkcp;
 
 // Phase 7: ShadowTLS v3 transport
 pub mod shadowtls;
@@ -48,6 +51,8 @@ pub use shadowtls::{compute_marker, shadowtls_accept, shadowtls_connect, write_m
 pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};
+pub use tun::{create_tun, IpPacket, TransportProtocol, TunConfig};
+pub use mkcp::{mkcp_connect, MkcpClientConfig, MkcpServerConfig};
 
 // Re-export quinn's congestion module so downstream crates can implement
 // or use congestion controllers without depending on quinn directly.
