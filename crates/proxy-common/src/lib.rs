@@ -15,8 +15,8 @@
 pub mod address;
 pub mod buf;
 pub mod error;
-pub mod stream;
 pub mod splice;
+pub mod stream;
 
 // Re-export the most commonly used items so callers can write
 // `use proxy_common::Address` instead of `use proxy_common::address::Address`.
