@@ -26,14 +26,17 @@ use anyhow::{Context as _, Result};
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+use base64::Engine as _;
 use proxy_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
 use proxy_app::router::{CompiledRule, DomainMatcher, IpMatcher, LiveRouter};
 use proxy_common::{BoxedStream, ProxyError};
-use proxy_config::schema::{Config, Protocol};
+use proxy_config::schema::{Config, Protocol, SecurityType};
 use proxy_protocol::freedom::FreedomOutbound;
 use proxy_protocol::socks::Socks5Inbound;
-use proxy_protocol::vless::{VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUserRegistry, VlessUser};
+use proxy_protocol::vless::{VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUserRegistry, VlessUser, connect_vless_on_stream};
+use proxy_transport::reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
+use proxy_common::Address;
 
 /// The running proxy instance.
 pub struct Instance {
@@ -118,10 +121,28 @@ impl Instance {
 
             // Wrap the inbound in a ConnectionHandler adapter so the transport
             // layer can call it without knowing about the protocol.
-            let conn_handler = Arc::new(InboundConnectionHandler {
-                inbound: Arc::clone(&handler),
-                dispatcher: Arc::clone(&dispatcher) as Arc<dyn Dispatcher>,
-            });
+            // If the inbound uses REALITY transport, wrap with the REALITY auth layer.
+            let conn_handler: Arc<dyn ConnectionHandler> = if let Some(ss) = &in_cfg.stream_settings {
+                if ss.security == SecurityType::Reality {
+                    let reality_server = build_reality_server(in_cfg)
+                        .with_context(|| format!("building REALITY server for inbound '{}'", in_cfg.tag))?;
+                    Arc::new(RealityConnectionHandler {
+                        reality: Arc::new(reality_server),
+                        inner: Arc::clone(&handler),
+                        dispatcher: Arc::clone(&dispatcher) as Arc<dyn Dispatcher>,
+                    })
+                } else {
+                    Arc::new(InboundConnectionHandler {
+                        inbound: Arc::clone(&handler),
+                        dispatcher: Arc::clone(&dispatcher) as Arc<dyn Dispatcher>,
+                    })
+                }
+            } else {
+                Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: Arc::clone(&dispatcher) as Arc<dyn Dispatcher>,
+                })
+            };
 
             // Start the TCP accept loop for this inbound.
             let transport = proxy_transport::TcpServerTransport::new(
@@ -205,6 +226,21 @@ fn build_vless_outbound(
 
     let flow = settings["users"][0]["flow"].as_str().unwrap_or("").to_string();
 
+    // Check if REALITY transport is requested.
+    if let Some(ss) = &cfg.stream_settings {
+        if ss.security == SecurityType::Reality {
+            let reality_cfg = build_reality_client_config(ss, server)
+                .with_context(|| format!("building REALITY client config for outbound '{}'", cfg.tag))?;
+            return Ok(Arc::new(RealityVlessOutbound {
+                tag: cfg.tag.clone(),
+                reality: RealityClient::new(reality_cfg),
+                uuid,
+                flow,
+            }));
+        }
+    }
+
+    // Plain TCP VLESS (Phase 1)
     Ok(VlessOutbound::new(&cfg.tag, VlessOutboundConfig { server, uuid, flow }))
 }
 
@@ -293,6 +329,143 @@ fn build_rules(
             inbound_tags: r.inbound_tag.clone(),
         })
     }).collect()
+}
+
+/// Build a `RealityServer` from an inbound config's stream settings.
+fn build_reality_server(
+    cfg: &proxy_config::schema::InboundConfig,
+) -> Result<RealityServer> {
+    let rs = cfg.stream_settings.as_ref()
+        .and_then(|s| s.reality_settings.as_ref())
+        .ok_or_else(|| anyhow::anyhow!("REALITY inbound missing realitySettings"))?;
+
+    let priv_key_bytes = base64::engine::general_purpose::STANDARD.decode(&rs.private_key)
+        .map_err(|_| anyhow::anyhow!("privateKey is not valid base64"))?;
+    if priv_key_bytes.len() != 32 {
+        anyhow::bail!("privateKey must be 32 bytes (got {})", priv_key_bytes.len());
+    }
+    let mut private_key = [0u8; 32];
+    private_key.copy_from_slice(&priv_key_bytes);
+
+    let short_ids: Vec<Vec<u8>> = rs.short_ids.iter().map(|s| {
+        hex::decode(s).unwrap_or_default()
+    }).collect();
+
+    let fallback_str = &rs.dest;
+    if fallback_str.is_empty() {
+        anyhow::bail!("REALITY server missing dest (fallback address)");
+    }
+    let fallback: SocketAddr = fallback_str.parse()
+        .with_context(|| format!("invalid REALITY fallback address '{fallback_str}'"))?;
+
+    Ok(RealityServer::new(RealityServerConfig {
+        private_key,
+        short_ids,
+        fallback,
+        max_time_diff: rs.max_time_diff as i64,
+    }))
+}
+
+/// Build a `RealityClientConfig` from stream settings and a server address.
+fn build_reality_client_config(
+    ss: &proxy_config::schema::StreamSettingsConfig,
+    server: SocketAddr,
+) -> Result<RealityClientConfig> {
+    let rs = ss.reality_settings.as_ref()
+        .ok_or_else(|| anyhow::anyhow!("REALITY outbound missing realitySettings"))?;
+
+    let pub_key_bytes = base64::engine::general_purpose::STANDARD.decode(&rs.public_key)
+        .map_err(|_| anyhow::anyhow!("publicKey is not valid base64"))?;
+    if pub_key_bytes.len() != 32 {
+        anyhow::bail!("publicKey must be 32 bytes (got {})", pub_key_bytes.len());
+    }
+    let mut server_public_key = [0u8; 32];
+    server_public_key.copy_from_slice(&pub_key_bytes);
+
+    let short_id = hex::decode(&rs.short_id)
+        .map_err(|_| anyhow::anyhow!("shortId is not valid hex"))?;
+
+    let sni = rs.server_name.clone();
+    if sni.is_empty() {
+        anyhow::bail!("REALITY client missing serverName");
+    }
+
+    let fingerprint = rs.fingerprint.clone();
+
+    Ok(RealityClientConfig {
+        server,
+        server_public_key,
+        short_id,
+        sni,
+        fingerprint,
+    })
+}
+
+/// Wraps an inbound handler with REALITY authentication.
+///
+/// When a connection arrives, this handler first performs the REALITY handshake
+/// (authenticating the client's token). Only after successful authentication
+/// does it pass the stream to the inner VLESS (or other protocol) handler.
+/// Unauthenticated connections are silently forwarded to the fallback backend.
+struct RealityConnectionHandler {
+    reality: Arc<RealityServer>,
+    inner: Arc<dyn InboundHandler>,
+    dispatcher: Arc<dyn Dispatcher>,
+}
+
+#[async_trait::async_trait]
+impl ConnectionHandler for RealityConnectionHandler {
+    async fn handle_connection(
+        &self,
+        stream: BoxedStream,
+        source: SocketAddr,
+    ) -> Result<(), ProxyError> {
+        // Authenticate via REALITY (direct mode — no TLS replay for Phase 2).
+        // On auth failure, do_fallback() handles the connection internally and
+        // returns ProxyError::FallbackRequired — we treat that as Ok(()) since
+        // the connection was handled (forwarded to fallback).
+        match self.reality.accept_direct(stream).await {
+            Ok(raw_stream) => {
+                // Pass the authenticated stream to the inner protocol handler.
+                self.inner.handle(raw_stream, source, Arc::clone(&self.dispatcher)).await
+            }
+            Err(ProxyError::FallbackRequired) => {
+                // Connection was forwarded to fallback — this is not an error.
+                Ok(())
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
+/// VLESS outbound that connects via the REALITY transport.
+///
+/// Instead of a plain TCP connection, this handler first performs the REALITY
+/// handshake (sending a Chrome-fingerprinted ClientHello with an encrypted token),
+/// then sends the VLESS protocol header over the authenticated raw stream.
+struct RealityVlessOutbound {
+    tag: String,
+    reality: RealityClient,
+    uuid: [u8; 16],
+    flow: String,
+}
+
+#[async_trait::async_trait]
+impl OutboundHandler for RealityVlessOutbound {
+    fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    async fn connect(
+        &self,
+        _ctx: &proxy_app::context::Context,
+        dest: &Address,
+    ) -> Result<BoxedStream, ProxyError> {
+        // Step 1: REALITY handshake — authenticate and get a raw stream.
+        let stream = self.reality.dial().await?;
+        // Step 2: VLESS handshake — send the VLESS header over the REALITY stream.
+        connect_vless_on_stream(stream, &self.uuid, &self.flow, dest).await
+    }
 }
 
 /// Parse a port specification string into a list of (lo, hi) ranges.

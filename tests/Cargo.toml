@@ -16,10 +16,12 @@ proxy-protocol   = { path = "../crates/proxy-protocol" }
 proxy-core       = { path = "../crates/proxy-core" }
 proxy-transport  = { path = "../crates/proxy-transport" }
 
-tokio.workspace     = true
-anyhow.workspace    = true
-hex.workspace       = true
-serde_json.workspace = true
+tokio.workspace        = true
+anyhow.workspace       = true
+hex.workspace          = true
+serde_json.workspace   = true
+x25519-dalek.workspace = true
+rand.workspace         = true
 
 [lib]
 name = "integration_tests"

@@ -170,17 +170,50 @@ impl RealityClient {
     /// On success, returns a stream that has completed the REALITY + TLS handshake.
     /// The stream is then ready for VLESS (or any other protocol) payload.
     pub async fn dial(&self) -> Result<BoxedStream, ProxyError> {
+        // ── All crypto is done synchronously before any .await ───────────────
+        //
+        // `rand::thread_rng()` is not `Send` (it uses a thread-local `Rc`), so
+        // it must not be held across an `.await` point. We do all the random and
+        // crypto work here and capture only the final `Vec<u8>` (which IS Send)
+        // to send over the network.
+        let final_hello = self.build_client_hello()
+            .map_err(|e| ProxyError::Protocol(e.to_string()))?;
+
+        debug!(server = %self.config.server, sni = %self.config.sni, "REALITY dial");
+
+        // ── Async TCP work ───────────────────────────────────────────────────
         let mut tcp = TcpStream::connect(self.config.server).await?;
         tcp.set_nodelay(true)?;
 
-        debug!(server = %self.config.server, sni = %self.config.sni, "REALITY dial");
+        // Send the ClientHello.
+        tcp.write_all(&final_hello).await?;
+
+        debug!(server = %self.config.server, "REALITY ClientHello sent");
+
+        // Hand off to rustls for the actual TLS handshake.
+        // The server will respond with a real ServerHello because it authenticated
+        // our token and knows we are a legitimate client.
+        //
+        // Note: In a full implementation, we would complete the TLS handshake here
+        // using tokio-rustls. For Phase 2 scaffold, we return the raw stream.
+        // The REALITY-over-TLS completion is wired in instance.rs.
+        Ok(Box::new(tcp))
+    }
+
+    /// Build the REALITY ClientHello bytes synchronously (no async).
+    ///
+    /// Separated from `dial()` so that non-`Send` types (`ThreadRng`) are never
+    /// held across an `.await` point.
+    fn build_client_hello(&self) -> Result<Vec<u8>> {
+        use rand::RngCore as _;
 
         // Step 1: Generate an ephemeral X25519 key pair for this connection.
         // This key pair has TWO roles:
         //   (a) ECDH with the server's long-term key → derive auth_key for AES-GCM
         //   (b) Advertised in the ClientHello key_share extension so the server knows
         //       which key we used for ECDH
-        let client_secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+        let mut rng = rand::thread_rng();
+        let client_secret = EphemeralSecret::random_from_rng(&mut rng);
         let client_public = PublicKey::from(&client_secret);
         let client_pub_bytes = *client_public.as_bytes();
 
@@ -191,19 +224,18 @@ impl RealityClient {
         // Step 3: Generate 32 random bytes for the `random` field.
         // Bytes [0..20] become the HKDF salt; bytes [20..32] become the AES nonce.
         let mut random = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut random);
+        rng.fill_bytes(&mut random);
 
         // Step 4: HKDF-SHA256 to derive auth_key.
         let salt = &random[..20];
         let hk = Hkdf::<Sha256>::new(Some(salt), shared_secret.as_bytes());
         let mut auth_key = [0u8; 32];
         hk.expand(REALITY_HKDF_INFO, &mut auth_key)
-            .map_err(|_| ProxyError::Protocol("HKDF expand failed".into()))?;
+            .map_err(|_| anyhow::anyhow!("HKDF expand failed"))?;
 
         // Step 5: Build the ClientHello body (without the session_id yet).
         // We need to build it first so we can compute the AAD (which is the
         // ClientHello body with session_id zeroed).
-        let mut rng = rand::thread_rng();
         let builder = ClientHelloBuilder::chrome_131();
 
         // Placeholder session_id — all zeros — for the initial build.
@@ -252,7 +284,7 @@ impl RealityClient {
         // plaintext (16 bytes) plus a 16-byte authentication tag = 32 bytes total.
         // This fills exactly one session_id field.
         let ciphertext_with_tag = cipher.encrypt(nonce, Payload { msg: &plaintext, aad })
-            .map_err(|_| ProxyError::Protocol("REALITY token encryption failed".into()))?;
+            .map_err(|_| anyhow::anyhow!("REALITY token encryption failed"))?;
 
         debug_assert_eq!(ciphertext_with_tag.len(), 32,
             "AES-128-GCM output for 16-byte plaintext must be 32 bytes");
@@ -265,25 +297,16 @@ impl RealityClient {
         //
         // Instead we write the ciphertext directly into the session_id slot.
         // The session_id is at byte offset 44 from the start of the record:
-        //   TLS record header (5) + handshake type+len (4) + legacy_version (2)
-        //   + random (32) + session_id_len (1) = 44.
+        //   TLS record header (5) + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY (39) = 44.
+        // (SESSION_ID_OFFSET_IN_HANDSHAKE_BODY already accounts for the session_id_len byte.)
         let mut final_hello = hello_bytes;
-        let sid_start = 5 + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY + 1; // +1 for sid_len byte
+        // SESSION_ID_OFFSET_IN_HANDSHAKE_BODY = 39 already points to the first byte
+        // of session_id (past the session_id_len byte at offset 38).
+        // In final_hello: 5-byte TLS record header + 39-byte offset = byte 44.
+        let sid_start = 5 + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
         final_hello[sid_start..sid_start + 32].copy_from_slice(&ciphertext_with_tag);
 
-        // Step 9: Send the ClientHello.
-        tcp.write_all(&final_hello).await?;
-
-        debug!(server = %self.config.server, "REALITY ClientHello sent");
-
-        // Step 10: Hand off to rustls for the actual TLS handshake.
-        // The server will respond with a real ServerHello because it authenticated
-        // our token and knows we are a legitimate client.
-        //
-        // Note: In a full implementation, we would complete the TLS handshake here
-        // using tokio-rustls. For Phase 2 scaffold, we return the raw stream.
-        // The REALITY-over-TLS completion is wired in instance.rs.
-        Ok(Box::new(tcp))
+        Ok(final_hello.to_vec())
     }
 }
 

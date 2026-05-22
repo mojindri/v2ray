@@ -1625,8 +1625,10 @@ dependencies = [
  "proxy-core",
  "proxy-protocol",
  "proxy-transport",
+ "rand 0.8.6",
  "serde_json",
  "tokio",
+ "x25519-dalek",
 ]
 
 [[package]]
@@ -2398,6 +2400,8 @@ dependencies = [
  "anyhow",
  "arc-swap",
  "async-trait",
+ "base64",
+ "hex",
  "proxy-app",
  "proxy-common",
  "proxy-config",
