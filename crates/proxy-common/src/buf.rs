@@ -40,10 +40,12 @@ const LARGE_SIZE: usize = 64 * 1024; // 64 KiB
 /// A pool of reusable byte buffers, shared across tasks via `Arc`.
 ///
 /// To use:
-/// ```rust,ignore
+/// ```rust
+/// use proxy_common::BufferPool;
+///
 /// let pool = BufferPool::new();
 /// let mut buf = pool.acquire(1024); // get a buffer big enough for 1024 bytes
-/// // ... use buf ...
+/// buf.extend_from_slice(b"hello");
 /// pool.release(buf);                // return it when done
 /// ```
 pub struct BufferPool {

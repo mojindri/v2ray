@@ -223,9 +223,14 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrependedStream<S> {
 ///
 /// # Usage
 ///
-/// ```rust,ignore
-/// let (send, recv) = conn.open_bi().await?;
+/// ```rust
+/// use proxy_common::{BoxedStream, ReunionStream};
+/// use tokio::io::{duplex, split};
+///
+/// let (stream_a, _stream_b) = duplex(1024);
+/// let (recv, send) = split(stream_a);
 /// let stream: BoxedStream = Box::new(ReunionStream::new(recv, send));
+/// drop(stream);
 /// ```
 pub struct ReunionStream<R, W> {
     /// The reading half of the stream (bytes from the remote end).

@@ -13,14 +13,30 @@
 //!
 //! # Usage
 //!
-//! ```rust,ignore
-//! let module = DnsModule::new(DnsModuleConfig::default()).await?;
-//! // Real resolution:
-//! let ips = module.resolve("example.com").await?;
-//! // FakeIP:
-//! let fake = module.resolve_fake("example.com");
-//! let domain = module.reverse_fake(fake);
-//! assert!(module.is_fake_ip(IpAddr::V4(fake)));
+//! ```no_run
+//! use std::net::IpAddr;
+//!
+//! use proxy_app::dns::{DnsModule, DnsModuleConfig};
+//!
+//! #[tokio::main]
+//! async fn main() -> Result<(), Box<dyn std::error::Error>> {
+//!     let module = DnsModule::new(DnsModuleConfig {
+//!         fake_ip_enabled: true,
+//!         ..Default::default()
+//!     })
+//!     .await?;
+//!
+//!     // Real resolution:
+//!     let ips = module.resolve("example.com").await?;
+//!     assert!(!ips.is_empty());
+//!
+//!     // FakeIP:
+//!     let fake = module.resolve_fake("example.com");
+//!     let domain = module.reverse_fake(fake);
+//!     assert_eq!(domain.as_deref(), Some("example.com"));
+//!     assert!(module.is_fake_ip(IpAddr::V4(fake)));
+//!     Ok(())
+//! }
 //! ```
 
 pub mod cache;
