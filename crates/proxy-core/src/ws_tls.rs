@@ -119,7 +119,10 @@ pub(crate) struct GrpcConnectionHandler {
 }
 
 impl GrpcConnectionHandler {
-    pub(crate) fn new(service_name: impl Into<String>, inner: Arc<dyn ConnectionHandler>) -> Arc<Self> {
+    pub(crate) fn new(
+        service_name: impl Into<String>,
+        inner: Arc<dyn ConnectionHandler>,
+    ) -> Arc<Self> {
         Arc::new(Self {
             service_name: service_name.into(),
             inner,

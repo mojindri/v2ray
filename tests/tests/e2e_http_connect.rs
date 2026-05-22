@@ -30,6 +30,17 @@ fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
 
 async fn spawn_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
     let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+    spawn_echo_task(listener)
+}
+
+async fn spawn_localhost_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
+    // Bind through the same resolver path used by the domain test. On some
+    // systems `localhost` resolves to IPv6 before IPv4.
+    let listener = TcpListener::bind(("localhost", 0)).await.unwrap();
+    spawn_echo_task(listener)
+}
+
+fn spawn_echo_task(listener: TcpListener) -> (u16, tokio::task::JoinHandle<()>) {
     let port = listener.local_addr().unwrap().port();
     let task = tokio::spawn(async move {
         let (mut stream, _) = listener.accept().await.unwrap();
@@ -87,7 +98,10 @@ async fn http_connect(
             break;
         }
         if response.len() > 512 {
-            panic!("response too long: {:?}", String::from_utf8_lossy(&response));
+            panic!(
+                "response too long: {:?}",
+                String::from_utf8_lossy(&response)
+            );
         }
     }
 
@@ -128,7 +142,7 @@ async fn http_connect_ipv4_echo_roundtrip() {
 /// CONNECT with a domain name resolves and forwards correctly.
 #[tokio::test]
 async fn http_connect_domain_echo_roundtrip() {
-    let (echo_port, echo_task) = spawn_echo_server().await;
+    let (echo_port, echo_task) = spawn_localhost_echo_server().await;
     let proxy_port = unused_local_port();
 
     let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
@@ -259,7 +273,8 @@ fn parse_connect_domain_direct() {
 
 #[test]
 fn parse_connect_port_overflow_rejected() {
-    let result =
-        proxy_protocol::http_connect::parse_connect_request_sync("CONNECT example.com:99999 HTTP/1.1");
+    let result = proxy_protocol::http_connect::parse_connect_request_sync(
+        "CONNECT example.com:99999 HTTP/1.1",
+    );
     assert!(result.is_err());
 }

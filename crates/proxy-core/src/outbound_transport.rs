@@ -23,6 +23,7 @@ use proxy_common::{Address, BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
 use proxy_protocol::vless::connect_vless_on_stream;
+use proxy_protocol::vmess::{auth::cmd_key, connect_vmess_on_stream};
 use proxy_transport::{grpc_connect, tls_connect, ws_connect, WsConnectConfig};
 
 /// VLESS outbound that honors `streamSettings.network = "ws"` and
@@ -101,6 +102,46 @@ impl OutboundHandler for TransportTrojanOutbound {
         debug!(server = %self.server, dest = %dest, "Trojan transport outbound connecting");
         let stream = connect_transport(self.server, &self.stream_settings).await?;
         connect_trojan_on_stream(stream, &self.token, dest).await
+    }
+}
+
+/// VMess outbound that honors Phase 5 transport settings before sending the
+/// VMess AEAD handshake.
+pub(crate) struct TransportVmessOutbound {
+    tag: String,
+    server: SocketAddr,
+    uuid: [u8; 16],
+    cmd_key: [u8; 16],
+    stream_settings: Option<StreamSettingsConfig>,
+}
+
+impl TransportVmessOutbound {
+    pub(crate) fn new(
+        tag: impl Into<String>,
+        server: SocketAddr,
+        uuid: [u8; 16],
+        stream_settings: Option<StreamSettingsConfig>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            tag: tag.into(),
+            server,
+            uuid,
+            cmd_key: cmd_key(&uuid),
+            stream_settings,
+        })
+    }
+}
+
+#[async_trait]
+impl OutboundHandler for TransportVmessOutbound {
+    fn tag(&self) -> &str {
+        &self.tag
+    }
+
+    async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
+        debug!(server = %self.server, dest = %dest, "VMess transport outbound connecting");
+        let stream = connect_transport(self.server, &self.stream_settings).await?;
+        connect_vmess_on_stream(stream, &self.uuid, &self.cmd_key, dest).await
     }
 }
 

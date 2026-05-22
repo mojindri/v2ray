@@ -205,7 +205,7 @@ async fn vmess_unknown_uuid_rejected() {
     let mut buf = [0u8; 16];
     let result = stream.read(&mut buf).await;
     match result {
-        Ok(0) => {} // EOF — expected
+        Ok(0) => {}  // EOF — expected
         Err(_) => {} // error — also OK
         Ok(n) => panic!("server sent unexpected bytes: {:?}", &buf[..n]),
     }
@@ -233,7 +233,9 @@ fn kdf_different_paths_differ() {
 
 #[test]
 fn auth_id_roundtrip() {
-    use proxy_protocol::vmess::auth::{cmd_key, generate_auth_id_at, validate_auth_id, MAX_TIME_DIFF_SECS};
+    use proxy_protocol::vmess::auth::{
+        cmd_key, generate_auth_id_at, validate_auth_id, MAX_TIME_DIFF_SECS,
+    };
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
     let key = cmd_key(&uuid);
     let now = proxy_protocol::vmess::auth::current_timestamp();
@@ -243,7 +245,9 @@ fn auth_id_roundtrip() {
 
 #[test]
 fn auth_id_wrong_key_rejected() {
-    use proxy_protocol::vmess::auth::{cmd_key, generate_auth_id, validate_auth_id, MAX_TIME_DIFF_SECS};
+    use proxy_protocol::vmess::auth::{
+        cmd_key, generate_auth_id, validate_auth_id, MAX_TIME_DIFF_SECS,
+    };
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
     let key = cmd_key(&uuid);
     let auth = generate_auth_id(&key);
@@ -258,7 +262,7 @@ fn auth_id_wrong_key_rejected() {
 fn vmess_header_encode_decode_domain() {
     use proxy_protocol::vmess::{
         auth::{cmd_key, generate_auth_id},
-        codec::{encode_header, decode_header, Security},
+        codec::{decode_header, encode_header, Security},
     };
 
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
@@ -271,7 +275,9 @@ fn vmess_header_encode_decode_domain() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let mut cursor = std::io::Cursor::new(ct.to_vec());
-        let req = decode_header(&mut cursor, &key, &auth, ct.len()).await.unwrap();
+        let req = decode_header(&mut cursor, &key, &auth, ct.len())
+            .await
+            .unwrap();
         assert_eq!(req.iv, iv);
         assert_eq!(req.key, kk);
         assert_eq!(req.v, v);
@@ -283,7 +289,7 @@ fn vmess_header_encode_decode_domain() {
 fn vmess_header_encode_decode_ipv4() {
     use proxy_protocol::vmess::{
         auth::{cmd_key, generate_auth_id},
-        codec::{encode_header, decode_header, Security},
+        codec::{decode_header, encode_header, Security},
     };
 
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
@@ -296,7 +302,9 @@ fn vmess_header_encode_decode_ipv4() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let mut cursor = std::io::Cursor::new(ct.to_vec());
-        let req = decode_header(&mut cursor, &key, &auth, ct.len()).await.unwrap();
+        let req = decode_header(&mut cursor, &key, &auth, ct.len())
+            .await
+            .unwrap();
         assert_eq!(req.dest, dest);
         let _ = (iv, kk, v);
     });
