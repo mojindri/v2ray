@@ -1,0 +1,35 @@
+{
+  "_comment": "Client-side config. Run this on your local machine.",
+  "_comment2": "Listens for SOCKS5 on 127.0.0.1:1080. Point your browser or curl at socks5://127.0.0.1:1080.",
+  "_comment3": "Replace SERVER_IP with your server's IP, and use the same UUID as in server.json.",
+
+  "log": {
+    "level": "info"
+  },
+
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+
+  "outbounds": [
+    {
+      "tag": "vless-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 10443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      }
+    }
+  ]
+}
