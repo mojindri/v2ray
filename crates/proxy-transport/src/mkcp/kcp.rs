@@ -106,6 +106,10 @@ impl Kcp {
         }
     }
 
+    pub fn is_dead(&self) -> bool {
+        self.state == -1
+    }
+
     pub fn recv(&mut self, buf: &mut [u8]) -> i32 {
         if self.rcv_queue.is_empty() {
             return -1;

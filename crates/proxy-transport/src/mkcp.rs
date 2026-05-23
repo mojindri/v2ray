@@ -3,7 +3,7 @@ pub mod kcp;
 pub mod segment;
 pub mod stream;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::future::Future;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -112,7 +112,9 @@ async fn run_server_listener(
     session_tx: mpsc::Sender<(MkcpStream, SocketAddr)>,
 ) {
     let mut udp_buf = vec![0u8; 65535];
-    let mut sessions = HashMap::<SocketAddr, mpsc::UnboundedSender<Vec<u8>>>::new();
+    // Value is (conv, sender) so we can detect reconnects from the same SocketAddr
+    // with a different conversation ID (stale-session eviction).
+    let mut sessions = HashMap::<SocketAddr, (u32, mpsc::UnboundedSender<Vec<u8>>)>::new();
     let (cleanup_tx, mut cleanup_rx) = mpsc::unbounded_channel::<SocketAddr>();
 
     loop {
@@ -129,9 +131,16 @@ async fn run_server_listener(
                     continue;
                 };
 
-                if let Some(tx_udp) = sessions.get(&peer) {
-                    let _ = tx_udp.send(payload.to_vec());
-                    continue;
+                if let Some((stored_conv, tx_udp)) = sessions.get(&peer) {
+                    // Peek the conv from the first 4 bytes (KCP wire: u32 LE).
+                    let incoming_conv = peek_conv(payload);
+                    if incoming_conv == Some(*stored_conv) {
+                        let _ = tx_udp.send(payload.to_vec());
+                        continue;
+                    }
+                    // Conv mismatch: peer reconnected with a new session. Evict
+                    // the stale entry and fall through to create a fresh session.
+                    sessions.remove(&peer);
                 }
 
                 if start_server_session(
@@ -160,7 +169,7 @@ async fn start_server_session(
     cfg: &MkcpServerConfig,
     session_tx: &mpsc::Sender<(MkcpStream, SocketAddr)>,
     cleanup_tx: &mpsc::UnboundedSender<SocketAddr>,
-    sessions: &mut HashMap<SocketAddr, mpsc::UnboundedSender<Vec<u8>>>,
+    sessions: &mut HashMap<SocketAddr, (u32, mpsc::UnboundedSender<Vec<u8>>)>,
 ) -> Result<()> {
     let mut cursor = payload;
     let Some(first) = Segment::decode(&mut cursor) else {
@@ -176,7 +185,7 @@ async fn start_server_session(
     let (tx_to_user, rx_from_driver) = mpsc::channel::<Bytes>(256);
     let (tx_udp, rx_udp) = mpsc::unbounded_channel::<Vec<u8>>();
 
-    sessions.insert(peer, tx_udp);
+    sessions.insert(peer, (first.conv, tx_udp));
 
     tokio::spawn(cleanup_on_exit(
         peer,
@@ -227,19 +236,26 @@ async fn run_server_driver(
     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
     let idle_timer = tokio::time::sleep(SERVER_SESSION_IDLE_TIMEOUT);
     tokio::pin!(idle_timer);
+    let mut pending: VecDeque<Bytes> = VecDeque::new();
 
     loop {
         tokio::select! {
+            // Send buffered KCP output to the user as soon as channel has room.
+            // Using reserve() avoids blocking other arms when the channel is full.
+            Ok(permit) = tx_to_user.reserve(), if !pending.is_empty() => {
+                permit.send(pending.pop_front().unwrap());
+            }
             _ = ticker.tick() => {
                 kcp.update(now_ms());
                 let mut out = Vec::new();
                 kcp.flush(&mut out);
+                if kcp.is_dead() {
+                    return;
+                }
                 for seg in out {
                     let _ = socket.send_to(&header.encode(&seg), peer).await;
                 }
-                if drain_kcp_recv(&mut kcp, &tx_to_user).await.is_err() {
-                    return;
-                }
+                drain_kcp_recv_into(&mut kcp, &mut pending);
             }
             Some(data) = rx_from_user.recv() => {
                 idle_timer.as_mut().reset(tokio::time::Instant::now() + SERVER_SESSION_IDLE_TIMEOUT);
@@ -248,9 +264,7 @@ async fn run_server_driver(
             Some(packet) = rx_from_udp.recv() => {
                 idle_timer.as_mut().reset(tokio::time::Instant::now() + SERVER_SESSION_IDLE_TIMEOUT);
                 let _ = kcp.input(&packet);
-                if drain_kcp_recv(&mut kcp, &tx_to_user).await.is_err() {
-                    return;
-                }
+                drain_kcp_recv_into(&mut kcp, &mut pending);
             }
             _ = &mut idle_timer => {
                 return;
@@ -272,19 +286,24 @@ async fn run_client_driver(
 ) {
     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
     let mut udp_buf = vec![0u8; 65535];
+    let mut pending: VecDeque<Bytes> = VecDeque::new();
 
     loop {
         tokio::select! {
+            Ok(permit) = tx_to_user.reserve(), if !pending.is_empty() => {
+                permit.send(pending.pop_front().unwrap());
+            }
             _ = ticker.tick() => {
                 kcp.update(now_ms());
                 let mut out = Vec::new();
                 kcp.flush(&mut out);
+                if kcp.is_dead() {
+                    return;
+                }
                 for seg in out {
                     let _ = socket.send(&header.encode(&seg)).await;
                 }
-                if drain_kcp_recv(&mut kcp, &tx_to_user).await.is_err() {
-                    return;
-                }
+                drain_kcp_recv_into(&mut kcp, &mut pending);
             }
             Some(data) = rx_from_user.recv() => {
                 let _ = kcp.send(&data);
@@ -292,9 +311,7 @@ async fn run_client_driver(
             Ok(n) = socket.recv(&mut udp_buf) => {
                 if let Some(payload) = header.strip(&udp_buf[..n]) {
                     let _ = kcp.input(payload);
-                    if drain_kcp_recv(&mut kcp, &tx_to_user).await.is_err() {
-                        return;
-                    }
+                    drain_kcp_recv_into(&mut kcp, &mut pending);
                 }
             }
             else => {
@@ -304,19 +321,27 @@ async fn run_client_driver(
     }
 }
 
-async fn drain_kcp_recv(kcp: &mut Kcp, tx_to_user: &mpsc::Sender<Bytes>) -> Result<(), ()> {
+/// Drain all fully-reassembled KCP messages into `pending`.
+///
+/// Non-blocking and infallible: data accumulates in `pending` rather than
+/// blocking the driver loop waiting for the consumer to catch up.
+fn drain_kcp_recv_into(kcp: &mut Kcp, pending: &mut VecDeque<Bytes>) {
     let mut recv_buf = vec![0u8; 65535];
     loop {
         let n = kcp.recv(&mut recv_buf);
         if n <= 0 {
             break;
         }
-        let data = Bytes::copy_from_slice(&recv_buf[..n as usize]);
-        if tx_to_user.send(data).await.is_err() {
-            return Err(());
-        }
+        pending.push_back(Bytes::copy_from_slice(&recv_buf[..n as usize]));
     }
-    Ok(())
+}
+
+/// Peek the KCP conversation ID from the first 4 bytes of a segment payload.
+fn peek_conv(payload: &[u8]) -> Option<u32> {
+    if payload.len() < 4 {
+        return None;
+    }
+    Some(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]))
 }
 
 fn now_ms() -> u32 {
