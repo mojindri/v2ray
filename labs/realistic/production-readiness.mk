@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local chrome-baseline-real chrome-baseline-docker fingerprint-total fingerprint-verify
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local chrome-baseline-real chrome-baseline-docker fingerprint-total fingerprint-verify vm-browser-setup vm-browser-baseline vm-fingerprint-total lima-browser-baseline lima-fingerprint-total
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -88,3 +88,20 @@ fingerprint-total: chrome-baseline-real fingerprint-verify ## Capture real Chrom
 
 fingerprint-verify: ## Strict fingerprint verification: requires artifact pcaps, baseline pcaps, and expected Chrome SNI.
 	python3 scripts/compare-fingerprints.py --reports reports/production --strict --expect-baseline-sni "$${CHROME_EXPECT_SNI:-www.cloudflare.com}" 2>&1 | tee reports/production/fingerprint-verify.log
+
+
+vm-browser-setup: ## Install browser/tcpdump/tshark tools on VM over SSH. Requires VM_HOST.
+	bash scripts/run-vm-browser-setup.sh reports/production 2>&1 | tee reports/production/vm-browser-setup.log
+
+
+vm-browser-baseline: ## Capture verified browser baseline inside VM. Requires VM_HOST.
+	bash scripts/run-vm-browser-baseline.sh reports/production 2>&1 | tee reports/production/vm-browser-baseline.log
+
+
+vm-fingerprint-total: vm-browser-baseline ## Fully automated VM browser baseline + strict fingerprint verify. Requires VM_HOST.
+
+
+lima-browser-baseline: ## Fully automated Lima Ubuntu VM browser baseline. Installs Lima if needed.
+	bash scripts/run-lima-browser-baseline.sh reports/production 2>&1 | tee reports/production/lima-browser-baseline.log
+
+lima-fingerprint-total: lima-browser-baseline ## Fully automated Lima VM browser baseline + strict fingerprint verify.

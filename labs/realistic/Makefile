@@ -196,5 +196,88 @@ ci-full: ci ## Run ci + VPS matrix + TUN (requires SSH_SERVER and SSH_CLIENT)
 clean: docker-down ## Remove generated reports
 	rm -rf $(REPORTS)
 
+
 # Local production-readiness add-on targets.
 -include production-readiness.mk
+
+# VM integration (default .env.vm, UTM/Parallels/VirtualBox).
+-include .env.vm
+
+.PHONY: vm-start-default vm-wait-default vm-fingerprint-default local-total-with-vm vm-print-defaults
+
+vm-start-default: ## Bootstrap/find VM launcher, create .env.vm template, then start VM if configured.
+	@if [ ! -f .env.vm ]; then \
+		printf '%s\n' \
+		'VM_NAME=Ubuntu' \
+		'VM_HOST=192.168.64.10' \
+		'VM_USER=lab' \
+		'VM_SSH_PORT=22' \
+		'VM_TARGET_URL=https://www.cloudflare.com' \
+		'VM_EXPECT_SNI=www.cloudflare.com' > .env.vm; \
+		echo "Created .env.vm template. Edit VM_NAME/VM_HOST after VM exists."; \
+	fi; \
+	if [ -n "$${VM_START_CMD:-$(VM_START_CMD)}" ]; then \
+		echo "Starting VM with VM_START_CMD..."; \
+		eval "$${VM_START_CMD:-$(VM_START_CMD)}"; \
+	elif [ -n "$${VM_NAME:-$(VM_NAME)}" ] && [ -x /Applications/UTM.app/Contents/MacOS/utmctl ]; then \
+		echo "Starting UTM VM: $${VM_NAME:-$(VM_NAME)}"; \
+		/Applications/UTM.app/Contents/MacOS/utmctl start "$${VM_NAME:-$(VM_NAME)}" || true; \
+	elif [ -n "$${VM_NAME:-$(VM_NAME)}" ] && command -v utmctl >/dev/null 2>&1; then \
+		echo "Starting UTM VM: $${VM_NAME:-$(VM_NAME)}"; \
+		utmctl start "$${VM_NAME:-$(VM_NAME)}" || true; \
+	elif [ -n "$${VM_NAME:-$(VM_NAME)}" ] && command -v prlctl >/dev/null 2>&1; then \
+		echo "Starting Parallels VM: $${VM_NAME:-$(VM_NAME)}"; \
+		prlctl start "$${VM_NAME:-$(VM_NAME)}" || true; \
+	elif [ -n "$${VM_NAME:-$(VM_NAME)}" ] && command -v VBoxManage >/dev/null 2>&1 && VBoxManage --version >/dev/null 2>&1; then \
+		echo "Starting VirtualBox VM: $${VM_NAME:-$(VM_NAME)}"; \
+		VBoxManage startvm "$${VM_NAME:-$(VM_NAME)}" --type headless || true; \
+	else \
+		echo "No working VM launcher found or VM_NAME is empty."; \
+		echo "If you use VirtualBox, your VBoxManage must run successfully: VBoxManage --version"; \
+		echo "If you use UTM, install it and set VM_NAME in .env.vm."; \
+		echo "Current defaults: VM_NAME=$${VM_NAME:-$(VM_NAME)} VM_HOST=$${VM_HOST:-$(VM_HOST)} VM_USER=$${VM_USER:-$(VM_USER)}"; \
+	fi
+
+vm-wait-default: ## Wait until VM SSH is reachable. Uses VM_HOST/VM_USER/VM_SSH_PORT.
+	@VM_HOST="$${VM_HOST:-$(VM_HOST)}"; \
+	VM_USER="$${VM_USER:-$(VM_USER)}"; \
+	VM_SSH_PORT="$${VM_SSH_PORT:-$(VM_SSH_PORT)}"; \
+	VM_WAIT_SECONDS="$${VM_WAIT_SECONDS:-120}"; \
+	if [ -z "$$VM_HOST" ]; then VM_HOST="192.168.64.10"; fi; \
+	if [ -z "$$VM_USER" ]; then VM_USER="lab"; fi; \
+	if [ -z "$$VM_SSH_PORT" ]; then VM_SSH_PORT="22"; fi; \
+	echo "Waiting for VM SSH: $${VM_USER}@$${VM_HOST}:$${VM_SSH_PORT} ($${VM_WAIT_SECONDS}s max)"; \
+	deadline=$$(( $$(date +%s) + VM_WAIT_SECONDS )); \
+	while [ $$(date +%s) -lt $$deadline ]; do \
+		if ssh -p "$${VM_SSH_PORT}" -o BatchMode=yes -o ConnectTimeout=3 "$${VM_USER}@$${VM_HOST}" 'echo VM_SSH_OK' >/dev/null 2>&1; then \
+			echo "VM SSH is ready."; \
+			exit 0; \
+		fi; \
+		sleep 3; \
+	done; \
+	echo "ERROR: VM SSH did not become reachable: $${VM_USER}@$${VM_HOST}:$${VM_SSH_PORT}"; \
+	echo "Set VM_HOST to the real VM IP in .env.vm."; \
+	exit 1
+
+vm-fingerprint-default: vm-start-default vm-wait-default ## Start/wait for VM, then run VM fingerprint check with default VM env.
+	VM_HOST=$${VM_HOST:-$(VM_HOST)} \
+	VM_USER=$${VM_USER:-$(VM_USER)} \
+	VM_SSH_PORT=$${VM_SSH_PORT:-$(VM_SSH_PORT)} \
+	VM_TARGET_URL=$${VM_TARGET_URL:-$(VM_TARGET_URL)} \
+	VM_EXPECT_SNI=$${VM_EXPECT_SNI:-$(VM_EXPECT_SNI)} \
+	$(MAKE) vm-fingerprint-total
+
+local-total-with-vm: local-total vm-fingerprint-default ## Run local-total, then start/wait VM fingerprint check.
+
+vm-print-defaults: ## Print VM defaults loaded from .env.vm and environment.
+	@echo "VM_NAME=$${VM_NAME:-$(VM_NAME)}"
+	@echo "VM_START_CMD=$${VM_START_CMD:-$(VM_START_CMD)}"
+	@echo "VM_HOST=$${VM_HOST:-$(VM_HOST)}"
+	@echo "VM_USER=$${VM_USER:-$(VM_USER)}"
+	@echo "VM_SSH_PORT=$${VM_SSH_PORT:-$(VM_SSH_PORT)}"
+	@echo "VM_TARGET_URL=$${VM_TARGET_URL:-$(VM_TARGET_URL)}"
+	@echo "VM_EXPECT_SNI=$${VM_EXPECT_SNI:-$(VM_EXPECT_SNI)}"
+	@echo "VM launchers:"
+	@echo "  utmctl=$$(command -v utmctl 2>/dev/null || { test -x /Applications/UTM.app/Contents/MacOS/utmctl && echo /Applications/UTM.app/Contents/MacOS/utmctl; } || true)"
+	@echo "  prlctl=$$(command -v prlctl 2>/dev/null || true)"
+	@echo "  VBoxManage=$$(if command -v VBoxManage >/dev/null 2>&1 && VBoxManage --version >/dev/null 2>&1; then command -v VBoxManage; else echo 'not working'; fi)"
