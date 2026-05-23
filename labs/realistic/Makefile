@@ -3,7 +3,7 @@ SHELL := /bin/bash
 ROOT := ../..
 REPORTS := reports
 
-.PHONY: help build docker-up stable xray phase78 negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs vps-server-setup vps-client-setup vps-test vps-tun ci ci-full clean
+.PHONY: help build docker-up stable xray phase78 negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs vps-server-setup vps-client-setup vps-test vps-tun vps-netem ci ci-full clean
 
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -133,6 +133,14 @@ vps-test: ## Run protocol matrix from the CLIENT VPS (SSH_CLIENT must be set)
 	scp root@$${SSH_CLIENT}:/root/lab/reports/vps-matrix-\*.log $(REPORTS)/ 2>/dev/null || true
 	@echo "Results copied to $(REPORTS)/"
 
+vps-netem: ## Run tc netem network-condition tests on the SERVER VPS (SSH_SERVER must be set, Linux+root+iproute2)
+	@if [ -z "$${SSH_SERVER:-}" ]; then \
+		echo "ERROR: SSH_SERVER not set. Example: SSH_SERVER=1.2.3.4 make vps-netem"; exit 1; fi
+	@mkdir -p $(REPORTS)
+	ssh root@$${SSH_SERVER} 'sudo bash /root/lab/scripts/run-netem.sh /root/lab/reports'
+	scp "root@$${SSH_SERVER}:/root/lab/reports/vps-netem-*.log" $(REPORTS)/ 2>/dev/null || true
+	@echo "netem results copied to $(REPORTS)/"
+
 vps-tun: ## Run TUN privileged tests on the SERVER VPS (SSH_SERVER must be set, Linux+root)
 	@if [ -z "$${SSH_SERVER:-}" ]; then \
 		echo "ERROR: SSH_SERVER not set. Example: SSH_SERVER=1.2.3.4 make vps-tun"; exit 1; fi
@@ -180,6 +188,8 @@ ci-full: ci ## Run ci + VPS matrix + TUN (requires SSH_SERVER and SSH_CLIENT)
 	$(MAKE) vps-test
 	@echo "=== [VPS] TUN privileged tests ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) vps-tun
+	@echo "=== [VPS] netem network conditions ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) vps-netem
 	$(MAKE) report-summary
 	@echo "==> ci-full complete."
 
