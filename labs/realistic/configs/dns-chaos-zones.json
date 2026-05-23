@@ -1,0 +1,6 @@
+{
+  "ok.test": {"A": ["127.0.0.1"], "AAAA": ["::1"]},
+  "nxdomain.test": {"rcode": "NXDOMAIN"},
+  "slow.test": {"A": ["127.0.0.1"], "delay_ms": 250},
+  "chain.test": {"CNAME": "ok.test"}
+}
