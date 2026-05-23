@@ -34,8 +34,12 @@ pub struct MkcpClientConfig {
 
 impl Default for MkcpClientConfig {
     fn default() -> Self {
+        let server = match "0.0.0.0:0".parse() {
+            Ok(v) => v,
+            Err(_) => panic!("valid default mKCP server socket"),
+        };
         Self {
-            server: "0.0.0.0:0".parse().unwrap(),
+            server,
             conv: 0,
             header: HeaderType::None,
             interval_ms: 50,
@@ -223,6 +227,7 @@ async fn cleanup_on_exit(
     let _ = cleanup_tx.send(peer);
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn run_server_driver(
     mut kcp: Kcp,
     socket: Arc<UdpSocket>,
@@ -243,7 +248,9 @@ async fn run_server_driver(
             // Send buffered KCP output to the user as soon as channel has room.
             // Using reserve() avoids blocking other arms when the channel is full.
             Ok(permit) = tx_to_user.reserve(), if !pending.is_empty() => {
-                permit.send(pending.pop_front().unwrap());
+                if let Some(item) = pending.pop_front() {
+                    permit.send(item);
+                }
             }
             _ = ticker.tick() => {
                 kcp.update(now_ms());
@@ -291,7 +298,9 @@ async fn run_client_driver(
     loop {
         tokio::select! {
             Ok(permit) = tx_to_user.reserve(), if !pending.is_empty() => {
-                permit.send(pending.pop_front().unwrap());
+                if let Some(item) = pending.pop_front() {
+                    permit.send(item);
+                }
             }
             _ = ticker.tick() => {
                 kcp.update(now_ms());
@@ -341,7 +350,9 @@ fn peek_conv(payload: &[u8]) -> Option<u32> {
     if payload.len() < 4 {
         return None;
     }
-    Some(u32::from_le_bytes([payload[0], payload[1], payload[2], payload[3]]))
+    Some(u32::from_le_bytes([
+        payload[0], payload[1], payload[2], payload[3],
+    ]))
 }
 
 fn now_ms() -> u32 {

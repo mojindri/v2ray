@@ -15,9 +15,9 @@
 //! Set `TUN_INTEROP=1` in the environment to also run the end-to-end
 //! network-traffic round-trip test (requires internet access + root).
 
-use std::net::SocketAddr;
 #[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
+use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::net::UdpSocket;
@@ -33,14 +33,20 @@ use tokio::sync::watch;
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /// Build a minimal IPv4 UDP packet (no iptables checksum fix needed for tests).
-fn udp_ipv4_packet(src: [u8; 4], src_port: u16, dst: [u8; 4], dst_port: u16, payload: &[u8]) -> Vec<u8> {
+fn udp_ipv4_packet(
+    src: [u8; 4],
+    src_port: u16,
+    dst: [u8; 4],
+    dst_port: u16,
+    payload: &[u8],
+) -> Vec<u8> {
     let udp_len = (8 + payload.len()) as u16;
     let total_len = 20 + udp_len as usize;
     let mut pkt = vec![0u8; total_len];
     pkt[0] = 0x45;
     pkt[2..4].copy_from_slice(&(total_len as u16).to_be_bytes());
-    pkt[8] = 64;   // TTL
-    pkt[9] = 17;   // UDP
+    pkt[8] = 64; // TTL
+    pkt[9] = 17; // UDP
     pkt[12..16].copy_from_slice(&src);
     pkt[16..20].copy_from_slice(&dst);
     pkt[20..22].copy_from_slice(&src_port.to_be_bytes());
@@ -67,7 +73,11 @@ fn inet_checksum(data: &[u8]) -> u16 {
         sum = (sum & 0xffff) + (sum >> 16);
     }
     let r = !(sum as u16);
-    if r == 0 { 0xffff } else { r }
+    if r == 0 {
+        0xffff
+    } else {
+        r
+    }
 }
 
 // ── NAT table unit tests (no privileges required) ─────────────────────────────
@@ -105,7 +115,10 @@ fn nat_response_packet_addresses_reversed() {
 /// Creates a TUN device and immediately checks that the interface came up.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[cfg_attr(not(feature = "priv-test"), ignore = "requires root + priv-test feature")]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires root + priv-test feature"
+)]
 async fn tun_device_creates_and_is_up() {
     let cfg = TunConfig {
         name: "test-tun0".into(),
@@ -138,7 +151,10 @@ async fn tun_device_creates_and_is_up() {
 /// Does NOT install iptables routes (would need rollback on failure).
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[cfg_attr(not(feature = "priv-test"), ignore = "requires root + priv-test feature")]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires root + priv-test feature"
+)]
 async fn tun_runtime_starts_and_shuts_down() {
     let cfg = TunConfig {
         name: "test-tun1".into(),
@@ -186,7 +202,10 @@ async fn tun_runtime_starts_and_shuts_down() {
 /// disappear from the kernel's rule table.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[cfg_attr(not(feature = "priv-test"), ignore = "requires root + priv-test feature")]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires root + priv-test feature"
+)]
 async fn route_setup_and_cleanup_are_symmetric() {
     use proxy_transport::tun::route::{cleanup_routes, setup_routes};
 
@@ -284,9 +303,19 @@ async fn udp_nat_forward_and_response_roundtrip() {
         .expect("channel closed");
 
     let resp_parsed = parse_ip_packet(&response).unwrap();
-    assert_eq!(resp_parsed.dst, parsed.src, "response dst should be original src");
-    assert_eq!(resp_parsed.src_port, echo_addr.port(), "response src_port should be echo port");
-    assert_eq!(resp_parsed.dst_port, 55000, "response dst_port should be original src_port");
+    assert_eq!(
+        resp_parsed.dst, parsed.src,
+        "response dst should be original src"
+    );
+    assert_eq!(
+        resp_parsed.src_port,
+        echo_addr.port(),
+        "response src_port should be echo port"
+    );
+    assert_eq!(
+        resp_parsed.dst_port, 55000,
+        "response dst_port should be original src_port"
+    );
     assert_eq!(
         resp_parsed.payload(&response).unwrap(),
         b"ping",
@@ -303,7 +332,10 @@ async fn udp_nat_forward_and_response_roundtrip() {
 /// Enable by setting `TUN_INTEROP=1` in the environment.
 #[cfg(target_os = "linux")]
 #[tokio::test]
-#[cfg_attr(not(feature = "priv-test"), ignore = "requires root + priv-test feature + TUN_INTEROP=1")]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires root + priv-test feature + TUN_INTEROP=1"
+)]
 async fn vps_udp_nat_real_dns_query() {
     if std::env::var("TUN_INTEROP").as_deref() != Ok("1") {
         eprintln!("skipped: set TUN_INTEROP=1 to run VPS interop tests");
@@ -317,9 +349,8 @@ async fn vps_udp_nat_real_dns_query() {
         0x00, 0x01, // QDCOUNT=1
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, // ANCOUNT, NSCOUNT, ARCOUNT
         // QNAME: example.com
-        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e',
-        0x03, b'c', b'o', b'm', 0x00,
-        0x00, 0x01, // QTYPE=A
+        0x07, b'e', b'x', b'a', b'm', b'p', b'l', b'e', 0x03, b'c', b'o', b'm', 0x00, 0x00,
+        0x01, // QTYPE=A
         0x00, 0x01, // QCLASS=IN
     ];
 
@@ -334,16 +365,12 @@ async fn vps_udp_nat_real_dns_query() {
     let fake_src: Ipv4Addr = "198.18.0.2".parse().unwrap();
     let google_dns: SocketAddr = "8.8.8.8:53".parse().unwrap();
 
-    let pkt = udp_ipv4_packet(
-        fake_src.octets(),
-        44444,
-        [8, 8, 8, 8],
-        53,
-        dns_query,
-    );
+    let pkt = udp_ipv4_packet(fake_src.octets(), 44444, [8, 8, 8, 8], 53, dns_query);
     let parsed = parse_ip_packet(&pkt).unwrap();
 
-    nat.forward(&parsed, &pkt, tun_tx).await.expect("NAT forward failed");
+    nat.forward(&parsed, &pkt, tun_tx)
+        .await
+        .expect("NAT forward failed");
 
     let response = timeout(Duration::from_secs(5), tun_rx.recv())
         .await
@@ -351,12 +378,23 @@ async fn vps_udp_nat_real_dns_query() {
         .expect("channel closed");
 
     let resp_parsed = parse_ip_packet(&response).unwrap();
-    assert_eq!(resp_parsed.src, google_dns.ip(), "response src should be 8.8.8.8");
-    assert_eq!(resp_parsed.dst.to_string(), fake_src.to_string(), "response dst should be fake src");
+    assert_eq!(
+        resp_parsed.src,
+        google_dns.ip(),
+        "response src should be 8.8.8.8"
+    );
+    assert_eq!(
+        resp_parsed.dst.to_string(),
+        fake_src.to_string(),
+        "response dst should be fake src"
+    );
 
     let payload = resp_parsed.payload(&response).unwrap();
     // DNS response has QR bit set (byte 2 high bit).
     assert!(payload.len() >= 4, "DNS response too short");
     assert_eq!(&payload[0..2], &[0xab, 0xcd], "DNS response ID mismatch");
-    assert!(payload[2] & 0x80 != 0, "QR bit not set — not a DNS response");
+    assert!(
+        payload[2] & 0x80 != 0,
+        "QR bit not set — not a DNS response"
+    );
 }

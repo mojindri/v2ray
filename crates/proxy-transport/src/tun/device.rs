@@ -14,10 +14,18 @@ pub struct TunConfig {
 
 impl Default for TunConfig {
     fn default() -> Self {
+        let address = match "198.18.0.1".parse() {
+            Ok(v) => v,
+            Err(_) => panic!("valid default TUN address"),
+        };
+        let netmask = match "255.255.0.0".parse() {
+            Ok(v) => v,
+            Err(_) => panic!("valid default TUN netmask"),
+        };
         Self {
             name: "proxy-tun".into(),
-            address: "198.18.0.1".parse().unwrap(),
-            netmask: "255.255.0.0".parse().unwrap(),
+            address,
+            netmask,
             mtu: 1500,
             bypass_mark: 0x1234,
             redirect_port: 7890,

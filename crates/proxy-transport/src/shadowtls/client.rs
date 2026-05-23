@@ -117,10 +117,16 @@ pub async fn shadowtls_v3_connect(
             continue;
         }
 
-        let sr = server_random.expect("checked above");
-        let decoder = decoder
-            .as_mut()
-            .expect("decoder initialized with server_random");
+        let Some(sr) = server_random else {
+            return Err(ProxyError::Protocol(
+                "ShadowTLS v3 missing server_random before ApplicationData".into(),
+            ));
+        };
+        let Some(decoder) = decoder.as_mut() else {
+            return Err(ProxyError::Protocol(
+                "ShadowTLS v3 decoder not initialized".into(),
+            ));
+        };
         match decoder.decode_application_data(&record) {
             Ok((V3FrameKind::ResidualHandshake, _)) => {
                 let decoder = decoder.clone();

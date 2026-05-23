@@ -13,7 +13,7 @@ mod protocol;
 mod routing;
 mod transport;
 
-pub use endpoint::{InboundConfig, OutboundConfig};
+pub use endpoint::{InboundConfig, InboundLimitsConfig, OutboundConfig};
 pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
@@ -47,6 +47,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 
+    /// Runtime safety limits.
+    #[serde(default)]
+    pub limits: LimitsConfig,
+
     /// Ports and protocols the proxy listens on.
     #[validate(length(min = 1, message = "at least one inbound is required"), nested)]
     pub inbounds: Vec<InboundConfig>,
@@ -73,6 +77,47 @@ pub struct Config {
         skip_serializing_if = "Option::is_none"
     )]
     pub metrics_addr: Option<String>,
+}
+
+/// Runtime safety limits.
+///
+/// These are intentionally conservative knobs for production hardening.
+/// `max_connections` is currently applied per TCP listener unless a more
+/// specific inbound limit is set. Global cross-listener accounting can be
+/// added later without changing the config shape.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct LimitsConfig {
+    #[serde(
+        default,
+        rename = "maxConnections",
+        alias = "max_connections",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_connections: Option<usize>,
+
+    #[serde(
+        default,
+        rename = "maxConnectionsPerInbound",
+        alias = "max_connections_per_inbound",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_connections_per_inbound: Option<usize>,
+
+    #[serde(
+        default,
+        rename = "maxHandshakeSeconds",
+        alias = "max_handshake_seconds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_handshake_seconds: Option<u64>,
+
+    #[serde(
+        default,
+        rename = "maxIdleSeconds",
+        alias = "max_idle_seconds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_idle_seconds: Option<u64>,
 }
 
 /// Top-level Linux TUN interception settings.

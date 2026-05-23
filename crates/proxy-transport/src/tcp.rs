@@ -27,10 +27,12 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use socket2::SockRef;
 use tokio::net::{TcpListener, TcpStream};
-use tracing::{debug, error, info};
+use tokio::sync::Semaphore;
+use tracing::{debug, error, info, warn};
 
 use proxy_app::features::ConnectionHandler;
 use proxy_common::{BoxedStream, ProxyError};
@@ -52,6 +54,12 @@ pub struct TcpConfig {
     /// TFO allows data to be sent in the SYN packet, saving one round trip.
     /// Only effective if both client and server support TFO.
     pub tcp_fast_open: bool,
+
+    /// Maximum simultaneous connections accepted by this listener.
+    ///
+    /// When the limit is reached, the listener accepts and immediately drops
+    /// excess connections. This bounds tasks and file descriptors in overload.
+    pub max_connections: Option<usize>,
 }
 
 /// Server-side TCP transport: listens on a port and accepts connections.
@@ -98,13 +106,24 @@ impl TcpServerTransport {
         handler: Arc<dyn ConnectionHandler>,
     ) -> Result<(), ProxyError> {
         let addr = listener.local_addr()?;
-        info!(addr = %addr, "TCP listener started");
+        info!(addr = %addr, max_connections = ?self.config.max_connections, "TCP listener started");
+
+        let limiter = self
+            .config
+            .max_connections
+            .map(|n| Arc::new(Semaphore::new(n)));
+        let max_connections = self.config.max_connections;
 
         loop {
             let (stream, peer_addr) = match listener.accept().await {
                 Ok(pair) => pair,
                 Err(e) => {
-                    error!(error = %e, "TCP accept error");
+                    if e.raw_os_error() == Some(24) {
+                        error!(error = %e, "TCP accept error: file descriptor exhaustion");
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                    } else {
+                        error!(error = %e, "TCP accept error");
+                    }
                     continue; // keep accepting, don't crash
                 }
             };
@@ -116,9 +135,26 @@ impl TcpServerTransport {
 
             debug!(peer = %peer_addr, "TCP connection accepted");
 
+            let permit = if let Some(limiter) = &limiter {
+                match Arc::clone(limiter).try_acquire_owned() {
+                    Ok(permit) => Some(permit),
+                    Err(_) => {
+                        warn!(
+                            peer = %peer_addr,
+                            max_connections = ?max_connections,
+                            "connection limit reached; dropping accepted TCP connection"
+                        );
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
+
             // Spawn a new task for this connection so the accept loop is not blocked.
             let handler = Arc::clone(&handler);
             tokio::spawn(async move {
+                let _permit = permit;
                 let stream: BoxedStream = Box::new(stream);
                 if let Err(e) = handler.handle_connection(stream, peer_addr).await {
                     if !e.is_benign() {

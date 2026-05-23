@@ -215,7 +215,10 @@ impl Hysteria2Client {
                 .map_err(|e| ProxyError::Transport(e.to_string()))?;
 
         // Bind a client endpoint (any local port).
-        let endpoint = quinn::Endpoint::client("0.0.0.0:0".parse().unwrap())
+        let bind_addr = "0.0.0.0:0"
+            .parse()
+            .map_err(|e| ProxyError::Transport(format!("invalid client bind addr: {e}")))?;
+        let endpoint = quinn::Endpoint::client(bind_addr)
             .map_err(|e| ProxyError::Transport(format!("client endpoint: {e}")))?;
 
         let server_name = &self.config.server_name;

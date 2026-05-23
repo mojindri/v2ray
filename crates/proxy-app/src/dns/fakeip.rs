@@ -88,7 +88,7 @@ impl FakeIpPool {
                 };
                 Some(next)
             })
-            .unwrap(); // always Some
+            .unwrap_or_else(|current| current);
 
         // Clamp to pool range (skip network address).
         let candidate = if raw < network_u32 + 1 || raw >= broadcast_u32 {

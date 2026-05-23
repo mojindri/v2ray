@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -42,3 +42,11 @@ fuzz-total: ## Run heavier fuzz pass. Override with FUZZ_RUNS=10000.
 
 prod-readiness-with-fuzz: load soak fuzz-smoke fingerprint dns-chaos security real-devices report-summary ## Run production-readiness helpers including fuzz smoke.
 
+
+
+local-load: ## Start a managed local proxy and run HTTP load through SOCKS.
+	bash scripts/run-local-load-managed.sh reports/production 2>&1 | tee reports/production/local-load.log
+
+
+slowloris: ## Run slow-client/slowloris diagnostic against a managed local proxy.
+	bash scripts/run-slowloris.sh reports/production 2>&1 | tee reports/production/slowloris.log

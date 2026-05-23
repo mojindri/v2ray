@@ -34,7 +34,8 @@ use regex::Regex;
 /// only uppercase letters, digits, and underscores — standard Unix convention.
 static ENV_VAR_RE: Lazy<Regex> = Lazy::new(|| {
     // This pattern matches: ${  followed by  a valid env var name  followed by  }
-    Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}").expect("env var regex is valid")
+    Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
+        .unwrap_or_else(|err| panic!("env var regex is invalid: {err}"))
 });
 
 /// Replace all `${VAR_NAME}` placeholders in `raw` with their environment

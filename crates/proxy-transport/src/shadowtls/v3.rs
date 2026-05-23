@@ -111,7 +111,10 @@ impl V3FrameEncoder {
     }
 
     fn new(psk: &[u8], server_random: &[u8; 32], direction: &[u8]) -> Self {
-        let mut mac = ShadowHmac::new_from_slice(psk).expect("HMAC accepts any key length");
+        let mut mac = match ShadowHmac::new_from_slice(psk) {
+            Ok(v) => v,
+            Err(_) => panic!("HMAC accepts any key length"),
+        };
         mac.update(server_random);
         mac.update(direction);
         Self { mac }
@@ -214,7 +217,10 @@ pub fn taint_backend_application_data(
 }
 
 pub fn residual_handshake_mac(psk: &[u8], server_random: &[u8; 32]) -> ShadowHmac {
-    let mut mac = ShadowHmac::new_from_slice(psk).expect("HMAC accepts any key length");
+    let mut mac = match ShadowHmac::new_from_slice(psk) {
+        Ok(v) => v,
+        Err(_) => panic!("HMAC accepts any key length"),
+    };
     mac.update(server_random);
     mac
 }
@@ -512,7 +518,10 @@ fn client_hello_hmac(record: &[u8], psk: &[u8]) -> Result<[u8; TAG_LEN], ProxyEr
         [sid_offset_in_handshake + SESSION_ID_RANDOM_LEN..sid_offset_in_handshake + SESSION_ID_LEN]
         .fill(0);
 
-    let mut mac = ShadowHmac::new_from_slice(psk).expect("HMAC accepts any key length");
+    let mut mac = match ShadowHmac::new_from_slice(psk) {
+        Ok(v) => v,
+        Err(_) => panic!("HMAC accepts any key length"),
+    };
     mac.update(&signed);
     Ok(first_tag(mac))
 }
@@ -618,7 +627,10 @@ fn next_tag(mac: &ShadowHmac, data: &[u8]) -> [u8; TAG_LEN] {
 
 fn first_tag(mac: ShadowHmac) -> [u8; TAG_LEN] {
     let bytes = mac.finalize().into_bytes();
-    bytes[..TAG_LEN].try_into().expect("slice has tag length")
+    match bytes[..TAG_LEN].try_into() {
+        Ok(v) => v,
+        Err(_) => panic!("slice has tag length"),
+    }
 }
 
 fn xor_with_handshake_mask(data: &mut [u8], psk: &[u8], server_random: &[u8; 32]) {

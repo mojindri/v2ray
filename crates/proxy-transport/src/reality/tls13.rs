@@ -122,16 +122,22 @@ impl CipherSuite {
         let mut okm = vec![0u8; len];
         match self {
             Self::Aes128GcmSha256 => {
-                Hkdf::<Sha256>::from_prk(prk)
-                    .expect("valid SHA-256 PRK")
-                    .expand(&info, &mut okm)
-                    .expect("expand length in range");
+                let hkdf = match Hkdf::<Sha256>::from_prk(prk) {
+                    Ok(v) => v,
+                    Err(_) => panic!("valid SHA-256 PRK"),
+                };
+                if let Err(_e) = hkdf.expand(&info, &mut okm) {
+                    panic!("expand length in range");
+                }
             }
             Self::Aes256GcmSha384 => {
-                Hkdf::<Sha384>::from_prk(prk)
-                    .expect("valid SHA-384 PRK")
-                    .expand(&info, &mut okm)
-                    .expect("expand length in range");
+                let hkdf = match Hkdf::<Sha384>::from_prk(prk) {
+                    Ok(v) => v,
+                    Err(_) => panic!("valid SHA-384 PRK"),
+                };
+                if let Err(_e) = hkdf.expand(&info, &mut okm) {
+                    panic!("expand length in range");
+                }
             }
         }
         okm
@@ -154,12 +160,18 @@ impl CipherSuite {
     fn hmac(self, key: &[u8], data: &[u8]) -> Vec<u8> {
         match self {
             Self::Aes128GcmSha256 => {
-                let mut mac = Hmac::<Sha256>::new_from_slice(key).expect("HMAC key length ok");
+                let mut mac = match Hmac::<Sha256>::new_from_slice(key) {
+                    Ok(v) => v,
+                    Err(_) => panic!("HMAC key length ok"),
+                };
                 mac.update(data);
                 mac.finalize().into_bytes().to_vec()
             }
             Self::Aes256GcmSha384 => {
-                let mut mac = Hmac::<Sha384>::new_from_slice(key).expect("HMAC key length ok");
+                let mut mac = match Hmac::<Sha384>::new_from_slice(key) {
+                    Ok(v) => v,
+                    Err(_) => panic!("HMAC key length ok"),
+                };
                 mac.update(data);
                 mac.finalize().into_bytes().to_vec()
             }
@@ -267,7 +279,10 @@ fn derive_app_keys(
 
 fn iv_from_label(cs: CipherSuite, traffic_secret: &[u8]) -> [u8; 12] {
     let raw = cs.expand_label(traffic_secret, "iv", b"", 12);
-    raw.try_into().expect("iv is exactly 12 bytes")
+    match raw.try_into() {
+        Ok(v) => v,
+        Err(_) => panic!("iv is exactly 12 bytes"),
+    }
 }
 
 // ── AEAD ──────────────────────────────────────────────────────────────────────
@@ -333,7 +348,7 @@ fn decrypt_app_record(
         ));
     }
 
-    let inner_type = *plaintext.last().unwrap();
+    let inner_type = plaintext[plaintext.len() - 1];
     let inner = plaintext[..plaintext.len() - 1].to_vec();
     Ok((inner, inner_type))
 }

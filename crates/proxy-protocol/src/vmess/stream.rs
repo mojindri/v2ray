@@ -171,7 +171,7 @@ impl VmessStream {
         let len_ct = self
             .cipher
             .encrypt(nonce, data_len.to_be_bytes().as_slice())
-            .expect("AES-128-GCM encrypt must not fail");
+            .unwrap_or_else(|_| panic!("AES-128-GCM encrypt must not fail"));
         self.write_counter = self.write_counter.wrapping_add(1);
 
         // Encrypt the data.
@@ -180,7 +180,7 @@ impl VmessStream {
         let data_ct = self
             .cipher
             .encrypt(data_nonce, data)
-            .expect("AES-128-GCM encrypt must not fail");
+            .unwrap_or_else(|_| panic!("AES-128-GCM encrypt must not fail"));
         self.write_counter = self.write_counter.wrapping_add(1);
 
         let mut out = Vec::with_capacity(len_ct.len() + data_ct.len());

@@ -59,11 +59,11 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
     // Set a 30-second idle timeout so stale connections are cleaned up even
     // when the client disappears without sending a proper close.
     let mut transport = TransportConfig::default();
-    transport.max_idle_timeout(Some(
-        Duration::from_secs(30)
-            .try_into()
-            .expect("30s fits in IdleTimeout"),
-    ));
+    let idle_timeout = match Duration::from_secs(30).try_into() {
+        Ok(v) => v,
+        Err(_) => panic!("30s fits in IdleTimeout"),
+    };
+    transport.max_idle_timeout(Some(idle_timeout));
     server_config.transport_config(Arc::new(transport));
 
     Endpoint::server(server_config, addr).context("failed to open QUIC server endpoint")
@@ -90,8 +90,10 @@ pub fn build_client_endpoint(skip_verify: bool) -> Result<Endpoint> {
     let client_config = ClientConfig::new(Arc::new(quic_client_config));
 
     // Bind to any available local port.
-    let mut endpoint =
-        Endpoint::client("0.0.0.0:0".parse().unwrap()).context("failed to open client socket")?;
+    let bind_addr = "0.0.0.0:0"
+        .parse()
+        .context("invalid client bind address literal")?;
+    let mut endpoint = Endpoint::client(bind_addr).context("failed to open client socket")?;
     endpoint.set_default_client_config(client_config);
 
     Ok(endpoint)

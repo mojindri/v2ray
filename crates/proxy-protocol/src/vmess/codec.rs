@@ -163,7 +163,7 @@ pub fn encode_header(
                 aad: auth_id,
             },
         )
-        .expect("AES-128-GCM encryption must not fail");
+        .unwrap_or_else(|_| panic!("AES-128-GCM encryption must not fail"));
 
     (iv, key, v_byte, Bytes::from(ciphertext))
 }
@@ -275,8 +275,12 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         )));
     }
 
-    let iv: [u8; 16] = data[1..17].try_into().unwrap();
-    let key: [u8; 16] = data[17..33].try_into().unwrap();
+    let iv: [u8; 16] = data[1..17]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("VMess: truncated IV".into()))?;
+    let key: [u8; 16] = data[17..33]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("VMess: truncated key".into()))?;
     let v = data[33];
     let _options = data[34];
     let pad_sec = data[35];
@@ -355,7 +359,10 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         return Err(ProxyError::Protocol("VMess: truncated checksum".into()));
     }
     let expected = fnv32a(&data[..pos]);
-    let received = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap());
+    let received_bytes: [u8; 4] = data[pos..pos + 4]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("VMess: truncated checksum bytes".into()))?;
+    let received = u32::from_be_bytes(received_bytes);
     if expected != received {
         return Err(ProxyError::Protocol(
             "VMess: header checksum mismatch".into(),

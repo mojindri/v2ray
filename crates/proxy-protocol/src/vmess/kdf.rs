@@ -39,8 +39,10 @@ pub fn kdf<const N: usize>(key: &[u8], paths: &[&[u8]]) -> [u8; N] {
     let mut current_key = key.to_vec();
 
     for &path in paths {
-        let mut mac =
-            HmacSha256::new_from_slice(&current_key).expect("HMAC accepts any key length");
+        let mut mac = match HmacSha256::new_from_slice(&current_key) {
+            Ok(v) => v,
+            Err(_) => panic!("HMAC accepts any key length"),
+        };
         mac.update(path);
         current_key = mac.finalize().into_bytes().to_vec();
     }

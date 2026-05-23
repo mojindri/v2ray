@@ -162,14 +162,14 @@ impl Ss2022Stream {
                 GenericArray::from_slice(&len_nonce),
                 data_len.to_be_bytes().as_slice(),
             )
-            .expect("AES-256-GCM encrypt must not fail");
+            .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
         self.write_counter += 1;
 
         let data_nonce = make_nonce(self.write_counter);
         let data_ct = self
             .cipher
             .encrypt(GenericArray::from_slice(&data_nonce), data)
-            .expect("AES-256-GCM encrypt must not fail");
+            .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
         self.write_counter += 1;
 
         let mut out = Vec::with_capacity(len_ct.len() + data_ct.len());

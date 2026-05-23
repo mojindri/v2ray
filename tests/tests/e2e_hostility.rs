@@ -192,7 +192,8 @@ const UUID: &str = "c0ffee00-dead-4000-beef-000000000099";
 const PASSWORD: &str = "hostility-lab-pass";
 
 fn vless_server(port: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{
             "tag": "in", "protocol": "vless",
             "listen": "127.0.0.1", "port": {port},
@@ -200,21 +201,25 @@ fn vless_server(port: u16) -> Arc<proxy_config::schema::Config> {
                           "fallback": {{"dest": "127.0.0.1:80"}}}}
         }}],
         "outbounds": [{{"tag": "freedom", "protocol": "freedom"}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn vless_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
                        "listen": "127.0.0.1", "port": {socks}}}],
         "outbounds": [{{"tag": "out", "protocol": "vless",
                         "settings": {{"address": "127.0.0.1", "port": {server},
                                       "users": [{{"id": "{UUID}", "flow": ""}}]}}}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn vless_ws_server(port: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{
             "tag": "in", "protocol": "vless",
             "listen": "127.0.0.1", "port": {port},
@@ -223,11 +228,13 @@ fn vless_ws_server(port: u16) -> Arc<proxy_config::schema::Config> {
                                 "wsSettings": {{"path": "/proxy"}}}}
         }}],
         "outbounds": [{{"tag": "freedom", "protocol": "freedom"}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn vless_ws_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
                        "listen": "127.0.0.1", "port": {socks}}}],
         "outbounds": [{{"tag": "out", "protocol": "vless",
@@ -235,11 +242,13 @@ fn vless_ws_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config>
                                       "users": [{{"id": "{UUID}", "flow": ""}}]}},
                         "streamSettings": {{"network": "ws", "security": "none",
                                             "wsSettings": {{"path": "/proxy"}}}}}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn vmess_grpc_server(port: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{
             "tag": "in", "protocol": "vmess",
             "listen": "127.0.0.1", "port": {port},
@@ -248,11 +257,13 @@ fn vmess_grpc_server(port: u16) -> Arc<proxy_config::schema::Config> {
                                 "grpcSettings": {{"serviceName": "hostility.Gun"}}}}
         }}],
         "outbounds": [{{"tag": "freedom", "protocol": "freedom"}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn vmess_grpc_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
                        "listen": "127.0.0.1", "port": {socks}}}],
         "outbounds": [{{"tag": "out", "protocol": "vmess",
@@ -260,11 +271,13 @@ fn vmess_grpc_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Confi
                                       "users": [{{"id": "{UUID}"}}]}},
                         "streamSettings": {{"network": "grpc", "security": "none",
                                             "grpcSettings": {{"serviceName": "hostility.Gun"}}}}}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{
             "tag": "in", "protocol": "trojan",
             "listen": "127.0.0.1", "port": {port},
@@ -274,11 +287,13 @@ fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<proxy_config::sche
                                                  "keyFile": "{key}"}}}}
         }}],
         "outbounds": [{{"tag": "freedom", "protocol": "freedom"}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 fn trojan_tls_client_wrong_sni(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
-    parse_config(format!(r#"{{
+    parse_config(format!(
+        r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
                        "listen": "127.0.0.1", "port": {socks}}}],
         "outbounds": [{{"tag": "out", "protocol": "trojan",
@@ -288,7 +303,8 @@ fn trojan_tls_client_wrong_sni(socks: u16, server: u16) -> Arc<proxy_config::sch
                                             "tlsSettings": {{
                                                 "serverName": "wrong.host.not-matching.invalid",
                                                 "allowInsecure": false}}}}}}]
-    }}"#))
+    }}"#
+    ))
 }
 
 // ── shared setup ─────────────────────────────────────────────────────────────
@@ -492,7 +508,10 @@ async fn tls_handshake_failure() {
         .expect("proxy hung on TLS SNI mismatch — EOF never delivered to client")
         .unwrap_or(0);
 
-    assert_eq!(n, 0, "expected EOF after TLS handshake failure (SNI mismatch)");
+    assert_eq!(
+        n, 0,
+        "expected EOF after TLS handshake failure (SNI mismatch)"
+    );
 }
 
 /// VLESS-WebSocket peer drops the underlying TCP connection mid-transfer.
@@ -663,9 +682,7 @@ async fn slowloris_does_not_block_other_connections() {
     let (socks_port, _srv, _cli) = vless_pair().await;
 
     // Slowloris: send only the version byte (0x05) and hold the connection.
-    let mut slowloris = TcpStream::connect(("127.0.0.1", socks_port))
-        .await
-        .unwrap();
+    let mut slowloris = TcpStream::connect(("127.0.0.1", socks_port)).await.unwrap();
     slowloris.write_all(&[0x05]).await.unwrap();
 
     // A normal client must complete its SOCKS5 exchange concurrently.

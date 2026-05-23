@@ -484,7 +484,9 @@ impl Kcp {
     fn move_rcv_buf(&mut self) {
         while let Some(seg) = self.rcv_buf.front() {
             if seg.sn == self.rcv_nxt && self.rcv_queue.len() < self.rcv_wnd as usize {
-                let s = self.rcv_buf.pop_front().unwrap();
+                let Some(s) = self.rcv_buf.pop_front() else {
+                    break;
+                };
                 self.rcv_nxt += 1;
                 self.rcv_queue.push_back(s);
             } else {

@@ -34,6 +34,10 @@ pub struct InboundConfig {
     )]
     pub stream_settings: Option<StreamSettingsConfig>,
 
+    /// Per-inbound runtime safety limits.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limits: Option<InboundLimitsConfig>,
+
     /// Sniffing settings for detecting inner protocol.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sniffing: Option<SniffingConfig>,
@@ -60,4 +64,32 @@ pub struct OutboundConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub stream_settings: Option<StreamSettingsConfig>,
+}
+
+/// Per-inbound runtime safety limits.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct InboundLimitsConfig {
+    #[serde(
+        default,
+        rename = "maxConnections",
+        alias = "max_connections",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_connections: Option<usize>,
+
+    #[serde(
+        default,
+        rename = "maxHandshakeSeconds",
+        alias = "max_handshake_seconds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_handshake_seconds: Option<u64>,
+
+    #[serde(
+        default,
+        rename = "maxIdleSeconds",
+        alias = "max_idle_seconds",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub max_idle_seconds: Option<u64>,
 }

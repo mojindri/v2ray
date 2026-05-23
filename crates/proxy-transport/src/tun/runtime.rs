@@ -144,21 +144,16 @@ impl TunRuntime {
             return;
         };
 
-        match packet.protocol {
-            TransportProtocol::Udp => {
-                // Port-53 DNS is redirected by iptables to the proxy's DNS
-                // listener; the TUN device should not see it, but skip just
-                // in case the kernel sends it before the iptables rule lands.
-                if packet.dst_port == 53 {
-                    return;
-                }
-                if let Err(e) = nat.forward(&packet, raw, tun_tx).await {
-                    debug!(%e, src = %packet.src, dst = %packet.dst, "UDP NAT forward failed");
-                }
+        if packet.protocol == TransportProtocol::Udp {
+            // Port-53 DNS is redirected by iptables to the proxy's DNS
+            // listener; the TUN device should not see it, but skip just
+            // in case the kernel sends it before the iptables rule lands.
+            if packet.dst_port == 53 {
+                return;
             }
-            // TCP is handled by iptables REDIRECT → proxy's TCP listener; we
-            // never see it here.  ICMP and other protocols are not proxied.
-            _ => {}
+            if let Err(e) = nat.forward(&packet, raw, tun_tx).await {
+                debug!(%e, src = %packet.src, dst = %packet.dst, "UDP NAT forward failed");
+            }
         }
     }
 }

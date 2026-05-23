@@ -35,14 +35,18 @@ pub fn parse_client_hello(body: &[u8]) -> Result<ClientHelloFields> {
     );
 
     let mut pos = 6; // handshake_type(1) + length(3) + legacy_version(2)
-    let random: [u8; 32] = body[pos..pos + 32].try_into().unwrap();
+    let random: [u8; 32] = body[pos..pos + 32]
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("truncated random field"))?;
     pos += 32;
 
     let sid_len = body[pos] as usize;
     pos += 1;
     anyhow::ensure!(sid_len == 32, "session_id_len must be 32, got {sid_len}");
 
-    let session_id: [u8; 32] = body[pos..pos + 32].try_into().unwrap();
+    let session_id: [u8; 32] = body[pos..pos + 32]
+        .try_into()
+        .map_err(|_| anyhow::anyhow!("truncated session_id field"))?;
     pos += 32;
 
     pos = skip_cipher_suites(body, pos)?;

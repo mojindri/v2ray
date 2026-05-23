@@ -24,8 +24,12 @@ pub async fn setup_routes(
 
     // ── IPv4: policy routing ────────────────────────────────────────────────
     must(
-        &["ip", "route", "add", "default", "dev", tun_name, "table", "100"],
-        &["ip", "route", "del", "default", "dev", tun_name, "table", "100"],
+        &[
+            "ip", "route", "add", "default", "dev", tun_name, "table", "100",
+        ],
+        &[
+            "ip", "route", "del", "default", "dev", tun_name, "table", "100",
+        ],
         &mut rb,
         "add IPv4 default route via TUN",
     )
@@ -42,12 +46,34 @@ pub async fn setup_routes(
     // ── IPv4: iptables ──────────────────────────────────────────────────────
     must(
         &[
-            "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53",
-            "-j", "REDIRECT", "--to-port", &dns,
+            "iptables",
+            "-t",
+            "nat",
+            "-A",
+            "OUTPUT",
+            "-p",
+            "udp",
+            "--dport",
+            "53",
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &dns,
         ],
         &[
-            "iptables", "-t", "nat", "-D", "OUTPUT", "-p", "udp", "--dport", "53",
-            "-j", "REDIRECT", "--to-port", &dns,
+            "iptables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "udp",
+            "--dport",
+            "53",
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &dns,
         ],
         &mut rb,
         "iptables: redirect DNS UDP to proxy",
@@ -56,14 +82,40 @@ pub async fn setup_routes(
 
     must(
         &[
-            "iptables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp",
-            "-m", "mark", "!", "--mark", &mark,
-            "-j", "REDIRECT", "--to-port", &redir,
+            "iptables",
+            "-t",
+            "nat",
+            "-A",
+            "OUTPUT",
+            "-p",
+            "tcp",
+            "-m",
+            "mark",
+            "!",
+            "--mark",
+            &mark,
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &redir,
         ],
         &[
-            "iptables", "-t", "nat", "-D", "OUTPUT", "-p", "tcp",
-            "-m", "mark", "!", "--mark", &mark,
-            "-j", "REDIRECT", "--to-port", &redir,
+            "iptables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "tcp",
+            "-m",
+            "mark",
+            "!",
+            "--mark",
+            &mark,
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &redir,
         ],
         &mut rb,
         "iptables: redirect TCP to proxy",
@@ -72,13 +124,17 @@ pub async fn setup_routes(
 
     // ── IPv6: policy routing (best-effort) ──────────────────────────────────
     try_best_effort(
-        &["ip", "-6", "route", "add", "default", "dev", tun_name, "table", "100"],
+        &[
+            "ip", "-6", "route", "add", "default", "dev", tun_name, "table", "100",
+        ],
         "ip -6 route add",
     )
     .await;
 
     try_best_effort(
-        &["ip", "-6", "rule", "add", "not", "fwmark", &mark, "lookup", "100"],
+        &[
+            "ip", "-6", "rule", "add", "not", "fwmark", &mark, "lookup", "100",
+        ],
         "ip -6 rule add",
     )
     .await;
@@ -86,8 +142,19 @@ pub async fn setup_routes(
     // ── IPv6: ip6tables (best-effort) ───────────────────────────────────────
     try_best_effort(
         &[
-            "ip6tables", "-t", "nat", "-A", "OUTPUT", "-p", "udp", "--dport", "53",
-            "-j", "REDIRECT", "--to-port", &dns,
+            "ip6tables",
+            "-t",
+            "nat",
+            "-A",
+            "OUTPUT",
+            "-p",
+            "udp",
+            "--dport",
+            "53",
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &dns,
         ],
         "ip6tables: redirect DNS UDP",
     )
@@ -95,9 +162,22 @@ pub async fn setup_routes(
 
     try_best_effort(
         &[
-            "ip6tables", "-t", "nat", "-A", "OUTPUT", "-p", "tcp",
-            "-m", "mark", "!", "--mark", &mark,
-            "-j", "REDIRECT", "--to-port", &redir,
+            "ip6tables",
+            "-t",
+            "nat",
+            "-A",
+            "OUTPUT",
+            "-p",
+            "tcp",
+            "-m",
+            "mark",
+            "!",
+            "--mark",
+            &mark,
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &redir,
         ],
         "ip6tables: redirect TCP",
     )
@@ -118,28 +198,82 @@ pub async fn cleanup_routes(tun_name: &str, bypass_mark: u32, dns_port: u16, red
 
     let cmds: &[&[&str]] = &[
         // IPv4
-        &["ip", "route", "del", "default", "dev", tun_name, "table", "100"],
+        &[
+            "ip", "route", "del", "default", "dev", tun_name, "table", "100",
+        ],
         &["ip", "rule", "del", "not", "fwmark", &mark, "lookup", "100"],
         &[
-            "iptables", "-t", "nat", "-D", "OUTPUT", "-p", "udp", "--dport", "53",
-            "-j", "REDIRECT", "--to-port", &dns,
+            "iptables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "udp",
+            "--dport",
+            "53",
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &dns,
         ],
         &[
-            "iptables", "-t", "nat", "-D", "OUTPUT", "-p", "tcp",
-            "-m", "mark", "!", "--mark", &mark,
-            "-j", "REDIRECT", "--to-port", &redir,
+            "iptables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "tcp",
+            "-m",
+            "mark",
+            "!",
+            "--mark",
+            &mark,
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &redir,
         ],
         // IPv6 (best-effort)
-        &["ip", "-6", "route", "del", "default", "dev", tun_name, "table", "100"],
-        &["ip", "-6", "rule", "del", "not", "fwmark", &mark, "lookup", "100"],
         &[
-            "ip6tables", "-t", "nat", "-D", "OUTPUT", "-p", "udp", "--dport", "53",
-            "-j", "REDIRECT", "--to-port", &dns,
+            "ip", "-6", "route", "del", "default", "dev", tun_name, "table", "100",
         ],
         &[
-            "ip6tables", "-t", "nat", "-D", "OUTPUT", "-p", "tcp",
-            "-m", "mark", "!", "--mark", &mark,
-            "-j", "REDIRECT", "--to-port", &redir,
+            "ip", "-6", "rule", "del", "not", "fwmark", &mark, "lookup", "100",
+        ],
+        &[
+            "ip6tables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "udp",
+            "--dport",
+            "53",
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &dns,
+        ],
+        &[
+            "ip6tables",
+            "-t",
+            "nat",
+            "-D",
+            "OUTPUT",
+            "-p",
+            "tcp",
+            "-m",
+            "mark",
+            "!",
+            "--mark",
+            &mark,
+            "-j",
+            "REDIRECT",
+            "--to-port",
+            &redir,
         ],
     ];
 
@@ -172,12 +306,7 @@ impl RollbackList {
 }
 
 /// Run a mandatory setup command. On failure, roll back all previous steps.
-async fn must(
-    setup: &[&str],
-    undo: &[&str],
-    rb: &mut RollbackList,
-    ctx: &str,
-) -> Result<()> {
+async fn must(setup: &[&str], undo: &[&str], rb: &mut RollbackList, ctx: &str) -> Result<()> {
     if let Err(e) = run(setup).await.with_context(|| ctx.to_string()) {
         // Take the list so we can call rollback (consumes self).
         let taken = std::mem::take(rb);

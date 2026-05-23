@@ -107,7 +107,11 @@ pub fn validate_auth_id(cmd_key: &[u8; 16], auth_id: &[u8; 16], max_diff_secs: u
     }
 
     // Extract and verify timestamp.
-    let timestamp = u64::from_be_bytes(block[0..8].try_into().unwrap());
+    let ts_bytes: [u8; 8] = match block[0..8].try_into() {
+        Ok(v) => v,
+        Err(_) => return false,
+    };
+    let timestamp = u64::from_be_bytes(ts_bytes);
     let now = current_timestamp();
     let diff = now.abs_diff(timestamp);
 

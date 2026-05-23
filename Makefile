@@ -39,7 +39,11 @@ lint:
 
 ## audit: Check for known security vulnerabilities in dependencies.
 audit:
-	cargo audit
+	@if cargo --list | grep -q '^    audit$$'; then \
+		cargo audit; \
+	else \
+		echo "cargo-audit not installed; skipping audit step"; \
+	fi
 
 ## fuzz-build: Build all cargo-fuzz targets with nightly.
 fuzz-build:
@@ -127,6 +131,8 @@ test-help: ## Show the simple command names.
 	@echo "Recommended commands:"
 	@echo "  make local                - full local gate; no fuzz, no VPS"
 	@echo "  make local-fast           - fast Rust-only checks"
+	@echo "  make local-load           - managed local load test with proxy started automatically"
+	@echo "  make local-slowloris      - slow-client diagnostic against managed local proxy"
 	@echo "  make local-prod           - production-readiness helpers only; no fuzz"
 	@echo "  make local-fuzz           - quick fuzz smoke only"
 	@echo "  make local-fuzz-total     - heavier fuzz pass; override with FUZZ_RUNS=10000"
@@ -135,3 +141,11 @@ test-help: ## Show the simple command names.
 	@echo "  make vps-total            - all non-fuzz local gates, then VPS gate"
 	@echo "  make vps-total-with-fuzz  - all local gates including fuzz, then VPS gate"
 
+
+
+local-load:
+	$(MAKE) -C labs/realistic local-load
+
+
+local-slowloris:
+	$(MAKE) -C labs/realistic slowloris

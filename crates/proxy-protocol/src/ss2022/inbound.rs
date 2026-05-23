@@ -162,7 +162,10 @@ fn parse_header(data: &[u8], source: SocketAddr) -> Result<(Address, usize), Pro
     if data.len() < pos + 8 {
         return Err(ProxyError::Protocol("SS-2022: truncated timestamp".into()));
     }
-    let ts = u64::from_be_bytes(data[pos..pos + 8].try_into().unwrap());
+    let ts_bytes: [u8; 8] = data[pos..pos + 8]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("SS-2022: invalid timestamp bytes".into()))?;
+    let ts = u64::from_be_bytes(ts_bytes);
     pos += 8;
 
     let now = SystemTime::now()

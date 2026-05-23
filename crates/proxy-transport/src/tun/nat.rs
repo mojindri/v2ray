@@ -81,7 +81,9 @@ impl UdpNatTable {
             );
         }
 
-        let entry = self.entries.get_mut(&key).unwrap();
+        let Some(entry) = self.entries.get_mut(&key) else {
+            anyhow::bail!("UDP NAT: entry disappeared before send");
+        };
         entry.last_seen = now;
 
         let payload = packet
@@ -128,11 +130,13 @@ impl UdpNatTable {
         #[cfg(target_os = "linux")]
         {
             use nix::sys::socket::{setsockopt, sockopt::Mark};
-            setsockopt(&socket, Mark, &self.bypass_mark)
-                .context("SO_MARK on bypass socket")?;
+            setsockopt(&socket, Mark, &self.bypass_mark).context("SO_MARK on bypass socket")?;
         }
 
-        socket.connect(remote).await.context("connect bypass socket")?;
+        socket
+            .connect(remote)
+            .await
+            .context("connect bypass socket")?;
         Ok(socket)
     }
 }
@@ -172,7 +176,11 @@ async fn response_reader(
 }
 
 /// Build the reversed UDP packet (remote → client) from a bypass socket response.
-fn build_response_packet(client: SocketAddr, remote: SocketAddr, payload: &[u8]) -> Option<Vec<u8>> {
+fn build_response_packet(
+    client: SocketAddr,
+    remote: SocketAddr,
+    payload: &[u8],
+) -> Option<Vec<u8>> {
     // `build_udp_response_packet` swaps src↔dst from the "request", so we
     // pass a fake request with src=client, dst=remote to get remote→client.
     let fake_request = IpPacket {

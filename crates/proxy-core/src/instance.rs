@@ -105,10 +105,12 @@ impl Instance {
             use proxy_transport::TunConfig;
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
-                address: tun_cfg.address
+                address: tun_cfg
+                    .address
                     .parse()
                     .with_context(|| format!("invalid TUN address '{}'", tun_cfg.address))?,
-                netmask: tun_cfg.netmask
+                netmask: tun_cfg
+                    .netmask
                     .parse()
                     .with_context(|| format!("invalid TUN netmask '{}'", tun_cfg.netmask))?,
                 mtu: tun_cfg.mtu,
@@ -317,9 +319,17 @@ impl Instance {
             };
 
             // Start the TCP accept loop for this inbound.
-            let transport = proxy_transport::TcpServerTransport::new(
-                proxy_transport::tcp::TcpConfig::default(),
-            );
+            let tcp_config = proxy_transport::tcp::TcpConfig {
+                max_connections: in_cfg
+                    .limits
+                    .as_ref()
+                    .and_then(|limits| limits.max_connections)
+                    .or(config.limits.max_connections_per_inbound)
+                    .or(config.limits.max_connections),
+                ..Default::default()
+            };
+
+            let transport = proxy_transport::TcpServerTransport::new(tcp_config);
             let listener = tokio::net::TcpListener::bind(addr)
                 .await
                 .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;

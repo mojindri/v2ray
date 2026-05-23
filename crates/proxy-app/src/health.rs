@@ -106,8 +106,11 @@ impl HealthChecker {
                 async {
                     stream.write_all(req.as_bytes()).await?;
                     let mut resp = [0u8; 32];
-                    stream.read(&mut resp).await?;
-                    Ok::<bool, std::io::Error>(resp.starts_with(b"HTTP"))
+                    let n = stream.read(&mut resp).await?;
+                    if n == 0 {
+                        anyhow::bail!("health probe connection closed before response");
+                    }
+                    Ok::<bool, anyhow::Error>(resp.starts_with(b"HTTP"))
                 }
                 .await
                 .unwrap_or(false)

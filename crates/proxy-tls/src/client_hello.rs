@@ -99,6 +99,7 @@ impl ClientHelloBuilder {
     }
 
     /// Build the ClientHello body, meaning everything after the handshake header.
+    #[allow(clippy::too_many_arguments)]
     fn build_client_hello_body(
         &self,
         sni: &str,

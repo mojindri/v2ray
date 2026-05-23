@@ -72,7 +72,10 @@ pub fn decode_grpc_frame(buf: &mut BytesMut) -> Result<Option<Bytes>, ProxyError
         )));
     }
 
-    let len = u32::from_be_bytes(buf[1..5].try_into().unwrap());
+    let len_bytes: [u8; 4] = buf[1..5]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("gRPC: invalid frame header".into()))?;
+    let len = u32::from_be_bytes(len_bytes);
     if len > MAX_MESSAGE_SIZE {
         return Err(ProxyError::Transport(format!(
             "gRPC: message too large ({len} bytes)"
@@ -358,7 +361,7 @@ pub async fn grpc_accept(
         .status(200)
         .header(http::header::CONTENT_TYPE, "application/grpc")
         .body(())
-        .expect("static response must build");
+        .map_err(|e| ProxyError::Protocol(format!("gRPC: invalid static response: {e}")))?;
 
     let send_stream = respond
         .send_response(response, false)
