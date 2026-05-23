@@ -6,7 +6,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-use proxy_common::Address;
+use proxy_common::{Address, ProxyError};
 use proxy_config::schema::HealthCheckConfig;
 
 use crate::context::Context;
@@ -37,13 +37,22 @@ pub struct HealthChecker {
     outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,
     pub states: HealthStates,
     config: HealthCheckConfig,
+    probe: HealthProbe,
+}
+
+#[derive(Clone, Debug)]
+struct HealthProbe {
+    dest: Address,
+    host_header: String,
+    path: String,
 }
 
 impl HealthChecker {
     pub fn new(
         outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,
         config: HealthCheckConfig,
-    ) -> (Arc<Self>, HealthStates) {
+    ) -> Result<(Arc<Self>, HealthStates), ProxyError> {
+        let probe = HealthProbe::parse(&config.url)?;
         let states: HealthStates = Arc::new(DashMap::new());
         for (tag, _) in &outbounds {
             states.insert(tag.clone(), OutboundState::default());
@@ -52,8 +61,9 @@ impl HealthChecker {
             outbounds,
             states: states.clone(),
             config,
+            probe,
         });
-        (checker, states)
+        Ok((checker, states))
     }
 
     pub async fn run(self: Arc<Self>) {
@@ -79,20 +89,22 @@ impl HealthChecker {
 
     async fn probe(&self, tag: String, outbound: Arc<dyn OutboundHandler>) {
         let start = Instant::now();
-        let dest = Address::Domain("www.gstatic.com".into(), 80);
         let ctx = Context::default();
 
         let result = timeout(
             Duration::from_secs(self.config.timeout_secs),
-            outbound.connect(&ctx, &dest),
+            outbound.connect(&ctx, &self.probe.dest),
         )
         .await;
 
         let success = match result {
             Ok(Ok(mut stream)) => {
-                let req = b"GET /generate_204 HTTP/1.1\r\nHost: www.gstatic.com\r\nConnection: close\r\n\r\n";
+                let req = format!(
+                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+                    self.probe.path, self.probe.host_header
+                );
                 async {
-                    stream.write_all(req).await?;
+                    stream.write_all(req.as_bytes()).await?;
                     let mut resp = [0u8; 32];
                     stream.read(&mut resp).await?;
                     Ok::<bool, std::io::Error>(resp.starts_with(b"HTTP"))
@@ -121,5 +133,88 @@ impl HealthChecker {
                 warn!(tag = %tag, failures = entry.consecutive_failures, "outbound marked dead");
             }
         }
+    }
+}
+
+impl HealthProbe {
+    fn parse(url: &str) -> Result<Self, ProxyError> {
+        let rest = url.strip_prefix("http://").ok_or_else(|| {
+            ProxyError::Protocol("health check only supports http:// URLs".into())
+        })?;
+        let (authority, path) = rest.split_once('/').unwrap_or((rest, ""));
+        if authority.is_empty() {
+            return Err(ProxyError::Protocol(
+                "health check URL is missing a host".into(),
+            ));
+        }
+
+        let path = format!("/{}", path);
+        let (host, port) = parse_authority(authority)?;
+        Ok(Self {
+            dest: Address::Domain(host.clone(), port),
+            host_header: if port == 80 {
+                host
+            } else {
+                format!("{host}:{port}")
+            },
+            path,
+        })
+    }
+}
+
+fn parse_authority(authority: &str) -> Result<(String, u16), ProxyError> {
+    if let Some(host) = authority.strip_prefix('[') {
+        let (host, rest) = host.split_once(']').ok_or_else(|| {
+            ProxyError::Protocol("health check IPv6 host is missing closing ']'".into())
+        })?;
+        let port = match rest.strip_prefix(':') {
+            Some(port) => parse_port(port)?,
+            None if rest.is_empty() => 80,
+            _ => {
+                return Err(ProxyError::Protocol(
+                    "invalid health check IPv6 authority".into(),
+                ))
+            }
+        };
+        return Ok((host.to_string(), port));
+    }
+
+    match authority.rsplit_once(':') {
+        Some((host, port)) if !host.contains(':') => Ok((host.to_string(), parse_port(port)?)),
+        Some(_) => Err(ProxyError::Protocol(
+            "IPv6 health check hosts must use brackets".into(),
+        )),
+        None => Ok((authority.to_string(), 80)),
+    }
+}
+
+fn parse_port(port: &str) -> Result<u16, ProxyError> {
+    port.parse::<u16>()
+        .map_err(|_| ProxyError::Protocol(format!("invalid health check URL port '{port}'")))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn health_probe_parses_http_url_with_default_port() {
+        let probe = HealthProbe::parse("http://example.com/generate_204").unwrap();
+        assert_eq!(probe.dest, Address::Domain("example.com".into(), 80));
+        assert_eq!(probe.host_header, "example.com");
+        assert_eq!(probe.path, "/generate_204");
+    }
+
+    #[test]
+    fn health_probe_parses_http_url_with_explicit_port() {
+        let probe = HealthProbe::parse("http://example.com:8080/healthz").unwrap();
+        assert_eq!(probe.dest, Address::Domain("example.com".into(), 8080));
+        assert_eq!(probe.host_header, "example.com:8080");
+        assert_eq!(probe.path, "/healthz");
+    }
+
+    #[test]
+    fn health_probe_rejects_unsupported_scheme() {
+        assert!(HealthProbe::parse("https://example.com/healthz").is_err());
     }
 }

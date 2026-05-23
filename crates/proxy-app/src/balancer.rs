@@ -108,3 +108,111 @@ impl OutboundHandler for Balancer {
         outbound.connect(ctx, dest).await
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::health::OutboundState;
+    use proxy_common::Address;
+    use proxy_config::schema::BalancerConfig;
+    use tokio::io::duplex;
+
+    struct MockOutbound {
+        tag: String,
+    }
+
+    #[async_trait]
+    impl OutboundHandler for MockOutbound {
+        fn tag(&self) -> &str {
+            &self.tag
+        }
+
+        async fn connect(
+            &self,
+            _ctx: &Context,
+            _dest: &Address,
+        ) -> Result<BoxedStream, ProxyError> {
+            let (stream, _peer) = duplex(64);
+            Ok(Box::new(stream))
+        }
+    }
+
+    fn mock(tag: &str) -> (String, Arc<dyn OutboundHandler>) {
+        (
+            tag.to_string(),
+            Arc::new(MockOutbound {
+                tag: tag.to_string(),
+            }),
+        )
+    }
+
+    fn states(entries: &[(&str, bool, u64)]) -> HealthStates {
+        let states = HealthStates::default();
+        for (tag, alive, latency_ms) in entries {
+            states.insert(
+                (*tag).to_string(),
+                OutboundState {
+                    alive: *alive,
+                    latency_ms: *latency_ms,
+                    ..Default::default()
+                },
+            );
+        }
+        states
+    }
+
+    fn config(strategy: &str) -> BalancerConfig {
+        BalancerConfig {
+            tag: "auto".into(),
+            selector: vec!["a".into(), "b".into()],
+            strategy: strategy.into(),
+            health_check: None,
+        }
+    }
+
+    #[test]
+    fn latency_strategy_chooses_lowest_latency_alive_outbound() {
+        let balancer = Balancer::new(
+            &config("latency"),
+            vec![mock("a"), mock("b")],
+            states(&[("a", true, 100), ("b", true, 10)]),
+        );
+
+        assert_eq!(balancer.pick().unwrap().tag(), "b");
+    }
+
+    #[test]
+    fn dead_outbounds_are_filtered_before_selection() {
+        let balancer = Balancer::new(
+            &config("latency"),
+            vec![mock("a"), mock("b")],
+            states(&[("a", false, 1), ("b", true, 100)]),
+        );
+
+        assert_eq!(balancer.pick().unwrap().tag(), "b");
+    }
+
+    #[test]
+    fn all_dead_falls_back_to_first_configured_outbound() {
+        let balancer = Balancer::new(
+            &config("latency"),
+            vec![mock("a"), mock("b")],
+            states(&[("a", false, 1), ("b", false, 2)]),
+        );
+
+        assert_eq!(balancer.pick().unwrap().tag(), "a");
+    }
+
+    #[test]
+    fn round_robin_rotates_alive_outbounds() {
+        let balancer = Balancer::new(
+            &config("roundRobin"),
+            vec![mock("a"), mock("b")],
+            states(&[("a", true, 1), ("b", true, 2)]),
+        );
+
+        assert_eq!(balancer.pick().unwrap().tag(), "a");
+        assert_eq!(balancer.pick().unwrap().tag(), "b");
+        assert_eq!(balancer.pick().unwrap().tag(), "a");
+    }
+}

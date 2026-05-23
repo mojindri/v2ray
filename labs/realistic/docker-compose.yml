@@ -1,0 +1,23 @@
+services:
+  target-http:
+    image: hashicorp/http-echo:1.0
+    command:
+      - "-listen=:8080"
+      - "-text=proxy-rs realistic lab target"
+    ports:
+      - "18080:8080"
+
+  target-echo:
+    image: alpine/socat:1.8.0.3
+    command: "tcp-listen:19090,fork,reuseaddr exec:/bin/cat"
+    ports:
+      - "19090:19090"
+
+  proxy-image:
+    image: proxy-rs:latest
+    build:
+      context: ../..
+      dockerfile: deploy/docker/Dockerfile
+    command: ["version"]
+    profiles:
+      - image

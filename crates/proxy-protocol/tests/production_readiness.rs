@@ -125,7 +125,9 @@ async fn vless_decode(data: &[u8]) -> Result<vless_codec::VlessRequest, proxy_co
     vless_codec::decode_request(&mut c).await
 }
 
-async fn trojan_decode(data: &[u8]) -> Result<trojan_codec::TrojanRequest, proxy_common::ProxyError> {
+async fn trojan_decode(
+    data: &[u8],
+) -> Result<trojan_codec::TrojanRequest, proxy_common::ProxyError> {
     let mut c = std::io::Cursor::new(data.to_vec());
     trojan_codec::decode_request(&mut c).await
 }
@@ -139,8 +141,8 @@ fn vmess_cmd_key_uses_full_vmess_magic_uuid_string() {
     use md5::{Digest, Md5};
 
     let uuid = [
-        0x10, 0x8b, 0x3c, 0x8f, 0x99, 0xe8, 0x45, 0x88,
-        0x92, 0xfe, 0xa2, 0x7f, 0x1f, 0x64, 0xe3, 0x6a,
+        0x10, 0x8b, 0x3c, 0x8f, 0x99, 0xe8, 0x45, 0x88, 0x92, 0xfe, 0xa2, 0x7f, 0x1f, 0x64, 0xe3,
+        0x6a,
     ];
 
     let mut h = Md5::new();
@@ -180,10 +182,12 @@ fn trojan_encoder_includes_command_byte_after_token_crlf() {
     let encoded = trojan_codec::encode_request(&token, &dest);
 
     let pos = trojan_codec::TOKEN_LEN + 2;
-    assert_eq!(&encoded[trojan_codec::TOKEN_LEN..trojan_codec::TOKEN_LEN + 2], b"\r\n");
     assert_eq!(
-        encoded[pos],
-        0x01,
+        &encoded[trojan_codec::TOKEN_LEN..trojan_codec::TOKEN_LEN + 2],
+        b"\r\n"
+    );
+    assert_eq!(
+        encoded[pos], 0x01,
         "Trojan CONNECT command byte 0x01 must appear before ATYP"
     );
     assert_eq!(
@@ -286,13 +290,16 @@ fn vless_encoder_must_not_silently_truncate_long_domain_or_flow() {
 fn trojan_token_is_lowercase_hex_only() {
     let token = trojan_codec::compute_token("password");
     assert_eq!(token.len(), trojan_codec::TOKEN_LEN);
-    assert!(token.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
+    assert!(token
+        .bytes()
+        .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)));
 }
 
 #[tokio::test]
 async fn trojan_rejects_bad_crlf_and_truncations_without_panic() {
     let token = trojan_codec::compute_token("pw");
-    let good = trojan_codec::encode_request(&token, &Address::Ipv4("1.2.3.4".parse().unwrap(), 443));
+    let good =
+        trojan_codec::encode_request(&token, &Address::Ipv4("1.2.3.4".parse().unwrap(), 443));
 
     for cut in 0..good.len() {
         let _ = trojan_decode(&good[..cut]).await;
@@ -306,7 +313,8 @@ async fn trojan_rejects_bad_crlf_and_truncations_without_panic() {
 #[test]
 fn trojan_encoder_must_reject_invalid_token_length_in_production_api() {
     let bad = "short";
-    let encoded = trojan_codec::encode_request(bad, &Address::Domain("example.com".to_string(), 443));
+    let encoded =
+        trojan_codec::encode_request(bad, &Address::Domain("example.com".to_string(), 443));
 
     assert_ne!(
         encoded.len(),
@@ -352,16 +360,31 @@ fn http_connect_rejects_empty_host_target() {
 fn vmess_auth_accepts_current_rejects_stale_and_wrong_key() {
     let uuid = [0x44u8; 16];
     let key = vmess_auth::cmd_key(&uuid);
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
 
     let current = vmess_auth::generate_auth_id_at(&key, now);
-    assert!(vmess_auth::validate_auth_id(&key, &current, vmess_auth::MAX_TIME_DIFF_SECS));
+    assert!(vmess_auth::validate_auth_id(
+        &key,
+        &current,
+        vmess_auth::MAX_TIME_DIFF_SECS
+    ));
 
     let stale = vmess_auth::generate_auth_id_at(&key, now - vmess_auth::MAX_TIME_DIFF_SECS - 10);
-    assert!(!vmess_auth::validate_auth_id(&key, &stale, vmess_auth::MAX_TIME_DIFF_SECS));
+    assert!(!vmess_auth::validate_auth_id(
+        &key,
+        &stale,
+        vmess_auth::MAX_TIME_DIFF_SECS
+    ));
 
     let wrong_key = vmess_auth::cmd_key(&[0x45u8; 16]);
-    assert!(!vmess_auth::validate_auth_id(&wrong_key, &current, vmess_auth::MAX_TIME_DIFF_SECS));
+    assert!(!vmess_auth::validate_auth_id(
+        &wrong_key,
+        &current,
+        vmess_auth::MAX_TIME_DIFF_SECS
+    ));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
