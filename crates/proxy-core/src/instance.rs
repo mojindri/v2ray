@@ -37,15 +37,20 @@ use tokio::task::JoinHandle;
 use tracing::{error, info};
 
 use proxy_app::dispatcher::{DefaultDispatcher, Dispatcher};
+use proxy_app::dns::{DnsModule, DnsModuleConfig};
 use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
+use proxy_app::geo::loader::{load_geoip, load_geosite};
+use proxy_app::health::{HealthChecker, HealthStates, OutboundState};
 use proxy_app::router::{CompiledRule, DomainMatcher, IpMatcher, LiveRouter};
+use proxy_app::Balancer;
 use proxy_common::{BoxedStream, ProxyError};
-use proxy_config::schema::{Config, Protocol};
+use proxy_config::schema::{Config, NetworkType, Protocol, SecurityType, StreamSettingsConfig};
 use proxy_protocol::freedom::FreedomOutbound;
 use proxy_protocol::socks::Socks5Inbound;
 use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
+use proxy_transport::{mkcp_accept_once, MkcpServerConfig};
 
 use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
@@ -57,7 +62,7 @@ use crate::reality::{
 use crate::ss2022::{build_ss2022_inbound, build_ss2022_outbound};
 use crate::trojan::{build_trojan_inbound, build_trojan_outbound};
 use crate::vmess::{build_vmess_inbound, build_vmess_outbound};
-use crate::ws_tls::{build_conn_handler, uses_grpc, uses_tls, uses_ws};
+use crate::ws_tls::{build_conn_handler, uses_grpc, uses_shadowtls, uses_tls, uses_ws};
 
 /// The running proxy instance.
 pub struct Instance {
@@ -89,10 +94,23 @@ impl Instance {
     ///   - A listen address is invalid
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
+        if config.tun.is_some() {
+            anyhow::bail!(
+                "top-level tun config is parsed, but TUN runtime startup is not implemented yet"
+            );
+        }
+
+        let mut tasks = Vec::new();
+
         // ── Step 1: Build outbound handlers ─────────────────────────────────
         let mut outbound_map: HashMap<String, Arc<dyn OutboundHandler>> = HashMap::new();
 
         for out_cfg in &config.outbounds {
+            reject_unfinished_transport_settings(
+                "outbound",
+                &out_cfg.tag,
+                &out_cfg.stream_settings,
+            )?;
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
                 Protocol::Freedom => FreedomOutbound::new(&out_cfg.tag),
                 Protocol::Vless => build_vless_outbound(out_cfg)
@@ -113,6 +131,37 @@ impl Instance {
             outbound_map.insert(out_cfg.tag.clone(), handler);
         }
 
+        // ── Step 1b: Build balancer outbounds and health-check tasks ────────
+        if let Some(routing) = &config.routing {
+            for balancer_cfg in &routing.balancers {
+                if outbound_map.contains_key(&balancer_cfg.tag) {
+                    anyhow::bail!(
+                        "balancer tag '{}' conflicts with an existing outbound",
+                        balancer_cfg.tag
+                    );
+                }
+
+                let selected = select_balancer_outbounds(balancer_cfg, &outbound_map)?;
+                let states = if let Some(health_cfg) = &balancer_cfg.health_check {
+                    let (checker, states) =
+                        HealthChecker::new(selected.clone(), health_cfg.clone()).map_err(|e| {
+                            anyhow::anyhow!(
+                                "invalid health check for balancer '{}': {e}",
+                                balancer_cfg.tag
+                            )
+                        })?;
+                    tasks.push(tokio::spawn(checker.run()));
+                    states
+                } else {
+                    initial_health_states(&selected)
+                };
+
+                let balancer = Balancer::new(balancer_cfg, selected, states);
+                info!(tag = %balancer.tag(), "registered balancer outbound");
+                outbound_map.insert(balancer_cfg.tag.clone(), balancer);
+            }
+        }
+
         // ── Step 2: Build router ─────────────────────────────────────────────
         let default_tag = config
             .outbounds
@@ -126,15 +175,20 @@ impl Instance {
             vec![]
         };
 
-        let router = LiveRouter::new(rules, default_tag, Default::default(), Default::default());
+        let (geoip, geosite) = load_geo_data(config.routing.as_ref());
+        let router = LiveRouter::new(rules, default_tag, geoip, geosite);
 
         // ── Step 3: Create dispatcher ────────────────────────────────────────
-        let dispatcher = DefaultDispatcher::new(router, outbound_map);
+        let dns = build_dns_module(config.dns.as_ref()).await?;
+        let dispatcher = if let Some(dns) = dns {
+            DefaultDispatcher::new_with_dns(router, outbound_map, dns)
+        } else {
+            DefaultDispatcher::new(router, outbound_map)
+        };
 
         // ── Step 4 & 5: Build inbounds and start listeners ───────────────────
-        let mut tasks = Vec::new();
-
         for in_cfg in &config.inbounds {
+            reject_unfinished_transport_settings("inbound", &in_cfg.tag, &in_cfg.stream_settings)?;
             let addr: SocketAddr = format!("{}:{}", in_cfg.listen, in_cfg.port)
                 .parse()
                 .with_context(|| format!("invalid listen address for inbound '{}'", in_cfg.tag))?;
@@ -170,21 +224,46 @@ impl Instance {
 
             let dispatcher_for_handler = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
 
+            if uses_kcp(&in_cfg.stream_settings) {
+                let conn_handler = Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
+                });
+                let cfg = build_mkcp_server_config(addr, &in_cfg.stream_settings)
+                    .with_context(|| format!("building mKCP inbound '{}'", in_cfg.tag))?;
+                let task = tokio::spawn(async move {
+                    match mkcp_accept_once(&cfg).await {
+                        Ok((stream, peer)) => {
+                            if let Err(e) =
+                                conn_handler.handle_connection(Box::new(stream), peer).await
+                            {
+                                error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                            }
+                        }
+                        Err(e) => {
+                            error!(addr = %addr, error = %e, "mKCP inbound listener failed");
+                        }
+                    }
+                });
+                tasks.push(task);
+                continue;
+            }
+
             // Choose the connection handler stack based on stream settings.
             let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
             {
                 // REALITY: unwrap REALITY TLS camouflage first.
                 let reality = build_reality_server(in_cfg)
                     .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                RealityConnectionHandler::new(
-                    reality,
-                    Arc::clone(&handler),
-                    dispatcher_for_handler,
-                )
-                .with_context(|| {
-                    format!("building REALITY connection handler for inbound '{}'", in_cfg.tag)
-                })?
+                RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
+                    .with_context(|| {
+                        format!(
+                            "building REALITY connection handler for inbound '{}'",
+                            in_cfg.tag
+                        )
+                    })?
             } else if uses_tls(&in_cfg.stream_settings)
+                || uses_shadowtls(&in_cfg.stream_settings)
                 || uses_ws(&in_cfg.stream_settings)
                 || uses_grpc(&in_cfg.stream_settings)
             {
@@ -258,6 +337,142 @@ impl Drop for Instance {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
+fn select_balancer_outbounds(
+    cfg: &proxy_config::schema::BalancerConfig,
+    outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
+) -> Result<Vec<(String, Arc<dyn OutboundHandler>)>> {
+    if cfg.selector.is_empty() {
+        anyhow::bail!("balancer '{}' selector must not be empty", cfg.tag);
+    }
+
+    cfg.selector
+        .iter()
+        .map(|tag| {
+            let outbound = outbounds.get(tag).cloned().ok_or_else(|| {
+                anyhow::anyhow!("balancer '{}' references missing outbound '{tag}'", cfg.tag)
+            })?;
+            Ok((tag.clone(), outbound))
+        })
+        .collect()
+}
+
+fn initial_health_states(selected: &[(String, Arc<dyn OutboundHandler>)]) -> HealthStates {
+    let states = HealthStates::default();
+    for (tag, _) in selected {
+        states.insert(tag.clone(), OutboundState::default());
+    }
+    states
+}
+
+fn reject_unfinished_transport_settings(
+    side: &str,
+    tag: &str,
+    stream_settings: &Option<StreamSettingsConfig>,
+) -> Result<()> {
+    let Some(settings) = stream_settings else {
+        return Ok(());
+    };
+
+    if settings.security == SecurityType::ShadowTls {
+        let shadow = settings.shadow_tls_settings.as_ref().ok_or_else(|| {
+            anyhow::anyhow!(
+                "{side} '{tag}' requests security=shadowtls but has no shadowTlsSettings"
+            )
+        })?;
+        if shadow.version != 3 {
+            anyhow::bail!(
+                "{side} '{tag}' requests unsupported ShadowTLS version {}",
+                shadow.version
+            );
+        }
+        if shadow.password.is_empty() || shadow.dest.is_empty() {
+            anyhow::bail!("{side} '{tag}' ShadowTLS requires non-empty password and dest");
+        }
+    }
+
+    if settings.network == NetworkType::Kcp {
+        let kcp = settings.kcp_settings.as_ref();
+        if let Some(kcp) = kcp {
+            kcp.header
+                .parse::<proxy_transport::mkcp::header::HeaderType>()
+                .map_err(|e| anyhow::anyhow!("{side} '{tag}' has invalid mKCP header: {e}"))?;
+        }
+    }
+
+    Ok(())
+}
+
+fn uses_kcp(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.network == NetworkType::Kcp)
+}
+
+fn build_mkcp_server_config(
+    listen: SocketAddr,
+    stream_settings: &Option<StreamSettingsConfig>,
+) -> Result<MkcpServerConfig> {
+    let settings = stream_settings
+        .as_ref()
+        .and_then(|s| s.kcp_settings.as_ref());
+    let header = settings
+        .map(|k| k.header.parse())
+        .transpose()
+        .map_err(|e: String| anyhow::anyhow!("{e}"))?
+        .unwrap_or_default();
+
+    Ok(MkcpServerConfig {
+        listen,
+        header,
+        interval_ms: settings.map(|k| k.tti).unwrap_or(50),
+        rcv_wnd: settings.map(|k| k.read_buffer_size as u16).unwrap_or(128),
+        snd_wnd: settings.map(|k| k.write_buffer_size as u16).unwrap_or(128),
+        nodelay: true,
+    })
+}
+
+fn load_geo_data(
+    routing: Option<&proxy_config::schema::RoutingConfig>,
+) -> (
+    HashMap<String, proxy_app::geo::GeoIpMatcher>,
+    HashMap<String, proxy_app::geo::GeoSiteMatcher>,
+) {
+    let geoip = routing
+        .and_then(|r| r.geoip_file.as_deref())
+        .map(load_geoip)
+        .unwrap_or_default();
+    let geosite = routing
+        .and_then(|r| r.geosite_file.as_deref())
+        .map(load_geosite)
+        .unwrap_or_default();
+    (geoip, geosite)
+}
+
+async fn build_dns_module(
+    dns: Option<&proxy_config::schema::DnsConfig>,
+) -> Result<Option<Arc<DnsModule>>> {
+    let Some(dns) = dns else {
+        return Ok(None);
+    };
+
+    let fake = dns.fake_ip.as_ref();
+    let fake_ip_enabled = fake.is_some_and(|cfg| cfg.enabled);
+    let fake_ip_range = fake
+        .map(|cfg| cfg.pool.clone())
+        .unwrap_or_else(|| "198.18.0.0/15".to_string());
+
+    let module = DnsModule::new(DnsModuleConfig {
+        servers: dns.servers.clone(),
+        fake_ip_enabled,
+        fake_ip_range,
+        fake_ip_filter: vec!["localhost".into()],
+    })
+    .await
+    .map_err(|e| anyhow::anyhow!("building DNS module: {e}"))?;
+
+    Ok(Some(Arc::new(module)))
+}
 
 /// Adapter that lets the transport layer call an `InboundHandler` through
 /// the `ConnectionHandler` trait.
@@ -365,7 +580,10 @@ fn build_rules(
         .iter()
         .map(|r| {
             if !outbounds.contains_key(&r.outbound_tag) {
-                anyhow::bail!("routing rule references missing outboundTag '{}'", r.outbound_tag);
+                anyhow::bail!(
+                    "routing rule references missing outboundTag '{}'",
+                    r.outbound_tag
+                );
             }
 
             let mut full = Vec::new();

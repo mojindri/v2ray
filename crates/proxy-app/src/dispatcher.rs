@@ -32,6 +32,7 @@ use tracing::{debug, info, instrument, warn};
 use proxy_common::{Address, BoxedStream, ProxyError};
 
 use crate::context::Context;
+use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
 use crate::router::Router;
 
@@ -60,6 +61,7 @@ pub trait Dispatcher: Send + Sync + 'static {
 pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
+    dns: Option<Arc<DnsModule>>,
 }
 
 impl DefaultDispatcher {
@@ -72,7 +74,86 @@ impl DefaultDispatcher {
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     ) -> Arc<Self> {
-        Arc::new(Self { router, outbounds })
+        Arc::new(Self {
+            router,
+            outbounds,
+            dns: None,
+        })
+    }
+
+    /// Create a dispatcher with DNS/FakeIP support.
+    ///
+    /// If a destination IP is in the configured FakeIP pool, the dispatcher
+    /// restores the original domain before routing and outbound connection.
+    pub fn new_with_dns(
+        router: Arc<dyn Router>,
+        outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
+        dns: Arc<DnsModule>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            router,
+            outbounds,
+            dns: Some(dns),
+        })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dns::DnsModuleConfig;
+    use crate::router::{Route, RoutingContext};
+
+    struct StaticRouter;
+
+    impl Router for StaticRouter {
+        fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
+            Ok(Route {
+                outbound_tag: "unused".into(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatcher_restores_fakeip_destination_before_routing() {
+        let dns = Arc::new(
+            DnsModule::new(DnsModuleConfig {
+                fake_ip_enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap(),
+        );
+        let fake = dns.resolve_fake("example.com");
+        let dispatcher = DefaultDispatcher::new_with_dns(
+            Arc::new(StaticRouter),
+            std::collections::HashMap::new(),
+            dns,
+        );
+
+        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(fake, 443));
+        assert_eq!(restored, Address::Domain("example.com".into(), 443));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_keeps_unknown_fakeip_as_ip_destination() {
+        let dns = Arc::new(
+            DnsModule::new(DnsModuleConfig {
+                fake_ip_enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap(),
+        );
+        let dispatcher = DefaultDispatcher::new_with_dns(
+            Arc::new(StaticRouter),
+            std::collections::HashMap::new(),
+            dns,
+        );
+
+        let ip = "198.18.0.100".parse().unwrap();
+        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(ip, 443));
+        assert_eq!(restored, Address::Ipv4(ip, 443));
     }
 }
 
@@ -85,6 +166,8 @@ impl Dispatcher for DefaultDispatcher {
         dest: Address,
         inbound_stream: BoxedStream,
     ) -> Result<(), ProxyError> {
+        let dest = self.restore_fakeip_destination(dest);
+
         // Step 1: Ask the router which outbound to use.
         let routing_ctx = crate::router::RoutingContext {
             dest: &dest,
@@ -157,5 +240,21 @@ impl Dispatcher for DefaultDispatcher {
         }
 
         Ok(())
+    }
+}
+
+impl DefaultDispatcher {
+    fn restore_fakeip_destination(&self, dest: Address) -> Address {
+        let Some(dns) = &self.dns else {
+            return dest;
+        };
+
+        match dest {
+            Address::Ipv4(ip, port) if dns.is_fake_ip(std::net::IpAddr::V4(ip)) => dns
+                .reverse_fake(ip)
+                .map(|domain| Address::Domain(domain, port))
+                .unwrap_or(Address::Ipv4(ip, port)),
+            other => other,
+        }
     }
 }

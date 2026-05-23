@@ -43,6 +43,10 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingConfig>,
 
+    /// Linux TUN interception settings.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tun: Option<TunConfig>,
+
     /// Ports and protocols the proxy listens on.
     #[validate(length(min = 1, message = "at least one inbound is required"), nested)]
     pub inbounds: Vec<InboundConfig>,
@@ -69,6 +73,53 @@ pub struct Config {
         skip_serializing_if = "Option::is_none"
     )]
     pub metrics_addr: Option<String>,
+}
+
+/// Top-level Linux TUN interception settings.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TunConfig {
+    #[serde(default = "default_tun_name")]
+    pub name: String,
+    #[serde(default = "default_tun_address")]
+    pub address: String,
+    #[serde(default = "default_tun_netmask")]
+    pub netmask: String,
+    #[serde(default = "default_tun_mtu")]
+    pub mtu: u16,
+    #[serde(default = "default_tun_bypass_mark")]
+    pub bypass_mark: u32,
+    #[serde(default = "default_tun_redirect_port")]
+    pub redirect_port: u16,
+    #[serde(default = "default_tun_dns_port")]
+    pub dns_port: u16,
+}
+
+fn default_tun_name() -> String {
+    "proxy-tun".to_string()
+}
+
+fn default_tun_address() -> String {
+    "198.18.0.1".to_string()
+}
+
+fn default_tun_netmask() -> String {
+    "255.255.0.0".to_string()
+}
+
+fn default_tun_mtu() -> u16 {
+    1500
+}
+
+fn default_tun_bypass_mark() -> u32 {
+    0x1234
+}
+
+fn default_tun_redirect_port() -> u16 {
+    7890
+}
+
+fn default_tun_dns_port() -> u16 {
+    5300
 }
 
 #[cfg(test)]

@@ -7,6 +7,24 @@ pub struct RoutingConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_strategy: Option<String>,
 
+    /// Optional path to v2ray-compatible `geoip.dat`.
+    #[serde(
+        default,
+        rename = "geoipFile",
+        alias = "geoip_file",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub geoip_file: Option<String>,
+
+    /// Optional path to v2ray-compatible `geosite.dat`.
+    #[serde(
+        default,
+        rename = "geositeFile",
+        alias = "geosite_file",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub geosite_file: Option<String>,
+
     /// Routing rules, evaluated in order. First match wins.
     #[serde(default)]
     pub rules: Vec<RoutingRule>,

@@ -40,3 +40,14 @@ That guide explains:
 - why REALITY still needs a full TLS 1.3 handshake
 - how the local Xray Docker harness is wired
 - why the Xray `dest` must be a real HTTPS endpoint on port 443
+
+Realistic environment testing starts at [labs/realistic/README.md](labs/realistic/README.md).
+
+That lab is the production-realism gate for the stable matrix:
+
+- VLESS TCP, REALITY, and WebSocket
+- VMess over gRPC
+- Trojan over TLS
+- Shadowsocks 2022
+- Hysteria2
+- required Xray REALITY interop

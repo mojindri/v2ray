@@ -17,6 +17,8 @@ Related docs:
 
 - [../tests/interop/README.md](../tests/interop/README.md)
   REALITY and Xray interop notes, including `d0` and `d1`.
+- [../labs/realistic/README.md](../labs/realistic/README.md)
+  Realistic Docker and two-VPS test gate for the stable protocol matrix.
 
 Second-wave deep dives:
 

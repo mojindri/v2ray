@@ -11,8 +11,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use proxy_core::Instance;
 use proxy_config::schema::Config;
+use proxy_core::Instance;
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
@@ -409,6 +409,69 @@ async fn reality_inbound_rejects_invalid_private_key_and_empty_short_ids() {
     }
 }
 
+#[tokio::test]
+async fn shadowtls_requires_complete_settings() {
+    let cfg = base_config(
+        json!([]),
+        json!([{
+            "tag": "vless-shadowtls",
+            "protocol": "vless",
+            "settings": {
+                "address": "127.0.0.1",
+                "port": 443,
+                "users": [{ "id": "00000000-0000-4000-8000-000000000001" }]
+            },
+            "streamSettings": {
+                "security": "shadowtls"
+            }
+        }]),
+    );
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
+#[tokio::test]
+async fn mkcp_rejects_invalid_header_instead_of_plain_tcp_fallback() {
+    let cfg = base_config(
+        json!([]),
+        json!([{
+            "tag": "vless-kcp",
+            "protocol": "vless",
+            "settings": {
+                "address": "127.0.0.1",
+                "port": 443,
+                "users": [{ "id": "00000000-0000-4000-8000-000000000001" }]
+            },
+            "streamSettings": {
+                "network": "kcp",
+                "kcpSettings": {
+                    "header": "bogus"
+                }
+            }
+        }]),
+    );
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
+#[tokio::test]
+async fn top_level_tun_config_is_rejected_until_runtime_startup_exists() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "tun": {
+            "name": "proxy-tun",
+            "address": "198.18.0.1",
+            "netmask": "255.255.0.0",
+            "mtu": 1500
+        },
+        "inbounds": [],
+        "outbounds": [freedom_outbound("direct")],
+        "routing": { "rules": [] }
+    }));
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Routing validation production gates
 // ─────────────────────────────────────────────────────────────────────────────
@@ -496,6 +559,119 @@ async fn routing_rule_rejects_invalid_regex() {
     assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
 }
 
+#[tokio::test]
+async fn routing_rule_can_target_registered_balancer() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "inbounds": [],
+        "outbounds": [
+            freedom_outbound("direct-a"),
+            freedom_outbound("direct-b")
+        ],
+        "routing": {
+            "balancers": [{
+                "tag": "auto",
+                "selector": ["direct-a", "direct-b"],
+                "strategy": "roundRobin"
+            }],
+            "rules": [{
+                "type": "field",
+                "domain": ["domain:example.com"],
+                "outboundTag": "auto"
+            }]
+        }
+    }));
+
+    let instance = Instance::from_config(Arc::new(cfg))
+        .await
+        .expect("balancer should be registered before routing rules are compiled");
+    drop(instance);
+}
+
+#[tokio::test]
+async fn balancer_rejects_missing_selector_outbound() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "inbounds": [],
+        "outbounds": [freedom_outbound("direct")],
+        "routing": {
+            "balancers": [{
+                "tag": "auto",
+                "selector": ["missing"]
+            }],
+            "rules": []
+        }
+    }));
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
+#[tokio::test]
+async fn balancer_rejects_unsupported_health_check_scheme() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "inbounds": [],
+        "outbounds": [freedom_outbound("direct")],
+        "routing": {
+            "balancers": [{
+                "tag": "auto",
+                "selector": ["direct"],
+                "health_check": {
+                    "url": "https://example.com/generate_204"
+                }
+            }],
+            "rules": []
+        }
+    }));
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
+#[tokio::test]
+async fn routing_geo_database_paths_are_loaded_nonfatally_when_missing() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "inbounds": [],
+        "outbounds": [freedom_outbound("direct")],
+        "routing": {
+            "geoipFile": "/definitely/not/here/geoip.dat",
+            "geositeFile": "/definitely/not/here/geosite.dat",
+            "rules": [{
+                "type": "field",
+                "ip": ["geoip:CN"],
+                "outboundTag": "direct"
+            }, {
+                "type": "field",
+                "domain": ["geosite:GOOGLE"],
+                "outboundTag": "direct"
+            }]
+        }
+    }));
+
+    let instance = Instance::from_config(Arc::new(cfg))
+        .await
+        .expect("missing geo DB files should warn and degrade, not fail startup");
+    drop(instance);
+}
+
+#[tokio::test]
+async fn dns_fakeip_rejects_invalid_pool_at_startup() {
+    let cfg = parse_config(json!({
+        "log": { "level": "warning" },
+        "dns": {
+            "fake_ip": {
+                "enabled": true,
+                "pool": "not-a-cidr"
+            }
+        },
+        "inbounds": [],
+        "outbounds": [freedom_outbound("direct")],
+        "routing": { "rules": [] }
+    }));
+
+    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Metrics server failure policy
 // ─────────────────────────────────────────────────────────────────────────────
@@ -531,7 +707,11 @@ async fn listener_bind_failure_should_be_visible_to_startup() {
     let occupied = listener.local_addr().unwrap();
 
     let cfg = base_config(
-        json!([socks_inbound("socks-in", &occupied.ip().to_string(), occupied.port())]),
+        json!([socks_inbound(
+            "socks-in",
+            &occupied.ip().to_string(),
+            occupied.port()
+        )]),
         json!([freedom_outbound("direct")]),
     );
 
@@ -552,7 +732,11 @@ async fn plain_socks_listener_accepts_tcp_before_drop() {
     drop(probe);
 
     let cfg = base_config(
-        json!([socks_inbound("socks-in", &addr.ip().to_string(), addr.port())]),
+        json!([socks_inbound(
+            "socks-in",
+            &addr.ip().to_string(),
+            addr.port()
+        )]),
         json!([freedom_outbound("direct")]),
     );
 
