@@ -260,8 +260,9 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
         match self.as_mut().poll_flush(cx) {
             Poll::Pending => Poll::Pending,
             Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
-            Poll::Ready(Ok(())) => Sink::poll_close(Pin::new(&mut self.inner), cx)
-                .map_err(ws_err_to_io),
+            Poll::Ready(Ok(())) => {
+                Sink::poll_close(Pin::new(&mut self.inner), cx).map_err(ws_err_to_io)
+            }
         }
     }
 }

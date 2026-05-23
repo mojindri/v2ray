@@ -17,6 +17,7 @@ use proxy_common::{BoxedStream, ProxyError};
 use super::fuzzing::validate_first_application_record;
 use super::handshake::relay_handshake;
 use super::marker::compute_marker;
+use super::pseudo_server_random;
 
 /// Accept a ShadowTLS v3 connection.
 ///
@@ -59,6 +60,41 @@ pub async fn shadowtls_accept(
     let prefix = validate_first_application_record(&expected_marker, &record)?;
 
     // Prepend the remaining bytes so the protocol handler sees the full payload.
+    if prefix.is_empty() {
+        Ok(stream)
+    } else {
+        Ok(Box::new(proxy_common::PrependedStream::new(stream, prefix)))
+    }
+}
+
+/// Accept the repo's current ShadowTLS marker transport.
+///
+/// This validates and strips the first marker record without relaying a real
+/// TLS handshake. It is intentionally separate from `shadowtls_accept` so the
+/// eventual full v3 implementation has a clean upgrade path.
+pub async fn shadowtls_marker_accept(
+    mut stream: BoxedStream,
+    psk: &[u8],
+    dest: &str,
+) -> Result<BoxedStream, ProxyError> {
+    let server_random = pseudo_server_random(dest);
+    let expected_marker = compute_marker(psk, &server_random);
+
+    let mut header = [0u8; 5];
+    stream
+        .read_exact(&mut header)
+        .await
+        .map_err(|e| ProxyError::Transport(format!("ShadowTLS marker: read header: {e}")))?;
+
+    let payload_len = u16::from_be_bytes([header[3], header[4]]) as usize;
+    let mut record = header.to_vec();
+    record.resize(5 + payload_len, 0);
+    stream
+        .read_exact(&mut record[5..])
+        .await
+        .map_err(|e| ProxyError::Transport(format!("ShadowTLS marker: read payload: {e}")))?;
+
+    let prefix = validate_first_application_record(&expected_marker, &record)?;
     if prefix.is_empty() {
         Ok(stream)
     } else {

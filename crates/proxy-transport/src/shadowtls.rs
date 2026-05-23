@@ -30,8 +30,17 @@ pub mod handshake;
 pub mod marker;
 pub mod server;
 
-pub use client::shadowtls_connect;
+use sha2::{Digest, Sha256};
+
+pub use client::{shadowtls_connect, shadowtls_marker_connect};
 #[cfg(feature = "fuzzing")]
 pub use fuzzing::validate_first_application_record;
 pub use marker::compute_marker;
-pub use server::{shadowtls_accept, write_marker_record};
+pub use server::{shadowtls_accept, shadowtls_marker_accept, write_marker_record};
+
+fn pseudo_server_random(dest: &str) -> [u8; 32] {
+    let mut hasher = Sha256::new();
+    hasher.update(b"proxy-rs-shadowtls-marker-v1");
+    hasher.update(dest.as_bytes());
+    hasher.finalize().into()
+}
