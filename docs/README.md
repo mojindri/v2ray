@@ -28,3 +28,12 @@ Second-wave deep dives:
    A workflow for debugging this codebase without getting lost.
 8. `07-how-to-add-a-new-protocol-or-transport.md`
    Contributor guide for extending the repo cleanly.
+
+Third-wave practical docs:
+
+9. `08-config-for-dummies.md`
+   Annotated config guide with examples and field meanings.
+10. `09-trace-one-connection-in-code.md`
+   File-by-file walkthrough of one real connection path.
+11. `10-glossary.md`
+   Plain-English dictionary of project terms.
