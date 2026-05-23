@@ -168,6 +168,11 @@ fn parse_request_line(line: &str) -> Result<Address, ProxyError> {
         .map_err(|_| ProxyError::Protocol(format!("HTTP CONNECT: invalid port '{port_str}'")))?;
 
     let host = host.trim_matches(|c| c == '[' || c == ']'); // strip IPv6 brackets
+    if host.is_empty() {
+        return Err(ProxyError::Protocol(
+            "HTTP CONNECT: empty host in target".into(),
+        ));
+    }
 
     // Try to parse as an IP address first.
     if let Ok(ip4) = host.parse::<std::net::Ipv4Addr>() {

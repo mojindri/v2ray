@@ -4,7 +4,7 @@
 //! derived using blake3's key derivation function:
 //!
 //! ```text
-//! subkey = blake3::derive_key("ss-subkey", psk || salt)
+//! subkey = blake3::derive_key("shadowsocks 2022 session subkey", psk || salt)
 //! ```
 //!
 //! The `psk` (pre-shared key) is itself derived from the password:
@@ -16,7 +16,7 @@
 //! therefore its own independent subkey.
 
 /// The blake3 KDF context string for SS-2022 subkey derivation.
-const SUBKEY_CONTEXT: &str = "ss-subkey";
+const SUBKEY_CONTEXT: &str = "shadowsocks 2022 session subkey";
 
 /// Derive a 32-byte session subkey from the PSK and a random per-session salt.
 ///

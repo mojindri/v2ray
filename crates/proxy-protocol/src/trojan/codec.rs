@@ -5,7 +5,7 @@
 //! ```text
 //! ┌────────────────────────────────────────────────────────────────────────┐
 //! │ SHA224(password_hex_utf8)[56 bytes] + "\r\n"                           │
-//! │ ATYP(1) + ADDR + PORT(2 big-endian) + "\r\n"                           │
+//! │ CMD(1) + ATYP(1) + ADDR + PORT(2 big-endian) + "\r\n"                  │
 //! │ PAYLOAD...                                                              │
 //! └────────────────────────────────────────────────────────────────────────┘
 //! ```
@@ -51,6 +51,9 @@ pub const ATYP_DOMAIN: u8 = 0x03;
 /// ATYP byte: IPv6.
 pub const ATYP_IPV6: u8 = 0x04;
 
+/// Trojan command byte for TCP CONNECT.
+pub const CMD_CONNECT: u8 = 0x01;
+
 // ── Token computation ─────────────────────────────────────────────────────────
 
 /// Compute the 56-character lowercase hex token for a Trojan password.
@@ -93,6 +96,13 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
         return Err(ProxyError::Protocol(
             "Trojan: expected CRLF after token".into(),
         ));
+    }
+
+    let command = reader.read_u8().await?;
+    if command != CMD_CONNECT {
+        return Err(ProxyError::Protocol(format!(
+            "Trojan: unsupported command {command:#x}"
+        )));
     }
 
     // Read address type.
@@ -162,6 +172,9 @@ pub fn encode_request(token: &str, dest: &Address) -> Bytes {
 
     // CRLF after token.
     buf.put_slice(b"\r\n");
+
+    // TCP CONNECT command.
+    buf.put_u8(CMD_CONNECT);
 
     // Address.
     encode_address(&mut buf, dest);

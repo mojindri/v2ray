@@ -6,7 +6,7 @@
 //!
 //! # Auth ID construction (client)
 //!
-//! 1. Compute `cmd_key = MD5(uuid_bytes || [0x63, 0x61, 0x36, 0x66])`.
+//! 1. Compute `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`.
 //! 2. Build a 16-byte plaintext:
 //!    - bytes 0–7: current Unix timestamp (seconds, big-endian)
 //!    - bytes 8–11: `crc32(bytes 0..7)` (big-endian)
@@ -39,13 +39,13 @@ use rand::RngCore;
 pub const MAX_TIME_DIFF_SECS: u64 = 120;
 
 /// Salt appended to UUID bytes when deriving `cmd_key`.
-const CMD_KEY_SALT: &[u8] = &[0x63, 0x61, 0x36, 0x66];
+const CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
 
 // ── cmd_key derivation ─────────────────────────────────────────────────────────
 
 /// Derive the 16-byte `cmd_key` from a 16-byte UUID.
 ///
-/// `cmd_key = MD5(uuid_bytes || [0x63, 0x61, 0x36, 0x66])`
+/// `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`
 pub fn cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
     let mut hasher = Md5::new();
     hasher.update(uuid);
