@@ -31,3 +31,4 @@ fuzz/artifacts/
 
 # Realistic lab runtime artifacts (generated logs and bundles).
 labs/realistic/reports/
+/reports/
