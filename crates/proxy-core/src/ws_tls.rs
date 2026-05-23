@@ -21,7 +21,7 @@ use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::{ConnectionHandler, InboundHandler};
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_transport::{grpc_accept, shadowtls_marker_accept, tls_accept, ws_accept};
+use proxy_transport::{grpc_accept, shadowtls_accept, tls_accept, ws_accept};
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -46,7 +46,7 @@ pub(crate) fn uses_grpc(stream_settings: &Option<StreamSettingsConfig>) -> bool 
         .is_some_and(|s| s.network == NetworkType::Grpc)
 }
 
-/// Returns `true` when the config requests ShadowTLS marker wrapping.
+/// Returns `true` when the config requests ShadowTLS wrapping.
 pub(crate) fn uses_shadowtls(stream_settings: &Option<StreamSettingsConfig>) -> bool {
     stream_settings
         .as_ref()
@@ -154,7 +154,7 @@ impl ConnectionHandler for ShadowTlsConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let stream = shadowtls_marker_accept(stream, self.password.as_bytes(), &self.dest).await?;
+        let stream = shadowtls_accept(stream, self.password.as_bytes(), &self.dest).await?;
         self.inner.handle_connection(stream, source).await
     }
 }

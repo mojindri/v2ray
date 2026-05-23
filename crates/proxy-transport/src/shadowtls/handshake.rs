@@ -31,6 +31,11 @@ use tokio::net::TcpStream;
 
 use proxy_common::{BoxedStream, ProxyError};
 
+use super::v3::{
+    residual_handshake_mac, taint_backend_application_data, verify_client_hello_session_id,
+    V3FrameDecoder,
+};
+
 /// TLS record content type for Handshake messages.
 const TLS_RECORD_HANDSHAKE: u8 = 22;
 /// TLS record content type for Application Data.
@@ -60,6 +65,36 @@ pub async fn relay_handshake(
 
     let server_random = do_relay(client, &mut backend).await?;
     Ok((server_random, true))
+}
+
+/// Relay a ShadowTLS v3 handshake until the authenticated client data switch.
+///
+/// Unlike [`relay_handshake`], this function validates the v3 ClientHello
+/// SessionID, taints backend TLS ApplicationData frames, and stops before the
+/// first authenticated client proxy-data frame is forwarded to the decoy
+/// backend.
+pub async fn relay_v3_handshake(
+    client: &mut BoxedStream,
+    psk: &[u8],
+    backend_addr: &str,
+) -> Result<([u8; 32], Vec<u8>), ProxyError> {
+    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+        ProxyError::Transport(format!(
+            "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
+        ))
+    })?;
+
+    let (record_type, version, payload) = read_tls_record(client).await?;
+    if record_type != TLS_RECORD_HANDSHAKE || payload.first() != Some(&0x01) {
+        return Err(ProxyError::Protocol(
+            "ShadowTLS v3 expected ClientHello as first record".into(),
+        ));
+    }
+    let client_hello = encode_tls_record(record_type, version, &payload);
+    verify_client_hello_session_id(&client_hello, psk)?;
+    write_tls_record(&mut backend, record_type, version, &payload).await?;
+
+    do_v3_relay(client, &mut backend, psk).await
 }
 
 /// Inner relay: pump records between client and backend, sniffing server_random.
@@ -118,6 +153,76 @@ where
                 // Finished (still handshake but encrypted). We keep going.
                 // After seeing that plus client CCS, we'll see Application Data.
                 let _ = server_ccs_seen;
+            }
+        }
+    }
+}
+
+async fn do_v3_relay<C, B>(
+    client: &mut C,
+    backend: &mut B,
+    psk: &[u8],
+) -> Result<([u8; 32], Vec<u8>), ProxyError>
+where
+    C: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    let mut server_random = [0u8; 32];
+    let mut found_server_random = false;
+    let mut residual_mac = None;
+    let mut client_switch_decoder = None;
+
+    loop {
+        tokio::select! {
+            result = read_tls_record(client) => {
+                let (record_type, version, payload) = result?;
+                let record = encode_tls_record(record_type, version, &payload);
+
+                if record_type == TLS_RECORD_APPLICATION_DATA {
+                    if !found_server_random {
+                        return Err(ProxyError::Protocol(
+                            "ShadowTLS v3 client ApplicationData before ServerHello".into(),
+                        ));
+                    }
+
+                    let decoder = client_switch_decoder.get_or_insert_with(|| {
+                        V3FrameDecoder::client_to_server(psk, &server_random)
+                    });
+                    if decoder.decode_application_data(&record).is_ok() {
+                        return Ok((server_random, record));
+                    }
+                }
+
+                write_tls_record(backend, record_type, version, &payload).await?;
+            }
+            result = read_tls_record(backend) => {
+                let (record_type, version, payload) = result?;
+                let mut record = encode_tls_record(record_type, version, &payload);
+
+                if !found_server_random
+                    && record_type == TLS_RECORD_HANDSHAKE
+                    && payload.first() == Some(&TLS_HANDSHAKE_SERVER_HELLO)
+                {
+                    if let Some(sr) = extract_server_random(&payload) {
+                        server_random.copy_from_slice(sr);
+                        residual_mac = Some(residual_handshake_mac(psk, &server_random));
+                        found_server_random = true;
+                    }
+                }
+
+                if found_server_random && record_type == TLS_RECORD_APPLICATION_DATA {
+                    let mac = residual_mac.as_mut().ok_or_else(|| {
+                        ProxyError::Protocol("ShadowTLS v3 residual HMAC not initialized".into())
+                    })?;
+                    record = taint_backend_application_data(mac, psk, &server_random, &record)?;
+                }
+
+                client.write_all(&record).await.map_err(|e| {
+                    ProxyError::Transport(format!("ShadowTLS: write client record: {e}"))
+                })?;
+                client.flush().await.map_err(|e| {
+                    ProxyError::Transport(format!("ShadowTLS: flush client record: {e}"))
+                })?;
             }
         }
     }
@@ -203,6 +308,20 @@ fn extract_server_random(payload: &[u8]) -> Option<&[u8]> {
         return None;
     }
     Some(&payload[6..38])
+}
+
+fn encode_tls_record(record_type: u8, version: [u8; 2], payload: &[u8]) -> Vec<u8> {
+    let len = payload.len() as u16;
+    let mut record = Vec::with_capacity(5 + payload.len());
+    record.extend_from_slice(&[
+        record_type,
+        version[0],
+        version[1],
+        (len >> 8) as u8,
+        len as u8,
+    ]);
+    record.extend_from_slice(payload);
+    record
 }
 
 #[cfg(test)]

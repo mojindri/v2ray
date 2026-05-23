@@ -25,8 +25,8 @@ use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
 use proxy_protocol::vless::connect_vless_on_stream;
 use proxy_protocol::vmess::{auth::cmd_key, connect_vmess_on_stream};
 use proxy_transport::{
-    grpc_connect, mkcp_connect, shadowtls_marker_connect, tls_connect, ws_connect,
-    MkcpClientConfig, WsConnectConfig,
+    grpc_connect, mkcp_connect, shadowtls_v3_connect, tls_connect, ws_connect, MkcpClientConfig,
+    WsConnectConfig,
 };
 
 /// VLESS outbound that honors `streamSettings.network = "ws"` and
@@ -183,7 +183,7 @@ async fn connect_transport(
                 "ShadowTLS requires non-empty password and dest".into(),
             ));
         }
-        stream = shadowtls_marker_connect(stream, shadow.password.as_bytes(), &shadow.dest).await?;
+        stream = shadowtls_v3_connect(stream, shadow.password.as_bytes(), &shadow.dest).await?;
     }
 
     if uses_tls(stream_settings) {

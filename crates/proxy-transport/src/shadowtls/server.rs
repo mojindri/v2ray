@@ -15,9 +15,10 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use proxy_common::{BoxedStream, ProxyError};
 
 use super::fuzzing::validate_first_application_record;
-use super::handshake::relay_handshake;
+use super::handshake::relay_v3_handshake;
 use super::marker::compute_marker;
 use super::pseudo_server_random;
+use super::v3::V3Stream;
 
 /// Accept a ShadowTLS v3 connection.
 ///
@@ -35,36 +36,9 @@ pub async fn shadowtls_accept(
     psk: &[u8],
     backend: &str,
 ) -> Result<BoxedStream, ProxyError> {
-    // Phase 1: Relay the TLS handshake and capture server_random.
-    let (server_random, _) = relay_handshake(&mut stream, backend).await?;
-
-    // Phase 2: Compute the expected HMAC marker.
-    let expected_marker = compute_marker(psk, &server_random);
-
-    // Read the first TLS Application Data record as raw bytes, then reuse the
-    // same validation helper that the fuzz target exercises.
-    let mut header = [0u8; 5];
-    stream
-        .read_exact(&mut header)
-        .await
-        .map_err(|e| ProxyError::Transport(format!("ShadowTLS server: read app header: {e}")))?;
-
-    let payload_len = u16::from_be_bytes([header[3], header[4]]) as usize;
-    let mut record = header.to_vec();
-    record.resize(5 + payload_len, 0);
-    stream
-        .read_exact(&mut record[5..])
-        .await
-        .map_err(|e| ProxyError::Transport(format!("ShadowTLS server: read payload: {e}")))?;
-
-    let prefix = validate_first_application_record(&expected_marker, &record)?;
-
-    // Prepend the remaining bytes so the protocol handler sees the full payload.
-    if prefix.is_empty() {
-        Ok(stream)
-    } else {
-        Ok(Box::new(proxy_common::PrependedStream::new(stream, prefix)))
-    }
+    let (server_random, first_client_record) =
+        relay_v3_handshake(&mut stream, psk, backend).await?;
+    V3Stream::server_after_first_client_record(stream, psk, &server_random, &first_client_record)
 }
 
 /// Accept the repo's current ShadowTLS marker transport.

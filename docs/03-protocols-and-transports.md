@@ -383,9 +383,11 @@ Another disguise-oriented transport idea focused on looking TLS-like.
 
 ### Repo Role
 
-Advanced transport area, not the first thing to learn. Current local runtime
-support is marker-mode plumbing for VLESS/Trojan/VMess-style byte streams; full
-upstream ShadowTLS v3 interop still requires realistic lab proof.
+Advanced transport area, not the first thing to learn. Current runtime support
+implements ShadowTLS v3 ClientHello SessionID authentication, backend TLS
+ApplicationData tainting, switch detection, and rolling-HMAC data frames for
+VLESS/Trojan/VMess-style byte streams. It has local e2e coverage; external
+interop against sing-box/shadow-tls deployments still needs realistic lab proof.
 
 ## Common Combinations
 
