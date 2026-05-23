@@ -137,6 +137,10 @@ test-help: ## Show the simple command names.
 	@echo "  make local-fuzz           - quick fuzz smoke only"
 	@echo "  make local-fuzz-total     - heavier fuzz pass; override with FUZZ_RUNS=10000"
 		@echo "  make local-pcap           - local Docker/interop pcap capture helper"
+		@echo "  make local-chrome-baseline-real   - real macOS Chrome baseline; sudo first, no auto-open unless CHROME_OPEN_BROWSER=1"
+	@echo "  make local-chrome-baseline-docker - Docker Chromium baseline; no host sudo"
+	@echo "  make local-fingerprint-verify     - strict fingerprint verification; fails if artifacts/baselines/SNI are missing"
+	@echo "  make local-fingerprint-total      - real Chrome baseline capture + fingerprint compare"
 	@echo "  make local-fingerprint-compare - compare fingerprint artifacts when captures exist"
 	@echo "  make local-netem          - local Docker network-hostility smoke"
 	@echo "  make local-hostility      - local netem + slow-client diagnostics"
@@ -193,3 +197,19 @@ local-hostility:
 
 local-ci-matrix:
 	$(MAKE) -C labs/realistic ci-matrix-local
+
+
+local-chrome-baseline-real:
+	$(MAKE) -C labs/realistic chrome-baseline-real
+
+
+local-chrome-baseline-docker:
+	$(MAKE) -C labs/realistic chrome-baseline-docker
+
+
+local-fingerprint-total:
+	$(MAKE) -C labs/realistic fingerprint-total
+
+
+local-fingerprint-verify:
+	$(MAKE) -C labs/realistic fingerprint-verify
