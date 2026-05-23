@@ -17,15 +17,18 @@ DNS redirect port `5300`. Linux setup requires root or the needed network
 capabilities because it creates a TUN device and installs `ip rule`, `ip route`,
 and `iptables` rules.
 
-Current caveat: the Linux TUN helper module is present in `proxy-transport`, but
-there is not yet a top-level `tun` schema field or an instance startup path that
-creates the TUN device from this JSON file. The `tun` block is included as the
-expected deployment shape and is currently ignored by config deserialization.
+Current caveat: the top-level `tun` schema is parsed and the Linux helper module
+can create the device and install routes, but `proxy-core` deliberately rejects
+`tun` configs at startup. A safe runtime still needs a packet-to-proxy TCP/UDP
+stack, NAT/session tracking, DNS handling, and cleanup behavior. Enabling the
+device/route helpers without that packet runtime would blackhole real traffic,
+so this example documents the expected deployment shape only.
 
 Validate:
 
 ```sh
 cargo run -q -p proxy-rs -- test -c examples/phase8-tun-local/config.json
+cargo test -p proxy-core --test production_readiness top_level_tun_config_is_rejected_until_packet_runtime_exists
 ```
 
 Author: @moji.ndr

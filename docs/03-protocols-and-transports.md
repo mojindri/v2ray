@@ -345,6 +345,12 @@ KCP-style transport over UDP with its own framing/reliability behavior.
 
 Useful for hostile or lossy links, but not a beginner-friendly first read.
 
+### Repo Status
+
+The runtime has a UDP listener with per-peer KCP sessions, idle cleanup, and
+local VLESS-over-mKCP e2e coverage. It still needs realistic loss/latency lab
+validation before being treated as production-ready.
+
 ## TUN
 
 ### What It Is
@@ -360,6 +366,15 @@ Instead of configuring an app to use SOCKS manually, TUN mode can capture traffi
 TUN is not a protocol spoken by browsers.
 It is an operating-system-level traffic capture/redirect mechanism.
 
+### Repo Status
+
+The repo can parse top-level `tun` config and has low-level Linux helpers for
+device creation, route installation, cleanup, and packet parsing. `proxy-core`
+still rejects `tun` at startup because the safe packet runtime is missing: TCP
+and UDP packets from the virtual interface must be turned into proxy sessions
+with NAT/session tracking and response packet synthesis. Starting routes without
+that stack would break traffic.
+
 ## ShadowTLS
 
 ### What It Is
@@ -368,7 +383,9 @@ Another disguise-oriented transport idea focused on looking TLS-like.
 
 ### Repo Role
 
-Advanced transport area, not the first thing to learn.
+Advanced transport area, not the first thing to learn. Current local runtime
+support is marker-mode plumbing for VLESS/Trojan/VMess-style byte streams; full
+upstream ShadowTLS v3 interop still requires realistic lab proof.
 
 ## Common Combinations
 
@@ -471,4 +488,3 @@ If you are lost, ask these two questions:
    If yes, you are probably in `proxy-transport` or `proxy-tls`.
 
 That one distinction will save you a lot of confusion.
-

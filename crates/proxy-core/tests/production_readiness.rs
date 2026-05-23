@@ -455,7 +455,7 @@ async fn mkcp_rejects_invalid_header_instead_of_plain_tcp_fallback() {
 }
 
 #[tokio::test]
-async fn top_level_tun_config_is_rejected_until_runtime_startup_exists() {
+async fn top_level_tun_config_is_rejected_until_packet_runtime_exists() {
     let cfg = parse_config(json!({
         "log": { "level": "warning" },
         "tun": {
@@ -469,7 +469,11 @@ async fn top_level_tun_config_is_rejected_until_runtime_startup_exists() {
         "routing": { "rules": [] }
     }));
 
-    assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
+    let err = Instance::from_config(Arc::new(cfg))
+        .await
+        .expect_err("TUN must stay disabled until packet runtime exists");
+    let msg = err.to_string();
+    assert!(msg.contains("packet-to-proxy TCP/UDP stack and NAT"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

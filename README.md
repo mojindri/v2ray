@@ -51,3 +51,8 @@ That lab is the production-realism gate for the stable matrix:
 - Shadowsocks 2022
 - Hysteria2
 - required Xray REALITY interop
+
+Phase 7/8 status is intentionally stricter: health/failover and geo/FakeIP are
+wired for runtime testing, ShadowTLS has marker-mode local coverage, mKCP has
+multi-peer local coverage, and TUN remains rejected until a real packet-to-proxy
+TCP/UDP runtime exists.

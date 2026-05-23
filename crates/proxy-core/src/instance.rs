@@ -50,7 +50,7 @@ use proxy_protocol::socks::Socks5Inbound;
 use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
-use proxy_transport::{mkcp_accept_once, MkcpServerConfig};
+use proxy_transport::{mkcp_accept_sessions, MkcpServerConfig};
 
 use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
@@ -96,7 +96,7 @@ impl Instance {
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
         if config.tun.is_some() {
             anyhow::bail!(
-                "top-level tun config is parsed, but TUN runtime startup is not implemented yet"
+                "top-level tun config is parsed, but TUN runtime is not production-ready: device/route helpers exist, but packet-to-proxy TCP/UDP stack and NAT are not implemented yet"
             );
         }
 
@@ -232,12 +232,17 @@ impl Instance {
                 let cfg = build_mkcp_server_config(addr, &in_cfg.stream_settings)
                     .with_context(|| format!("building mKCP inbound '{}'", in_cfg.tag))?;
                 let task = tokio::spawn(async move {
-                    match mkcp_accept_once(&cfg).await {
-                        Ok((stream, peer)) => {
-                            if let Err(e) =
-                                conn_handler.handle_connection(Box::new(stream), peer).await
-                            {
-                                error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                    match mkcp_accept_sessions(&cfg).await {
+                        Ok(mut sessions) => {
+                            while let Some((stream, peer)) = sessions.recv().await {
+                                let conn_handler = Arc::clone(&conn_handler);
+                                tokio::spawn(async move {
+                                    if let Err(e) =
+                                        conn_handler.handle_connection(Box::new(stream), peer).await
+                                    {
+                                        error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                                    }
+                                });
                             }
                         }
                         Err(e) => {

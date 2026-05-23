@@ -23,8 +23,8 @@ The mandatory matrix is limited to paths that are wired end-to-end today:
 Phase 7/8 features are not mandatory green until they have realistic-lab proof:
 
 - ShadowTLS marker mode has local e2e coverage, but full upstream v3 interop still needs VPS proof.
-- mKCP single-session mode has local e2e coverage, but multi-peer/loss/latency behavior still needs VPS proof.
-- TUN
+- mKCP multi-peer mode has local e2e coverage, but loss/latency behavior still needs VPS proof.
+- TUN config/device helpers exist, but packet runtime is intentionally rejected until TCP/UDP stack and NAT are implemented.
 - health/failover realistic failover scenarios
 - geo/FakeIP production routing scenarios
 
