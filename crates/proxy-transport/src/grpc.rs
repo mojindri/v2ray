@@ -107,6 +107,12 @@ pub struct GrpcStream {
 
     /// Pending outgoing bytes, collected until flush.
     write_buf: BytesMut,
+
+    /// Encoded gRPC frame currently being flushed to the inner stream.
+    flush_frame: Option<Bytes>,
+
+    /// Number of bytes already written from `flush_frame`.
+    flush_frame_pos: usize,
 }
 
 impl GrpcStream {
@@ -117,6 +123,8 @@ impl GrpcStream {
             recv_buf: BytesMut::new(),
             read_buf: BytesMut::new(),
             write_buf: BytesMut::new(),
+            flush_frame: None,
+            flush_frame_pos: 0,
         }
     }
 }
@@ -183,23 +191,33 @@ impl AsyncWrite for GrpcStream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // Encode pending write bytes as a single gRPC frame.
-        if !self.write_buf.is_empty() {
+        if self.flush_frame.is_none() && !self.write_buf.is_empty() {
             let payload = self.write_buf.split().freeze();
-            let frame = encode_grpc_frame(&payload);
+            self.flush_frame = Some(encode_grpc_frame(&payload));
+            self.flush_frame_pos = 0;
+        }
 
-            // Write the frame to the inner stream.
-            match Pin::new(self.inner.as_mut()).poll_write(cx, &frame) {
-                Poll::Pending => {
-                    // Re-prepend the data for next attempt.
-                    let mut new_buf = BytesMut::new();
-                    new_buf.extend_from_slice(&payload);
-                    new_buf.extend_from_slice(&self.write_buf);
-                    self.write_buf = new_buf;
-                    return Poll::Pending;
-                }
+        while let Some(frame) = self.flush_frame.clone() {
+            if self.flush_frame_pos == frame.len() {
+                self.flush_frame = None;
+                self.flush_frame_pos = 0;
+                break;
+            }
+
+            let pos = self.flush_frame_pos;
+            let chunk = frame.slice(pos..);
+            match Pin::new(self.inner.as_mut()).poll_write(cx, chunk.as_ref()) {
+                Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
-                Poll::Ready(Ok(_)) => {}
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "gRPC frame write returned zero bytes",
+                    )));
+                }
+                Poll::Ready(Ok(n)) => {
+                    self.flush_frame_pos += n;
+                }
             }
         }
 

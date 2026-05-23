@@ -149,6 +149,9 @@ pub struct WsStream<S> {
 
     /// Buffered outgoing bytes, assembled into a frame on flush.
     write_buf: BytesMut,
+
+    /// Message staged for sink readiness / flush without losing bytes on `Pending`.
+    pending_write: Option<Message>,
 }
 
 impl<S> WsStream<S> {
@@ -159,6 +162,7 @@ impl<S> WsStream<S> {
             read_buf: BytesMut::new(),
             closed: false,
             write_buf: BytesMut::new(),
+            pending_write: None,
         }
     }
 }
@@ -229,14 +233,17 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        // If there is data in the write buffer, send it as one binary frame.
-        if !self.write_buf.is_empty() {
+        if self.pending_write.is_none() && !self.write_buf.is_empty() {
             let data = self.write_buf.split().freeze();
-            let msg = Message::Binary(data.to_vec().into());
+            self.pending_write = Some(Message::Binary(data));
+        }
 
-            // Feed the message into the sink via Sink trait methods.
+        if let Some(msg) = self.pending_write.take() {
             match Sink::poll_ready(Pin::new(&mut self.inner), cx) {
-                Poll::Pending => return Poll::Pending,
+                Poll::Pending => {
+                    self.pending_write = Some(msg);
+                    return Poll::Pending;
+                }
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(ws_err_to_io(e))),
                 Poll::Ready(Ok(())) => {}
             }
@@ -250,7 +257,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
     }
 
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Sink::poll_close(Pin::new(&mut self.inner), cx).map_err(ws_err_to_io)
+        match self.as_mut().poll_flush(cx) {
+            Poll::Pending => Poll::Pending,
+            Poll::Ready(Err(e)) => Poll::Ready(Err(e)),
+            Poll::Ready(Ok(())) => Sink::poll_close(Pin::new(&mut self.inner), cx)
+                .map_err(ws_err_to_io),
+        }
     }
 }
 
