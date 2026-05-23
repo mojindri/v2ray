@@ -4,36 +4,44 @@ This folder is the beginner-friendly map of the project.
 
 Recommended reading order:
 
-1. `00-project-map.md`
+1. [00-project-map.md](00-project-map.md)
    Start here if you want the big picture first.
-2. `01-request-lifecycle.md`
+2. [01-request-lifecycle.md](01-request-lifecycle.md)
    Read this next if you want to understand what happens when traffic enters the proxy.
-3. `02-crate-guide.md`
+3. [02-crate-guide.md](02-crate-guide.md)
    Read this when you are ready to navigate the workspace crate by crate.
-4. `03-protocols-and-transports.md`
+4. [03-protocols-and-transports.md](03-protocols-and-transports.md)
    Read this when names like VLESS, VMess, REALITY, TLS, WebSocket, and gRPC start blending together.
 
 Related docs:
 
-- `../tests/interop/README.md`
+- [../tests/interop/README.md](../tests/interop/README.md)
   REALITY and Xray interop notes, including `d0` and `d1`.
 
 Second-wave deep dives:
 
-5. `04-reality-for-dummies.md`
+5. [04-reality-for-dummies.md](04-reality-for-dummies.md)
    The practical, plain-English explanation of REALITY in this repo.
-6. `05-vless-vmess-trojan-comparison.md`
+6. [05-vless-vmess-trojan-comparison.md](05-vless-vmess-trojan-comparison.md)
    Helps separate the three most confusing proxy protocols.
-7. `06-how-to-debug.md`
+7. [06-how-to-debug.md](06-how-to-debug.md)
    A workflow for debugging this codebase without getting lost.
-8. `07-how-to-add-a-new-protocol-or-transport.md`
+8. [07-how-to-add-a-new-protocol-or-transport.md](07-how-to-add-a-new-protocol-or-transport.md)
    Contributor guide for extending the repo cleanly.
 
 Third-wave practical docs:
 
-9. `08-config-for-dummies.md`
+9. [08-config-for-dummies.md](08-config-for-dummies.md)
    Annotated config guide with examples and field meanings.
-10. `09-trace-one-connection-in-code.md`
+10. [09-trace-one-connection-in-code.md](09-trace-one-connection-in-code.md)
    File-by-file walkthrough of one real connection path.
-11. `10-glossary.md`
+11. [10-glossary.md](10-glossary.md)
    Plain-English dictionary of project terms.
+
+Example-driven learning:
+
+- [../examples/phase1-client-server/README.md](../examples/phase1-client-server/README.md)
+- [../examples/phase2-reality-client-server/README.md](../examples/phase2-reality-client-server/README.md)
+- [../examples/phase4-vless-ws-local/README.md](../examples/phase4-vless-ws-local/README.md)
+- [../examples/phase5-http-vmess-grpc-local/README.md](../examples/phase5-http-vmess-grpc-local/README.md)
+- [../examples/phase6-ss2022-local/README.md](../examples/phase6-ss2022-local/README.md)
