@@ -3,7 +3,7 @@
 # Run `make help` to see all available commands.
 # Run `make` (no arguments) to build the project.
 
-.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke clean help
+.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke ci ci-all ci-vps clean help
 
 # Default target: build in release mode.
 all: build
@@ -58,10 +58,18 @@ fuzz-smoke:
 
 ## deny: Check dependency licenses and for duplicate crates.
 deny:
-        cargo deny check
+	cargo deny check
 
-## ci: Run everything that CI runs, in order.
+## ci: Fast code-quality gate (fmt + lint + test + audit). Run before every push.
 ci: fmt-check lint test audit
+
+## ci-all: Run every local test tier (unit, integration, prod-readiness, Docker, Xray, stress). Needs Docker.
+ci-all:
+	$(MAKE) -C labs/realistic ci
+
+## ci-vps: Run ci-all + two-VPS protocol matrix + TUN privileged tests. Needs SSH_SERVER and SSH_CLIENT.
+ci-vps:
+	$(MAKE) -C labs/realistic ci-full
 
 ## update-geoip: Download the latest GeoIP and GeoSite data files.
 update-geoip:

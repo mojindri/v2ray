@@ -1,0 +1,23 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "trojan-in",
+      "protocol": "trojan",
+      "listen": "0.0.0.0",
+      "port": 8445,
+      "settings": {
+        "clients": [{ "password": "${TROJAN_PASSWORD}" }]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/proxy-rs/certs/cert.pem",
+          "keyFile": "/etc/proxy-rs/certs/key.pem"
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

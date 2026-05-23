@@ -1,0 +1,24 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vmess-grpc-in",
+      "protocol": "vmess",
+      "listen": "0.0.0.0",
+      "port": 8444,
+      "settings": {
+        "clients": [{ "id": "${VMESS_UUID}", "email": "vps-user@lab" }]
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/proxy-rs/certs/cert.pem",
+          "keyFile": "/etc/proxy-rs/certs/key.pem"
+        },
+        "grpcSettings": { "serviceName": "lab.Gun" }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

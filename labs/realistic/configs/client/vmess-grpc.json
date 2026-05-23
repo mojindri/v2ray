@@ -1,0 +1,31 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vmess-grpc-out",
+      "protocol": "vmess",
+      "settings": {
+        "address": "${SERVER_HOST}",
+        "port": 8444,
+        "users": [{ "id": "${VMESS_UUID}" }]
+      },
+      "streamSettings": {
+        "network": "grpc",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "${TEST_DOMAIN}",
+          "allowInsecure": false
+        },
+        "grpcSettings": { "serviceName": "lab.Gun" }
+      }
+    }
+  ]
+}

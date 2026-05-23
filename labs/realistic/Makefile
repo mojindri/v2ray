@@ -3,7 +3,7 @@ SHELL := /bin/bash
 ROOT := ../..
 REPORTS := reports
 
-.PHONY: help build docker-up stable xray phase78 negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack clean
+.PHONY: help build docker-up stable xray phase78 negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs vps-server-setup vps-client-setup vps-test vps-tun ci ci-full clean
 
 help:
 	@grep -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-14s %s\n", $$1, $$2}'
@@ -82,10 +82,106 @@ docker-down: ## Stop lab and interop containers
 	-docker compose -f docker-compose.yml down -v
 	-cd $(ROOT)/tests/interop && docker compose down -v
 
-vm-pack: ## Prepare the two-VPS instructions bundle
+vm-pack: ## Pack the full VPS bundle (configs + scripts + service files + README)
 	@mkdir -p $(REPORTS)
 	@tar -czf $(REPORTS)/vps-lab-bundle.tgz vps configs scripts README.md Makefile
 	@echo "Wrote $(REPORTS)/vps-lab-bundle.tgz"
+	@echo "scp $(REPORTS)/vps-lab-bundle.tgz root@<SERVER>:/root/"
+	@echo "ssh root@<SERVER> 'tar xzf vps-lab-bundle.tgz && bash scripts/server-setup.sh configs/matrix.env'"
+
+vps-configs: ## Expand JSON templates locally using configs/matrix.env (requires envsubst)
+	@if [ ! -f configs/matrix.env ]; then \
+		echo "ERROR: configs/matrix.env not found. Copy configs/matrix.env.example and fill in values."; exit 1; fi
+	@mkdir -p $(REPORTS)/generated-configs
+	@for f in configs/server/*.json; do \
+		envsubst < "$$f" > "$(REPORTS)/generated-configs/server-$$(basename $$f)"; \
+	done
+	@for f in configs/client/*.json; do \
+		envsubst < "$$f" > "$(REPORTS)/generated-configs/client-$$(basename $$f)"; \
+	done
+	@echo "Expanded configs written to $(REPORTS)/generated-configs/"
+
+vps-server-setup: ## Print server provisioning command (run from dev machine with SSH_SERVER set)
+	@echo ""
+	@echo "Run on the SERVER VPS:"
+	@echo "  1. scp -r labs/realistic root@\$${SSH_SERVER}:/root/lab"
+	@echo "  2. ssh root@\$${SSH_SERVER} 'bash /root/lab/scripts/server-setup.sh /root/lab/configs/matrix.env'"
+	@echo ""
+	@echo "Or if SSH_SERVER is set, run:"
+	@echo "  SSH_SERVER=1.2.3.4 make vps-server-setup"
+	@if [ -n "$${SSH_SERVER:-}" ]; then \
+		rsync -av --exclude='reports' . root@$${SSH_SERVER}:/root/lab/; \
+		ssh root@$${SSH_SERVER} 'bash /root/lab/scripts/server-setup.sh /root/lab/configs/matrix.env'; \
+	fi
+
+vps-client-setup: ## Print client provisioning command (run from dev machine with SSH_CLIENT set)
+	@echo ""
+	@echo "Run on the CLIENT VPS:"
+	@echo "  1. scp -r labs/realistic root@\$${SSH_CLIENT}:/root/lab"
+	@echo "  2. ssh root@\$${SSH_CLIENT} 'bash /root/lab/scripts/client-setup.sh /root/lab/configs/matrix.env'"
+	@echo ""
+	@if [ -n "$${SSH_CLIENT:-}" ]; then \
+		rsync -av --exclude='reports' . root@$${SSH_CLIENT}:/root/lab/; \
+		ssh root@$${SSH_CLIENT} 'bash /root/lab/scripts/client-setup.sh /root/lab/configs/matrix.env'; \
+	fi
+
+vps-test: ## Run protocol matrix from the CLIENT VPS (SSH_CLIENT must be set)
+	@if [ -z "$${SSH_CLIENT:-}" ]; then \
+		echo "ERROR: SSH_CLIENT not set. Example: SSH_CLIENT=5.6.7.8 make vps-test"; exit 1; fi
+	@mkdir -p $(REPORTS)
+	ssh root@$${SSH_CLIENT} 'bash /root/lab/scripts/run-matrix.sh /root/lab/configs/matrix.env'
+	scp root@$${SSH_CLIENT}:/root/lab/reports/vps-matrix-\*.log $(REPORTS)/ 2>/dev/null || true
+	@echo "Results copied to $(REPORTS)/"
+
+vps-tun: ## Run TUN privileged tests on the SERVER VPS (SSH_SERVER must be set, Linux+root)
+	@if [ -z "$${SSH_SERVER:-}" ]; then \
+		echo "ERROR: SSH_SERVER not set. Example: SSH_SERVER=1.2.3.4 make vps-tun"; exit 1; fi
+	@mkdir -p $(REPORTS)
+	ssh root@$${SSH_SERVER} 'cd /root && sudo -E bash /root/lab/scripts/run-tun-priv.sh'
+	scp root@$${SSH_SERVER}:/root/lab/reports/vps-tun-\*.log $(REPORTS)/ 2>/dev/null || true
+	@echo "TUN test results copied to $(REPORTS)/"
+
+ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+d1, phase78, stress, negative-auth, restart-smoke
+	@mkdir -p $(REPORTS)
+	@echo "=== [1/10] workspace unit tests ===" | tee $(REPORTS)/ci.log
+	cd $(ROOT) && cargo test --workspace --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	@echo "=== [2/10] integration tests ===" | tee -a $(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p integration-tests 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	@echo "=== [3/10] production readiness ===" | tee -a $(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p proxy-core     --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p proxy-protocol --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p proxy-transport --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	@echo "=== [4/10] Docker baseline ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) docker-up
+	@echo "=== [5/10] phase 7/8 bundle ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) phase78
+	@echo "=== [6/10] stress loop ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) stress
+	@echo "=== [7/10] negative-auth ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) negative-auth
+	@echo "=== [8/10] restart-smoke ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) restart-smoke
+	@echo "=== [9/10] Xray d0 self-interop ===" | tee -a $(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	@echo "=== [10/10] Xray d1 live interop ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) xray
+	$(MAKE) docker-down
+	$(MAKE) report-summary
+	@echo "" | tee -a $(REPORTS)/ci.log
+	@echo "==> ci complete. Check $(REPORTS)/ci.log and $(REPORTS)/summary.txt" | tee -a $(REPORTS)/ci.log
+	@grep -c "FAILED\|^error" $(REPORTS)/ci.log && echo "FAILURES DETECTED" && exit 1 || echo "All tiers passed."
+
+ci-full: ci ## Run ci + VPS matrix + TUN (requires SSH_SERVER and SSH_CLIENT)
+	@if [ -z "$${SSH_SERVER:-}" ] || [ -z "$${SSH_CLIENT:-}" ]; then \
+		echo "ERROR: SSH_SERVER and SSH_CLIENT must be set for ci-full."; \
+		echo "Example: SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 make ci-full"; \
+		exit 1; fi
+	@echo "=== [VPS] protocol matrix ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) vps-test
+	@echo "=== [VPS] TUN privileged tests ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) vps-tun
+	$(MAKE) report-summary
+	@echo "==> ci-full complete."
 
 clean: docker-down ## Remove generated reports
 	rm -rf $(REPORTS)

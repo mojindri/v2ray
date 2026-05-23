@@ -1,5 +1,7 @@
 use std::time::Duration;
 
+#[cfg(target_os = "linux")]
+use anyhow::Context as _;
 use anyhow::Result;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{mpsc, watch};

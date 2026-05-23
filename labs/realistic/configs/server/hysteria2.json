@@ -1,0 +1,25 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "hysteria2-in",
+      "protocol": "hysteria2",
+      "listen": "0.0.0.0",
+      "port": 4433,
+      "settings": {
+        "auth": "${HYSTERIA2_PASSWORD}",
+        "upMbps": 100,
+        "downMbps": 100
+      },
+      "streamSettings": {
+        "network": "quic",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/proxy-rs/certs/cert.pem",
+          "keyFile": "/etc/proxy-rs/certs/key.pem"
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

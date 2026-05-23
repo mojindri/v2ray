@@ -1,0 +1,23 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "ss-out",
+      "protocol": "shadowsocks",
+      "settings": {
+        "address": "${SERVER_HOST}",
+        "port": 8388,
+        "method": "2022-blake3-aes-256-gcm",
+        "password": "${SS2022_PASSWORD}"
+      }
+    }
+  ]
+}

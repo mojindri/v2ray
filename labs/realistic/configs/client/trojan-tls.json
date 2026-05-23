@@ -1,0 +1,30 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "trojan-out",
+      "protocol": "trojan",
+      "settings": {
+        "address": "${SERVER_HOST}",
+        "port": 8445,
+        "password": "${TROJAN_PASSWORD}"
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "${TEST_DOMAIN}",
+          "allowInsecure": false
+        }
+      }
+    }
+  ]
+}

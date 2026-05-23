@@ -1,5 +1,26 @@
 # v2ray
 
+## Running the tests
+
+**No VPS, no Docker — just Rust:**
+```sh
+make ci
+```
+
+**Everything local including Docker and Xray interop:**
+```sh
+make ci-all
+```
+
+**Absolute everything including two VPS machines:**
+```sh
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 make ci-vps
+```
+
+That's it. Full details in [docs/11-testing.md](docs/11-testing.md).
+
+---
+
 Beginner-friendly docs live in [docs/README.md](docs/README.md).
 
 Recommended starting path:
@@ -42,6 +63,8 @@ That guide explains:
 - why the Xray `dest` must be a real HTTPS endpoint on port 443
 
 Realistic environment testing starts at [labs/realistic/README.md](labs/realistic/README.md).
+
+The full testing guide — unit tests through two-VPS production validation — is at [docs/11-testing.md](docs/11-testing.md).
 
 That lab is the production-realism gate for the stable matrix:
 

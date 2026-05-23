@@ -178,7 +178,7 @@ async fn must(
     rb: &mut RollbackList,
     ctx: &str,
 ) -> Result<()> {
-    if let Err(e) = run(setup).await.context(ctx) {
+    if let Err(e) = run(setup).await.with_context(|| ctx.to_string()) {
         // Take the list so we can call rollback (consumes self).
         let taken = std::mem::take(rb);
         taken.rollback().await;

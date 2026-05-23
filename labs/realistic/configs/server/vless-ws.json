@@ -1,0 +1,24 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-ws-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8443,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/proxy-rs/certs/cert.pem",
+          "keyFile": "/etc/proxy-rs/certs/key.pem"
+        },
+        "wsSettings": { "path": "/proxy" }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

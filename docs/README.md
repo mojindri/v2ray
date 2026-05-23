@@ -39,6 +39,8 @@ Third-wave practical docs:
    File-by-file walkthrough of one real connection path.
 11. [10-glossary.md](10-glossary.md)
    Plain-English dictionary of project terms.
+12. [11-testing.md](11-testing.md)
+   How to run every test tier: unit, integration, Docker, Xray interop, VPS matrix, TUN privileged.
 
 Example-driven learning:
 

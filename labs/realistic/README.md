@@ -100,13 +100,33 @@ The closest-to-production gate uses two Ubuntu 24.04 VPS machines:
 - client VPS: runs the client-side `proxy-rs` instance and traffic generator.
 - server VPS: runs public protocol inbounds, target services, Caddy ACME, and firewall rules.
 
-Start with:
+See [docs/11-testing.md](../../docs/11-testing.md) for the full step-by-step VPS workflow.
+
+Quick start:
 
 ```sh
-make -C labs/realistic vm-pack
+# Fill in your server IP, domain, keys, and passwords
+cp configs/matrix.env.example configs/matrix.env
+
+# Provision server VPS
+SSH_SERVER=1.2.3.4 make vps-server-setup
+
+# Provision client VPS
+SSH_CLIENT=5.6.7.8 make vps-client-setup
+
+# Run the 7-protocol matrix from the client
+SSH_CLIENT=5.6.7.8 make vps-test
+
+# Run TUN privileged tests on the server (Linux + root)
+SSH_SERVER=1.2.3.4 make vps-tun
 ```
 
-Then follow [vps/README.md](vps/README.md).
+Or pack everything into a tarball and transfer manually:
+
+```sh
+make vm-pack
+# Then follow vps/README.md on each machine
+```
 
 ## Why This Lab Reuses Existing Tests
 

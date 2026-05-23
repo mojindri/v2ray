@@ -1,0 +1,26 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-reality-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 10443,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }],
+        "fallback": { "dest": "${REALITY_DEST}" }
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "${REALITY_DEST}",
+          "serverName": "${REALITY_SERVER_NAME}",
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

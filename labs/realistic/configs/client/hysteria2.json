@@ -1,0 +1,23 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "hysteria2-out",
+      "protocol": "hysteria2",
+      "settings": {
+        "server": "${SERVER_HOST}:4433",
+        "auth": "${HYSTERIA2_PASSWORD}",
+        "upMbps": 50,
+        "downMbps": 50
+      }
+    }
+  ]
+}
