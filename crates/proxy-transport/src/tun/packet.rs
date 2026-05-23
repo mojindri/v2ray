@@ -1,4 +1,4 @@
-use std::net::{Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransportProtocol {
@@ -150,6 +150,101 @@ fn parse_ipv6(buf: &[u8]) -> Option<IpPacket> {
     })
 }
 
+/// Build a TCP RST packet in response to `request`.
+///
+/// Swaps src/dst so the RST flows back toward the original sender.
+/// Used to reject TCP flows that the TUN runtime cannot proxy (e.g. when the
+/// proxy's TCP listener is not reachable or when iptables REDIRECT misfires).
+pub fn build_tcp_rst(request: &IpPacket) -> Option<Vec<u8>> {
+    if request.protocol != TransportProtocol::Tcp {
+        return None;
+    }
+    match (request.src, request.dst) {
+        (IpAddr::V4(src), IpAddr::V4(dst)) => {
+            build_ipv4_tcp_rst(dst, src, request.dst_port, request.src_port)
+        }
+        (IpAddr::V6(src), IpAddr::V6(dst)) => {
+            build_ipv6_tcp_rst(dst, src, request.dst_port, request.src_port)
+        }
+        _ => None,
+    }
+}
+
+fn build_ipv4_tcp_rst(
+    src: Ipv4Addr,
+    dst: Ipv4Addr,
+    src_port: u16,
+    dst_port: u16,
+) -> Option<Vec<u8>> {
+    // IP header (20) + TCP header (20), no payload.
+    let mut out = vec![0u8; 40];
+    out[0] = 0x45; // version=4, IHL=5
+    out[2..4].copy_from_slice(&40u16.to_be_bytes());
+    out[8] = 64; // TTL
+    out[9] = 6; // TCP
+    out[12..16].copy_from_slice(&src.octets());
+    out[16..20].copy_from_slice(&dst.octets());
+    let ip_csum = internet_checksum(&out[..20]);
+    out[10..12].copy_from_slice(&ip_csum.to_be_bytes());
+
+    // TCP header at offset 20.
+    out[20..22].copy_from_slice(&src_port.to_be_bytes());
+    out[22..24].copy_from_slice(&dst_port.to_be_bytes());
+    // seq=0, ack=0, data_offset=5 (20 bytes), RST flag.
+    out[32] = 0x50;
+    out[33] = 0x04; // RST
+    let tcp_csum = tcp_checksum_ipv4(src, dst, &out[20..]);
+    out[36..38].copy_from_slice(&tcp_csum.to_be_bytes());
+    Some(out)
+}
+
+fn build_ipv6_tcp_rst(
+    src: Ipv6Addr,
+    dst: Ipv6Addr,
+    src_port: u16,
+    dst_port: u16,
+) -> Option<Vec<u8>> {
+    // IPv6 header (40) + TCP header (20), no payload.
+    let tcp_len: usize = 20;
+    let mut out = vec![0u8; 40 + tcp_len];
+    out[0] = 0x60; // version=6, traffic class=0
+    out[4..6].copy_from_slice(&(tcp_len as u16).to_be_bytes());
+    out[6] = 6; // TCP
+    out[7] = 64; // hop limit
+    out[8..24].copy_from_slice(&src.octets());
+    out[24..40].copy_from_slice(&dst.octets());
+
+    // TCP header at offset 40.
+    out[40..42].copy_from_slice(&src_port.to_be_bytes());
+    out[42..44].copy_from_slice(&dst_port.to_be_bytes());
+    out[52] = 0x50; // data_offset=5
+    out[53] = 0x04; // RST
+    let tcp_csum = tcp_checksum_ipv6(src, dst, &out[40..]);
+    out[56..58].copy_from_slice(&tcp_csum.to_be_bytes());
+    Some(out)
+}
+
+fn tcp_checksum_ipv4(src: Ipv4Addr, dst: Ipv4Addr, tcp_segment: &[u8]) -> u16 {
+    let mut pseudo = Vec::with_capacity(12 + tcp_segment.len());
+    pseudo.extend_from_slice(&src.octets());
+    pseudo.extend_from_slice(&dst.octets());
+    pseudo.push(0);
+    pseudo.push(6); // TCP
+    pseudo.extend_from_slice(&(tcp_segment.len() as u16).to_be_bytes());
+    pseudo.extend_from_slice(tcp_segment);
+    internet_checksum(&pseudo)
+}
+
+fn tcp_checksum_ipv6(src: Ipv6Addr, dst: Ipv6Addr, tcp_segment: &[u8]) -> u16 {
+    let mut pseudo = Vec::with_capacity(40 + tcp_segment.len());
+    pseudo.extend_from_slice(&src.octets());
+    pseudo.extend_from_slice(&dst.octets());
+    pseudo.extend_from_slice(&(tcp_segment.len() as u32).to_be_bytes());
+    pseudo.extend_from_slice(&[0, 0, 0, 6]); // next header = TCP
+    pseudo.extend_from_slice(tcp_segment);
+    internet_checksum(&pseudo)
+}
+
 pub fn build_udp_response_packet(request: &IpPacket, payload: &[u8]) -> Option<Vec<u8>> {
     if request.protocol != TransportProtocol::Udp {
         return None;
@@ -297,6 +392,50 @@ mod tests {
     #[test]
     fn empty_returns_none() {
         assert!(parse_ip_packet(&[]).is_none());
+    }
+
+    #[test]
+    fn build_tcp_rst_swaps_addresses_and_sets_rst_flag() {
+        let request = parse_ip_packet(&ipv4_tcp()).unwrap();
+        let rst = build_tcp_rst(&request).unwrap();
+        let parsed = parse_ip_packet(&rst).unwrap();
+
+        assert_eq!(parsed.src, request.dst);
+        assert_eq!(parsed.dst, request.src);
+        assert_eq!(parsed.src_port, request.dst_port);
+        assert_eq!(parsed.dst_port, request.src_port);
+        assert_eq!(parsed.protocol, TransportProtocol::Tcp);
+        // RST flag is byte 13 of the TCP header.
+        let tcp_flags = rst[parsed.header_len + 13];
+        assert_eq!(tcp_flags & 0x04, 0x04, "RST flag not set");
+    }
+
+    fn ipv4_tcp() -> Vec<u8> {
+        let mut pkt = vec![0u8; 40];
+        let total_len = pkt.len() as u16;
+        pkt[0] = 0x45;
+        pkt[2..4].copy_from_slice(&total_len.to_be_bytes());
+        pkt[9] = 6; // TCP
+        pkt[12..16].copy_from_slice(&[1, 2, 3, 4]);
+        pkt[16..20].copy_from_slice(&[5, 6, 7, 8]);
+        pkt[20..22].copy_from_slice(&[0x00, 0x50]); // src_port=80
+        pkt[22..24].copy_from_slice(&[0x01, 0xbb]); // dst_port=443
+        pkt[32] = 0x50; // data_offset=5
+        pkt
+    }
+
+    #[test]
+    fn build_tcp_rst_returns_none_for_non_tcp() {
+        let request_bytes = build_ipv4_udp_packet(
+            Ipv4Addr::new(10, 0, 0, 2),
+            Ipv4Addr::new(8, 8, 8, 8),
+            53000,
+            53,
+            b"x",
+        )
+        .unwrap();
+        let request = parse_ip_packet(&request_bytes).unwrap();
+        assert!(build_tcp_rst(&request).is_none());
     }
 
     #[test]

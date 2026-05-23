@@ -56,7 +56,9 @@ pub use shadowtls::{
 };
 pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
-pub use tun::{create_tun, IpPacket, TransportProtocol, TunConfig};
+pub use tun::{
+    build_tcp_rst, create_tun, IpPacket, TransportProtocol, TunConfig, TunRuntime, UdpNatTable,
+};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};
 
 // Re-export quinn's congestion module so downstream crates can implement

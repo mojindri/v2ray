@@ -454,8 +454,14 @@ async fn mkcp_rejects_invalid_header_instead_of_plain_tcp_fallback() {
     assert!(Instance::from_config(Arc::new(cfg)).await.is_err());
 }
 
+/// Regression guard: the TUN runtime is now implemented. `from_config` must
+/// no longer return the old "not production-ready" bail message.
+///
+/// On a non-root host the call will fail at OS-level device creation; on
+/// a privileged Linux host it may succeed and start the runtime. Either
+/// outcome is acceptable — what's NOT acceptable is the old placeholder error.
 #[tokio::test]
-async fn top_level_tun_config_is_rejected_until_packet_runtime_exists() {
+async fn tun_config_is_no_longer_blocked_by_placeholder_guard() {
     let cfg = parse_config(json!({
         "log": { "level": "warning" },
         "tun": {
@@ -469,11 +475,20 @@ async fn top_level_tun_config_is_rejected_until_packet_runtime_exists() {
         "routing": { "rules": [] }
     }));
 
-    let err = Instance::from_config(Arc::new(cfg))
-        .await
-        .expect_err("TUN must stay disabled until packet runtime exists");
-    let msg = err.to_string();
-    assert!(msg.contains("privileged device loop and TCP stream reassembly"));
+    match Instance::from_config(Arc::new(cfg)).await {
+        Ok(_instance) => {
+            // root on Linux — runtime actually started, that's fine
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            assert!(
+                !msg.contains("privileged device loop and TCP stream reassembly"),
+                "TUN placeholder guard is still active; the runtime should now be \
+                 implemented. Got: {msg}"
+            );
+            // Expected: a real OS-level error (device creation, permissions, …)
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
