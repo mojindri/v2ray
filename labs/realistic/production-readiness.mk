@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local chrome-baseline-real chrome-baseline-docker fingerprint-total fingerprint-verify vm-browser-setup vm-browser-baseline vm-fingerprint-total lima-browser-baseline lima-fingerprint-total
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local chrome-baseline-real chrome-baseline-docker fingerprint-total fingerprint-verify vm-browser-setup vm-browser-baseline vm-fingerprint-total lima-browser-baseline lima-fingerprint-total bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -105,3 +105,16 @@ lima-browser-baseline: ## Fully automated Lima Ubuntu VM browser baseline. Insta
 	bash scripts/run-lima-browser-baseline.sh reports/production 2>&1 | tee reports/production/lima-browser-baseline.log
 
 lima-fingerprint-total: lima-browser-baseline ## Fully automated Lima VM browser baseline + strict fingerprint verify.
+
+
+bench-vm-smoke: ## Quick Lima VM performance benchmark.
+	bash scripts/run-bench-vm.sh smoke reports/production
+
+bench-vm-total: ## Full Lima VM performance benchmark report.
+	bash scripts/run-bench-vm.sh total reports/production
+
+bench-vps-smoke: ## Quick VPS performance benchmark. Requires SSH_SERVER and SSH_CLIENT.
+	bash scripts/run-bench-vps.sh smoke reports/production
+
+bench-vps-total: ## Full VPS performance benchmark report. Requires SSH_SERVER and SSH_CLIENT.
+	bash scripts/run-bench-vps.sh total reports/production

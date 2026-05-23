@@ -41,6 +41,8 @@ Third-wave practical docs:
    Plain-English dictionary of project terms.
 12. [11-testing.md](11-testing.md)
    How to run every test tier: unit, integration, Docker, Xray interop, VPS matrix, TUN privileged.
+13. [15-make-command-guide.md](15-make-command-guide.md)
+   Command-oriented map for the top-level Make targets and when to use each one.
 
 Example-driven learning:
 
