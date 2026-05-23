@@ -2,24 +2,17 @@
 //!
 //! # What this tests
 //!
-//! REALITY is an authentication layer on top of TCP. The client sends a
+//! REALITY is an authentication layer on top of TLS. The client sends a
 //! Chrome-fingerprinted TLS ClientHello with an encrypted token hidden in the
 //! session_id field. The server validates this token using X25519 ECDH +
-//! HKDF-SHA256 + AES-128-GCM, then either accepts the connection or silently
-//! forwards it to a fallback backend.
+//! HKDF-SHA256 + AES-128-GCM, then either accepts the connection and completes
+//! a local TLS handshake or silently forwards it to a fallback backend.
 //!
 //! This test verifies that:
 //!   1. A legitimate client (correct X25519 key + short_id) can authenticate.
-//!   2. After authentication, data flows bidirectionally over the raw stream.
+//!   2. After authentication, TLS 1.3 completes and data flows bidirectionally.
 //!   3. An illegitimate client (wrong key) fails authentication and is forwarded
 //!      to the fallback server.
-//!
-//! # No TLS layer
-//!
-//! This test uses `RealityServer::accept_direct()` which returns the raw stream
-//! after REALITY auth, without the ClientHello replay. The VLESS layer reads
-//! its header directly from this raw stream. Full TLS completion is deferred
-//! to Phase 3 when we add the uTLS-equivalent for Rust.
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
@@ -32,6 +25,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 use proxy_transport::reality::{
     RealityClient, RealityClientConfig, RealityServer, RealityServerConfig,
 };
+use proxy_transport::{dev_self_signed, tls_accept};
 
 /// Bind to port 0 and return the assigned port.
 /// This avoids port conflicts between concurrent tests.
@@ -72,7 +66,7 @@ async fn start_fallback_echo(port: u16) {
 // This tests the full REALITY crypto pipeline:
 //   client ECDH → HKDF → AES-128-GCM encrypt (client side)
 //   server ECDH → HKDF → AES-128-GCM decrypt + validate (server side)
-//   data flows over the authenticated raw channel
+//   TLS completes and data flows over the authenticated channel
 #[tokio::test(flavor = "multi_thread")]
 async fn reality_legitimate_client_can_authenticate_and_exchange_data() {
     let (priv_bytes, pub_bytes) = gen_keypair();
@@ -95,17 +89,21 @@ async fn reality_legitimate_client_can_authenticate_and_exchange_data() {
         max_time_diff: 120,
     }));
 
-    // Spawn the server task: accept one connection, authenticate it, echo data.
+    let (cert_pem, key_pem) = dev_self_signed().expect("dev TLS cert generation should succeed");
+
+    // Spawn the server task: accept one connection, authenticate it, complete
+    // the local TLS handshake, then echo data.
     let server_task = tokio::spawn(async move {
         let listener = TcpListener::bind(reality_addr).await.unwrap();
         let (tcp, _) = listener.accept().await.unwrap();
 
-        // Authenticate the REALITY client.
-        // accept_direct() consumes the ClientHello and returns the raw stream.
-        let mut stream = server
-            .accept_direct(Box::new(tcp))
+        let stream = server
+            .accept(Box::new(tcp))
             .await
             .expect("REALITY authentication should succeed for legitimate client");
+        let mut stream = tls_accept(stream, &cert_pem, &key_pem, &[])
+            .await
+            .expect("TLS 1.3 should complete after REALITY authentication");
 
         // Read the test payload from the client.
         let mut buf = vec![0u8; 64];
@@ -129,15 +127,24 @@ async fn reality_legitimate_client_can_authenticate_and_exchange_data() {
         fingerprint: "chrome".to_string(),
     });
 
-    let mut client_stream = client.dial().await.expect("REALITY dial should succeed");
+    let mut client_stream = tokio::time::timeout(Duration::from_secs(2), client.dial())
+        .await
+        .expect("REALITY dial timed out")
+        .expect("REALITY dial should succeed");
 
     // Send a test message.
     let msg = b"REALITY integration test payload";
-    client_stream.write_all(msg).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(2), client_stream.write_all(msg))
+        .await
+        .expect("client write timed out")
+        .unwrap();
 
     // Read the echo back.
     let mut buf = vec![0u8; 64];
-    let n = client_stream.read(&mut buf).await.unwrap();
+    let n = tokio::time::timeout(Duration::from_secs(2), client_stream.read(&mut buf))
+        .await
+        .expect("client read timed out")
+        .unwrap();
     let echoed = &buf[..n];
 
     assert_eq!(echoed, msg, "echoed data must match what was sent");
