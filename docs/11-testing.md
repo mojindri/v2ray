@@ -19,6 +19,40 @@ This document is the single reference for running every test tier in this projec
 | 9. VPS matrix | All protocols over real public network | ~5 min | Two Ubuntu 24.04 VPS |
 | 10. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
 
+## Where You Run Things
+
+This repo has two different meanings of "run":
+
+1. where you invoke the command from
+2. where the actual workload executes
+
+Use this split:
+
+| Tier / Command | Invoke from | Executes on | Needs real VPS? |
+|---|---|---|---|
+| `cargo test --workspace` | local checkout | local machine | no |
+| `cargo test -p integration-tests` | local checkout | local machine | no |
+| production-readiness tests | local checkout | local machine | no |
+| `make -C labs/realistic docker-full` | local checkout | local machine + Docker | no |
+| `make -C labs/realistic phase78` | local checkout | local machine | no |
+| `make -C labs/realistic stress` | local checkout | local machine | no |
+| `cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture` | local checkout | local machine | no |
+| `make -C labs/realistic xray` | local checkout | local machine + Docker | no |
+| `make check-browser` | local checkout | local machine + Lima VM | no |
+| `make perf` | local checkout | Lima VM | no |
+| `make check-vps` | local checkout | local machine + remote VPS over SSH | yes |
+| `make perf-vps` | local checkout | remote VPS over SSH | yes |
+| `make -C labs/realistic vps-server-setup` | local checkout | server VPS over SSH | yes |
+| `make -C labs/realistic vps-client-setup` | local checkout | client VPS over SSH | yes |
+| `make -C labs/realistic vps-test` | local checkout | client VPS over SSH | yes |
+| `make -C labs/realistic vps-tun` | local checkout | server VPS over SSH | yes |
+
+Important:
+
+- For normal usage, you invoke commands from your local repo checkout.
+- VPS commands are still launched locally; they SSH into the VPS machines and run there.
+- SSH directly into a VPS only for debugging, service inspection, or manual recovery.
+
 ---
 
 ## Tier 1 — Unit tests

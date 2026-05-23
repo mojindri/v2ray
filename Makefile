@@ -1,11 +1,21 @@
-# Makefile — shortcuts for common development tasks.
+# Makefile — public task runner plus compatibility aliases.
 #
-# Run `make help` to see all available commands.
-# Run `make` (no arguments) to build the project.
+# Public entrypoints:
+#   make help
+#   make check
+#   make check-browser
+#   make check-vps
+#   make perf
+#   make clean-generated
+#
+# Run `make help-internal` to inspect the broader target set.
 
 -include .env.vm
 
-.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke ci ci-all ci-prod-readiness ci-vps clean help
+.PHONY: all build dev test check check-browser check-vps perf perf-vps perf-all \
+	fmt fmt-check lint audit deny update-geoip fuzz-build fuzz-smoke \
+	ci ci-all ci-prod-readiness ci-vps clean clean-generated clean-all-generated \
+	help help-internal test-help quick-help help-simple
 
 # Default target: build in release mode.
 all: build
@@ -21,8 +31,6 @@ dev:
 ## test: Run all unit and integration tests.
 test:
 	cargo test --workspace
-
-## check: Fast syntax check without producing a binary (useful during development).
 
 ## fmt: Auto-format all source files.
 fmt:
@@ -92,9 +100,30 @@ gen-keys:
 clean:
 	cargo clean
 
-## help: Show this help message.
-help:
+## help-internal: Show annotated Make targets.
+help-internal:
 	@grep -E '^## ' Makefile | sed 's/^## /  /'
+
+## help: Show the curated public command surface.
+help:
+	@echo "Public commands:"
+	@echo "  make check          - strongest normal local validation gate"
+	@echo "  make check-browser  - browser/TLS fingerprint validation in Lima Ubuntu VM"
+	@echo "  make check-vps      - closest production-style validation on two VPS machines"
+	@echo "  make perf           - performance benchmark in Lima VM"
+	@echo "  make clean-generated - remove generated reports/logs/pcaps/bench outputs"
+	@echo ""
+	@echo "Useful basics:"
+	@echo "  make build          - release build"
+	@echo "  make test           - workspace tests"
+	@echo "  make fmt-check      - formatting check"
+	@echo "  make lint           - clippy gate"
+	@echo ""
+	@echo "Discovery:"
+	@echo "  make test-help      - compatibility aliases and broader workflow map"
+	@echo "  make help-internal  - annotated target list from this Makefile"
+	@echo ""
+	@echo "Compatibility aliases remain available, but the recommended public surface is small."
 
 ci-fuzz-smoke:
 	$(MAKE) -C labs/realistic fuzz-smoke
@@ -108,7 +137,8 @@ ci-prod-readiness-with-fuzz:
 ci-fuzz-total:
 	$(MAKE) -C labs/realistic fuzz-total
 
-# ── Simple one-place test entrypoints ─────────────────────────────────────────
+# Compatibility entrypoints. Keep these for scripts/docs, but do not expand the
+# public surface further unless a new workflow genuinely needs it.
 .PHONY: local local-fast local-prod local-fuzz local-fuzz-total local-total vps vps-total vps-total-with-fuzz test-help
 
 local: ci-all ## Full local gate. Excludes fuzz and VPS.
@@ -180,87 +210,74 @@ clean-lima-artifacts: ## Remove generated Lima lab configs/log references from t
 	rm -f labs/realistic/reports/production/lima-browser-baseline-summary-*.txt
 	rm -f labs/realistic/reports/production/artifacts/logs/lima-*.log
 
-clean-generated: clean-reports ## Remove generated repo reports/logs/pcaps, but keep build cache and external VMs.
+clean-generated: clean-reports clean-bench ## Remove generated repo reports/logs/pcaps/bench, but keep build cache and external VMs.
 
 clean-all-generated: clean-generated ## Remove generated repo reports plus Rust build outputs.
 	cargo clean
 
 
+
+.PHONY: bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total check-perf-vm check-perf-vps check-perf-total clean-bench
+
+bench-vm-smoke:
+	$(MAKE) -C labs/realistic bench-vm-smoke
+
+bench-vm-total:
+	$(MAKE) -C labs/realistic bench-vm-total
+
+bench-vps-smoke:
+	$(MAKE) -C labs/realistic bench-vps-smoke
+
+bench-vps-total:
+	$(MAKE) -C labs/realistic bench-vps-total
+
+check-perf-vm: bench-vm-total ## Alias: full Lima VM performance benchmark.
+
+check-perf-vps: bench-vps-total ## Alias: full VPS performance benchmark.
+
+check-perf-total: check-perf-vm check-perf-vps ## Run VM perf first, then VPS perf.
+
+perf: check-perf-vm ## Recommended public perf entrypoint: full Lima VM benchmark.
+
+perf-vps: check-perf-vps ## Compatibility alias for the full VPS performance benchmark.
+
+perf-all: check-perf-total ## Run VM perf first, then VPS perf.
+
+clean-bench:
+	rm -rf labs/realistic/reports/production/bench
+
+
 test-help: ## Show compact command help.
-	@echo "Main commands:"
-	@echo "  make check              - same as make local-total"
-	@echo "  make check-browser      - same as make lima-fingerprint-total"
-	@echo "  make check-all-local    - same as make local-total-with-lima"
-	@echo "  make check-vps          - same as make vps-total"
-	@echo "  make check-sequence     - run check, check-browser, check-all-local one after another"
-	@echo "  make check-sequence-with-vps - run check-sequence, then check-vps; requires SSH_SERVER/SSH_CLIENT"
-	@echo ""
-	@echo "Recommended run order:"
+	@echo "Recommended public workflow:"
 	@echo "  1. make check"
 	@echo "  2. make check-browser"
-	@echo "  3. make check-all-local"
-	@echo "  4. SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps   # later, VPS only"
+	@echo "  3. SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps"
+	@echo "  4. make perf"
 	@echo ""
-	@echo "One-command sequences:"
-	@echo "  make check-sequence"
-	@echo "  SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-sequence-with-vps"
+	@echo "Public commands:"
+	@echo "  make check              - strongest normal local validation gate"
+	@echo "  make check-browser      - isolated Lima browser/fingerprint validation"
+	@echo "  make check-vps          - local gates plus VPS SSH/network validation"
+	@echo "  make perf               - full Lima VM performance benchmark"
 	@echo ""
-	@echo "What they mean:"
-	@echo "  check           = all normal local checks, including fuzz smoke; runs on this Mac only"
-	@echo "  check-browser   = automated Lima Ubuntu VM browser/fingerprint verification"
-	@echo "  check-all-local = check + check-browser through local-total-with-lima"
-	@echo "  check-vps       = local non-fuzz gates, then real VPS SSH/network gate"
+	@echo "Compatibility aliases still available:"
+	@echo "  make check-all-local    - local suite plus Lima browser/fingerprint validation"
+	@echo "  make check-sequence     - explicit step-by-step logs for check/check-browser/check-all-local"
+	@echo "  make check-sequence-with-vps - sequence above, then VPS"
+	@echo "  make ci / ci-all / ci-vps"
+	@echo "  make local-fast / local / local-prod / local-fuzz / local-fuzz-total / local-total"
+	@echo "  make vps / vps-total / vps-total-with-fuzz"
+	@echo "  make check-perf-vm / check-perf-vps / check-perf-total"
 	@echo ""
-	@echo "Advanced local commands:"
-	@echo "  make local              - full local gate without fuzz"
-	@echo "  make local-fast         - fastest Rust-only gate"
-	@echo "  make local-prod         - production-readiness helpers only"
-	@echo "  make local-fuzz         - quick fuzz smoke"
-	@echo "  make local-fuzz-total   - heavier fuzz pass; override FUZZ_RUNS=10000"
-	@echo "  make local-load         - managed local load test"
-	@echo "  make local-hostility    - local netem + slow-client diagnostics"
-	@echo ""
-	@echo "Fingerprint / pcap debug commands:"
-	@echo "  make local-pcap                 - host tcpdump capture; may require sudo"
-	@echo "  make local-pcap-docker          - Docker-isolated pcap capture; no host sudo"
-	@echo "  make local-fingerprint-compare  - non-strict fingerprint report"
-	@echo "  make local-fingerprint-verify   - strict fingerprint verification from existing captures"
-	@echo "  make local-fingerprint-total    - real Mac Chrome baseline + strict verify; may require sudo"
-	@echo ""
-	@echo "Underlying Lima commands:"
-	@echo "  make lima-fingerprint-total     - create/start Lima VM, capture browser baseline, strict verify"
-	@echo "  make local-total-with-lima      - local-total + Lima fingerprint check"
-	@echo "  make lima-browser-baseline      - only capture the Lima browser baseline"
-	@echo ""
-	@echo "VPS commands:"
-	@echo "  make vps-total                  - local non-fuzz gates, then VPS gate"
-	@echo "  make vps-total-with-fuzz        - all local gates including fuzz, then VPS gate"
-	@echo "  make vps                        - VPS-only SSH gate"
-	@echo ""
-	@echo ""
-	@echo "Cleanup commands:"
-	@echo "  make clean-reports       - remove generated labs/realistic reports/logs/pcaps"
-	@echo "  make clean-pcaps         - remove generated pcap/fingerprint outputs only"
-	@echo "  make clean-generated     - remove generated repo reports/logs/pcaps; keep target/ and VMs"
-	@echo "  make clean-all-generated - clean-generated plus cargo clean"
-	@echo "Important:"
-	@echo "  check-sequence intentionally repeats some work because check-all-local includes local-total again."
-	@echo "  For fastest combined local+browser run, use only: make check-all-local"
-	@echo "  For explicit step-by-step evidence/logging, use: make check-sequence"
+	@echo "Diagnostics and cleanup:"
+	@echo "  make clean-generated"
+	@echo "  make clean-pcaps"
+	@echo "  make clean-all-generated"
+	@echo "  make help-internal"
 
 quick-help: test-help ## Alias for compact command help.
 
 help-simple: test-help ## Alias for compact command help.
-
-
-quick-help: test-help ## Alias for compact command help.
-
-help-simple: test-help ## Alias for compact command help.
-
-
-quick-help: test-help ## Alias for simple grouped command help.
-
-help-simple: test-help ## Alias for simple grouped command help.
 
 
 local-load:
@@ -434,7 +451,3 @@ lima-fingerprint-total:
 	$(MAKE) -C labs/realistic lima-fingerprint-total
 
 local-total-with-lima: local-total lima-fingerprint-total ## Run local-total, then fully automated Lima browser fingerprint check.
-
-.PHONY: quick-help
-
-.PHONY: help-simple
