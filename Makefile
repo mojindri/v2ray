@@ -3,7 +3,7 @@
 # Run `make help` to see all available commands.
 # Run `make` (no arguments) to build the project.
 
-.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke ci ci-all ci-vps clean help
+.PHONY: all build test check fmt lint audit update-geoip fuzz-build fuzz-smoke ci ci-all ci-prod-readiness ci-vps clean help
 
 # Default target: build in release mode.
 all: build
@@ -63,9 +63,14 @@ deny:
 ## ci: Fast code-quality gate (fmt + lint + test + audit). Run before every push.
 ci: fmt-check lint test audit
 
-## ci-all: Run every local test tier (unit, integration, prod-readiness, Docker, Xray, stress). Needs Docker.
+## ci-all: Run every local test tier, including the realistic lab and production-readiness helpers. Needs Docker.
 ci-all:
 	$(MAKE) -C labs/realistic ci
+	$(MAKE) -C labs/realistic prod-readiness
+
+## ci-prod-readiness: Run only the added local production-readiness helpers.
+ci-prod-readiness:
+	$(MAKE) -C labs/realistic prod-readiness
 
 ## ci-vps: Run ci-all + two-VPS protocol matrix + TUN privileged tests. Needs SSH_SERVER and SSH_CLIENT.
 ci-vps:
@@ -86,3 +91,9 @@ clean:
 ## help: Show this help message.
 help:
 	@grep -E '^## ' Makefile | sed 's/^## /  /'
+
+ci-fuzz-smoke:
+	$(MAKE) -C labs/realistic fuzz-smoke
+
+ci-prod-readiness-with-fuzz:
+	$(MAKE) -C labs/realistic prod-readiness-with-fuzz

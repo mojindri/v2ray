@@ -195,3 +195,6 @@ ci-full: ci ## Run ci + VPS matrix + TUN (requires SSH_SERVER and SSH_CLIENT)
 
 clean: docker-down ## Remove generated reports
 	rm -rf $(REPORTS)
+
+# Local production-readiness add-on targets.
+-include production-readiness.mk
