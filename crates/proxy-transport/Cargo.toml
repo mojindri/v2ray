@@ -7,8 +7,12 @@ license.workspace = true
 authors.workspace = true
 
 [features]
-default = []
-fuzzing = []
+default  = []
+fuzzing  = []
+# Enables privileged integration tests that require root / CAP_NET_ADMIN and
+# a Linux host.  Run with:
+#   sudo -E cargo test -p proxy-transport --features priv-test -- --include-ignored
+priv-test = []
 
 [dependencies]
 proxy-common          = { path = "../proxy-common" }

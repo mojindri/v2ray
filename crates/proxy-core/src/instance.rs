@@ -50,7 +50,7 @@ use proxy_protocol::socks::Socks5Inbound;
 use proxy_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
-use proxy_transport::{mkcp_accept_sessions, MkcpServerConfig};
+use proxy_transport::{mkcp_accept_sessions, MkcpServerConfig, TunRuntime};
 
 use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
@@ -68,6 +68,9 @@ use crate::ws_tls::{build_conn_handler, uses_grpc, uses_shadowtls, uses_tls, use
 pub struct Instance {
     /// Background task handles. Kept alive as long as `Instance` is alive.
     tasks: Vec<JoinHandle<()>>,
+    /// If a TUN runtime is active, sending `true` here triggers graceful
+    /// shutdown (which runs `cleanup_routes` before the task exits).
+    shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
 }
 
 impl fmt::Debug for Instance {
@@ -94,13 +97,38 @@ impl Instance {
     ///   - A listen address is invalid
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
-        if config.tun.is_some() {
-            anyhow::bail!(
-                "top-level tun config is parsed, but TUN runtime is not production-ready: device/route helpers and packet/NAT primitives exist, but the privileged device loop and TCP stream reassembly are not implemented yet"
-            );
-        }
-
         let mut tasks = Vec::new();
+        let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+
+        // ── Optional: TUN transparent-proxy runtime ──────────────────────────
+        if let Some(tun_cfg) = &config.tun {
+            use proxy_transport::TunConfig;
+            let tc = TunConfig {
+                name: tun_cfg.name.clone(),
+                address: tun_cfg.address
+                    .parse()
+                    .with_context(|| format!("invalid TUN address '{}'", tun_cfg.address))?,
+                netmask: tun_cfg.netmask
+                    .parse()
+                    .with_context(|| format!("invalid TUN netmask '{}'", tun_cfg.netmask))?,
+                mtu: tun_cfg.mtu,
+                bypass_mark: tun_cfg.bypass_mark,
+                redirect_port: tun_cfg.redirect_port,
+                dns_port: tun_cfg.dns_port,
+            };
+            let device = proxy_transport::create_tun(&tc)
+                .context("TUN device creation failed (are we running as root?)")?;
+            let (tx, rx) = tokio::sync::watch::channel(false);
+            shutdown_tx = Some(tx);
+            let runtime = TunRuntime::new(tc);
+            let tun_task = tokio::spawn(async move {
+                if let Err(e) = runtime.run(device, rx).await {
+                    error!(error = %e, "TUN runtime exited with error");
+                }
+            });
+            tasks.push(tun_task);
+            info!("TUN runtime started");
+        }
 
         // ── Step 1: Build outbound handlers ─────────────────────────────────
         let mut outbound_map: HashMap<String, Arc<dyn OutboundHandler>> = HashMap::new();
@@ -311,7 +339,7 @@ impl Instance {
             tasks.push(handle);
         }
 
-        Ok(Self { tasks })
+        Ok(Self { tasks, shutdown_tx })
     }
 
     /// Wait for all inbound listeners to exit.
@@ -332,9 +360,26 @@ impl Instance {
     }
 }
 
+impl Instance {
+    /// Signal graceful shutdown to the TUN runtime (if active).
+    ///
+    /// The runtime will run `cleanup_routes` before its task exits. Call this
+    /// before `wait()` or before dropping the instance so route cleanup has a
+    /// chance to complete.
+    pub fn shutdown(&self) {
+        if let Some(tx) = &self.shutdown_tx {
+            let _ = tx.send(true);
+        }
+    }
+}
+
 impl Drop for Instance {
     fn drop(&mut self) {
-        // Abort all listener tasks when the instance is dropped.
+        // Signal graceful shutdown first so the TUN runtime can clean up
+        // iptables rules before we abort the task.
+        if let Some(tx) = self.shutdown_tx.take() {
+            let _ = tx.send(true);
+        }
         for task in &self.tasks {
             task.abort();
         }
