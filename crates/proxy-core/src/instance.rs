@@ -28,6 +28,7 @@
 //! replaces them without stopping the unchanged ones.
 
 use std::collections::HashMap;
+use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
 
@@ -62,6 +63,14 @@ use crate::ws_tls::{build_conn_handler, uses_grpc, uses_tls, uses_ws};
 pub struct Instance {
     /// Background task handles. Kept alive as long as `Instance` is alive.
     tasks: Vec<JoinHandle<()>>,
+}
+
+impl fmt::Debug for Instance {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Instance")
+            .field("task_count", &self.tasks.len())
+            .finish()
+    }
 }
 
 impl Instance {
@@ -199,8 +208,11 @@ impl Instance {
             let transport = proxy_transport::TcpServerTransport::new(
                 proxy_transport::tcp::TcpConfig::default(),
             );
+            let listener = tokio::net::TcpListener::bind(addr)
+                .await
+                .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;
             let task = tokio::spawn(async move {
-                if let Err(e) = transport.serve(addr, conn_handler).await {
+                if let Err(e) = transport.serve_listener(listener, conn_handler).await {
                     error!(addr = %addr, error = %e, "inbound listener failed");
                 }
             });
@@ -209,15 +221,10 @@ impl Instance {
 
         // ── Optional: start metrics/health HTTP server ───────────────────────
         if let Some(metrics_addr) = &config.metrics_addr {
-            match proxy_app::metrics::start_metrics_server(metrics_addr) {
-                Ok(handle) => {
-                    info!(addr = %metrics_addr, "metrics server started");
-                    tasks.push(handle);
-                }
-                Err(e) => {
-                    error!(addr = %metrics_addr, error = %e, "metrics server failed to start");
-                }
-            }
+            let handle = proxy_app::metrics::start_metrics_server(metrics_addr)
+                .with_context(|| format!("starting metrics server on '{metrics_addr}'"))?;
+            info!(addr = %metrics_addr, "metrics server started");
+            tasks.push(handle);
         }
 
         Ok(Self { tasks })
@@ -352,11 +359,15 @@ fn parse_uuid(s: &str) -> Result<[u8; 16]> {
 /// Build compiled routing rules from config rules.
 fn build_rules(
     rules: &[proxy_config::schema::RoutingRule],
-    _outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
+    outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
 ) -> Result<Vec<CompiledRule>> {
     rules
         .iter()
         .map(|r| {
+            if !outbounds.contains_key(&r.outbound_tag) {
+                anyhow::bail!("routing rule references missing outboundTag '{}'", r.outbound_tag);
+            }
+
             let mut full = Vec::new();
             let mut suffix = Vec::new();
             let mut keywords = Vec::new();
@@ -434,6 +445,9 @@ fn parse_port_ranges(s: &str) -> Result<Vec<(u16, u16)>> {
             if let Some((lo, hi)) = part.split_once('-') {
                 let lo: u16 = lo.parse().with_context(|| format!("invalid port '{lo}'"))?;
                 let hi: u16 = hi.parse().with_context(|| format!("invalid port '{hi}'"))?;
+                if lo > hi {
+                    anyhow::bail!("invalid port range '{part}': lower bound exceeds upper bound");
+                }
                 Ok((lo, hi))
             } else {
                 let p: u16 = part

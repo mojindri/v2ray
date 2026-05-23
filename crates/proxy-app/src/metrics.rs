@@ -79,15 +79,16 @@ pub fn start_metrics_server(addr: &str) -> anyhow::Result<JoinHandle<()>> {
         .route("/version", get(version_handler))
         .with_state(state);
 
+    let std_listener = std::net::TcpListener::bind(addr)
+        .map_err(|e| anyhow::anyhow!("metrics server failed to bind {addr}: {e}"))?;
+    std_listener
+        .set_nonblocking(true)
+        .map_err(|e| anyhow::anyhow!("metrics server failed to set nonblocking {addr}: {e}"))?;
+    let listener = tokio::net::TcpListener::from_std(std_listener)
+        .map_err(|e| anyhow::anyhow!("metrics server failed to adopt listener {addr}: {e}"))?;
+
     let task = tokio::spawn(async move {
         info!(addr = %addr, "metrics server starting");
-        let listener = match tokio::net::TcpListener::bind(addr).await {
-            Ok(l) => l,
-            Err(e) => {
-                error!(addr = %addr, error = %e, "metrics server failed to bind");
-                return;
-            }
-        };
         if let Err(e) = axum::serve(listener, app).await {
             error!(error = %e, "metrics server error");
         }

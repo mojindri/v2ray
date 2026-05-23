@@ -85,6 +85,19 @@ impl TcpServerTransport {
         handler: Arc<dyn ConnectionHandler>,
     ) -> Result<(), ProxyError> {
         let listener = TcpListener::bind(addr).await?;
+        self.serve_listener(listener, handler).await
+    }
+
+    /// Serve connections from an already-bound listener.
+    ///
+    /// This lets higher layers bind synchronously during startup so bind
+    /// failures are surfaced before background tasks are spawned.
+    pub async fn serve_listener(
+        &self,
+        listener: TcpListener,
+        handler: Arc<dyn ConnectionHandler>,
+    ) -> Result<(), ProxyError> {
+        let addr = listener.local_addr()?;
         info!(addr = %addr, "TCP listener started");
 
         loop {
