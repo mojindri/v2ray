@@ -5,34 +5,36 @@
 //! backend (e.g. `www.apple.com:443`), so any TLS traffic analysis shows a real
 //! certificate and handshake from that server.
 //!
-//! After the handshake, an 8-byte HMAC-SHA256 marker is used to signal that
-//! the connection should switch from transparent relay to proxy mode.
+//! Version 3 authenticates the first ClientHello through the 32-byte SessionID
+//! field, taints backend TLS 1.3 ApplicationData records with a PSK-derived
+//! HMAC, then switches to rolling-HMAC ApplicationData frames for proxy bytes.
 //!
 //! # Server flow
 //!
 //! 1. Accept TCP from client.
-//! 2. Relay TLS handshake to real backend; extract `server_random`.
-//! 3. Watch for the HMAC marker in the first Application Data from client.
-//! 4. On valid marker: return the stream for the real protocol handler.
-//! 5. On invalid/missing marker: drop the connection (authentication failure).
+//! 2. Verify the ClientHello SessionID signature.
+//! 3. Relay TLS handshake to a real TLS 1.3 backend; extract `server_random`.
+//! 4. Taint backend ApplicationData until the client sends an authenticated
+//!    v3 data frame.
+//! 5. Return a v3 framed stream to the real protocol handler.
 //!
 //! # Client flow
 //!
 //! 1. Connect TCP to the ShadowTLS server.
 //! 2. The server relays our TLS ClientHello to the backend.
-//! 3. We complete the TLS handshake (seeing the backend's real certificate).
-//! 4. Inject the HMAC marker as the first Application Data record.
-//! 5. Continue with the real proxy protocol (e.g. VLESS).
+//! 3. Verify the server by reading a tainted backend ApplicationData frame.
+//! 4. Continue with v3 ApplicationData frames carrying the real proxy protocol.
 
 pub mod client;
 mod fuzzing;
 pub mod handshake;
 pub mod marker;
 pub mod server;
+pub mod v3;
 
 use sha2::{Digest, Sha256};
 
-pub use client::{shadowtls_connect, shadowtls_marker_connect};
+pub use client::{shadowtls_connect, shadowtls_marker_connect, shadowtls_v3_connect};
 #[cfg(feature = "fuzzing")]
 pub use fuzzing::validate_first_application_record;
 pub use marker::compute_marker;

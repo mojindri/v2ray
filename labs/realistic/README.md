@@ -22,7 +22,7 @@ The mandatory matrix is limited to paths that are wired end-to-end today:
 
 Phase 7/8 features are not mandatory green until they have realistic-lab proof:
 
-- ShadowTLS marker mode has local e2e coverage, but full upstream v3 interop still needs VPS proof.
+- ShadowTLS v3 has local e2e coverage, but external sing-box/shadow-tls interop still needs VPS proof.
 - mKCP multi-peer mode has local e2e coverage, but loss/latency behavior still needs VPS proof.
 - TUN config/device helpers exist, but packet runtime is intentionally rejected until TCP/UDP stack and NAT are implemented.
 - health/failover realistic failover scenarios
@@ -43,6 +43,49 @@ This does three things:
 3. Starts Xray and runs the live REALITY interop tests.
 
 Reports are written under `labs/realistic/reports/`.
+
+Run the current Phase 7/8 proof bundle:
+
+```sh
+make -C labs/realistic phase78
+```
+
+This writes:
+
+- `phase78-shadowtls.log`
+- `phase78-mkcp.log`
+- `phase78-health.log`
+- `phase78-geo-fakeip.log`
+
+Run negative-auth scenarios:
+
+```sh
+make -C labs/realistic negative-auth
+```
+
+Run restart smoke checks:
+
+```sh
+make -C labs/realistic restart-smoke
+```
+
+Run repeat stress loop:
+
+```sh
+make -C labs/realistic stress
+```
+
+Build a compact report summary:
+
+```sh
+make -C labs/realistic report-summary
+```
+
+Run the whole realistic bundle:
+
+```sh
+make -C labs/realistic realistic-all
+```
 
 Clean up:
 

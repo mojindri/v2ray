@@ -1,7 +1,7 @@
-//! Runnable Phase 7 example test: SOCKS5 -> VLESS -> ShadowTLS marker -> Freedom.
+//! Runnable Phase 7 example test: SOCKS5 -> VLESS -> ShadowTLS v3 -> Freedom.
 //!
-//! This proves the current repo-local ShadowTLS marker transport is wired into
-//! `proxy-core::Instance`. It is not an upstream ShadowTLS v3 interop test.
+//! This proves ShadowTLS v3 is wired into `proxy-core::Instance`: signed
+//! ClientHello, handshake-server relay/taint, v3 switch, and proxy data frames.
 
 use std::sync::Arc;
 
@@ -10,7 +10,6 @@ use tokio::net::{TcpListener, TcpStream};
 
 const TEST_UUID: &str = "a3482e88-686a-4a58-8126-99c9df64b7bf";
 const TEST_PASSWORD: &str = "phase7-shadowtls-password";
-const TEST_DEST: &str = "www.apple.com:443";
 
 fn unused_local_port() -> u16 {
     let listener =
@@ -43,6 +42,53 @@ async fn spawn_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
     (port, task)
 }
 
+async fn spawn_fake_tls13_backend() -> (String, tokio::task::JoinHandle<()>) {
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("fake TLS backend bind failed");
+    let addr = listener.local_addr().unwrap();
+
+    let task = tokio::spawn(async move {
+        while let Ok((mut stream, _)) = listener.accept().await {
+            tokio::spawn(async move {
+                let mut header = [0u8; 5];
+                if stream.read_exact(&mut header).await.is_err() || header[0] != 0x16 {
+                    return;
+                }
+                let len = u16::from_be_bytes([header[3], header[4]]) as usize;
+                let mut payload = vec![0u8; len];
+                if stream.read_exact(&mut payload).await.is_err() || payload.first() != Some(&0x01)
+                {
+                    return;
+                }
+
+                let mut server_hello = vec![0x02, 0x00, 0x00, 0x22, 0x03, 0x03];
+                server_hello.extend_from_slice(&[0x77; 32]);
+                let _ = write_tls_record(&mut stream, 0x16, &server_hello).await;
+                let _ = write_tls_record(&mut stream, 0x17, b"encrypted-backend-finished").await;
+
+                let mut drain = [0u8; 1024];
+                let _ = stream.read(&mut drain).await;
+            });
+        }
+    });
+
+    (addr.to_string(), task)
+}
+
+async fn write_tls_record(
+    stream: &mut TcpStream,
+    record_type: u8,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    let len = payload.len() as u16;
+    stream
+        .write_all(&[record_type, 0x03, 0x03, (len >> 8) as u8, len as u8])
+        .await?;
+    stream.write_all(payload).await?;
+    stream.flush().await
+}
+
 async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> TcpStream {
     let mut stream = TcpStream::connect(("127.0.0.1", socks_port))
         .await
@@ -70,7 +116,7 @@ fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
-fn server_config(vless_port: u16) -> Arc<proxy_config::schema::Config> {
+fn server_config(vless_port: u16, shadow_dest: &str) -> Arc<proxy_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -88,7 +134,7 @@ fn server_config(vless_port: u16) -> Arc<proxy_config::schema::Config> {
                     "shadowTlsSettings": {{
                         "version": 3,
                         "password": "{TEST_PASSWORD}",
-                        "dest": "{TEST_DEST}"
+                        "dest": "{shadow_dest}"
                     }}
                 }}
             }}],
@@ -98,7 +144,11 @@ fn server_config(vless_port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn client_config(socks_port: u16, vless_port: u16) -> Arc<proxy_config::schema::Config> {
+fn client_config(
+    socks_port: u16,
+    vless_port: u16,
+    shadow_dest: &str,
+) -> Arc<proxy_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -122,7 +172,7 @@ fn client_config(socks_port: u16, vless_port: u16) -> Arc<proxy_config::schema::
                     "shadowTlsSettings": {{
                         "version": 3,
                         "password": "{TEST_PASSWORD}",
-                        "dest": "{TEST_DEST}"
+                        "dest": "{shadow_dest}"
                     }}
                 }}
             }}],
@@ -132,19 +182,21 @@ fn client_config(socks_port: u16, vless_port: u16) -> Arc<proxy_config::schema::
 }
 
 #[tokio::test]
-async fn phase7_vless_over_shadowtls_marker_transfers_data() {
+async fn phase7_vless_over_shadowtls_v3_transfers_data() {
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
     let (echo_port, echo_task) = spawn_echo_server().await;
+    let (shadow_dest, backend_task) = spawn_fake_tls13_backend().await;
     let vless_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(vless_port))
+    let _server = proxy_core::Instance::from_config(server_config(vless_port, &shadow_dest))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(client_config(socks_port, vless_port))
-        .await
-        .expect("client start failed");
+    let _client =
+        proxy_core::Instance::from_config(client_config(socks_port, vless_port, &shadow_dest))
+            .await
+            .expect("client start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -157,4 +209,5 @@ async fn phase7_vless_over_shadowtls_marker_transfers_data() {
     assert_eq!(echoed, payload);
 
     echo_task.abort();
+    backend_task.abort();
 }

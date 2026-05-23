@@ -31,6 +31,7 @@ COPY crates/proxy-protocol/Cargo.toml crates/proxy-protocol/
 COPY crates/proxy-app/Cargo.toml    crates/proxy-app/
 COPY crates/proxy-tls/Cargo.toml    crates/proxy-tls/
 COPY crates/proxy-api/Cargo.toml    crates/proxy-api/
+COPY tests/Cargo.toml               tests/
 
 # Create stub lib/main.rs files so cargo can resolve dependencies.
 # These will be replaced by the full source copy below.
@@ -44,6 +45,7 @@ RUN cargo fetch
 
 # Copy the full source.
 COPY crates/ crates/
+COPY tests/ tests/
 COPY fingerprints/ fingerprints/
 
 # Build the release binary with maximum optimisations.

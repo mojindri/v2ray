@@ -28,3 +28,6 @@ fuzz/artifacts/
 
 # Claude Code agent metadata — worktree management files, not project code.
 .claude/
+
+# Realistic lab runtime artifacts (generated logs and bundles).
+labs/realistic/reports/
