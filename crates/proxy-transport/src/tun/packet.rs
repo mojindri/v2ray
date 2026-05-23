@@ -89,7 +89,9 @@ mod tests {
     #[test]
     fn parse_ipv4_tcp() {
         let mut pkt = vec![0u8; 24];
+        let total_length = pkt.len() as u16;
         pkt[0] = 0x45;
+        pkt[2..4].copy_from_slice(&total_length.to_be_bytes());
         pkt[9] = 6;
         pkt[12..16].copy_from_slice(&[1, 2, 3, 4]);
         pkt[16..20].copy_from_slice(&[5, 6, 7, 8]);
