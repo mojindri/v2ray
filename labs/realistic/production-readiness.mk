@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz prod-readiness-with-fuzz
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -35,11 +35,10 @@ real-devices: ## Write/print real-device/manual-carrier test checklist.
 	@mkdir -p $(PROD_REPORTS)
 	bash scripts/real-device-checklist.sh $(PROD_REPORTS) 2>&1 | tee $(PROD_REPORTS)/real-devices.log
 
-prod-readiness: load soak fingerprint dns-chaos security real-devices report-summary ## Run added local production-readiness helpers, excluding fuzz.
-
-
-prod-readiness-with-fuzz: load soak fuzz-smoke fingerprint dns-chaos security real-devices report-summary ## Run production-readiness helpers including fuzz smoke.
-
+prod-readiness: load soak fingerprint dns-chaos security real-devices report-summary ## Run production-readiness helpers, excluding fuzz.
 
 fuzz-total: ## Run heavier fuzz pass. Override with FUZZ_RUNS=10000.
 	FUZZ_RUNS=$${FUZZ_RUNS:-5000} bash scripts/run-fuzz-smoke.sh reports/production 2>&1 | tee reports/production/fuzz-total.log
+
+prod-readiness-with-fuzz: load soak fuzz-smoke fingerprint dns-chaos security real-devices report-summary ## Run production-readiness helpers including fuzz smoke.
+
