@@ -20,14 +20,11 @@ use std::{
 };
 
 use bytes::{BufMut, Bytes, BytesMut};
-use tokio::io::{
-    AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf,
-};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::time::timeout;
 
 use proxy_transport::{
-    decode_grpc_frame, encode_grpc_frame, ws_accept, ws_connect, GrpcStream,
-    WsConnectConfig,
+    decode_grpc_frame, encode_grpc_frame, ws_accept, ws_connect, GrpcStream, WsConnectConfig,
 };
 
 use proxy_transport::mkcp::header::HeaderType;
@@ -74,17 +71,11 @@ impl AsyncWrite for LimitedWriteIo {
         Pin::new(&mut self.inner).poll_write(cx, &buf[..n])
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -124,10 +115,7 @@ impl AsyncWrite for PendingOnceWriteIo {
         Pin::new(&mut self.inner).poll_write(cx, buf)
     }
 
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if !self.pending_returned {
             self.pending_returned = true;
             cx.waker().wake_by_ref();
@@ -136,10 +124,7 @@ impl AsyncWrite for PendingOnceWriteIo {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -282,7 +267,10 @@ async fn grpc_stream_incomplete_frame_does_not_complete_read() {
     let (mut writer, reader) = tokio::io::duplex(1024);
     let mut stream = GrpcStream::new(Box::new(reader));
 
-    writer.write_all(&[0x00, 0x00, 0x00, 0x00, 0x10]).await.unwrap();
+    writer
+        .write_all(&[0x00, 0x00, 0x00, 0x00, 0x10])
+        .await
+        .unwrap();
     writer.write_all(b"short").await.unwrap();
 
     let mut out = [0u8; 16];
@@ -472,12 +460,7 @@ fn reality_parser_accepts_minimal_valid_client_hello() {
     let session_id = [0x22u8; 32];
     let key = [0x33u8; 32];
 
-    let body = minimal_reality_client_hello_body(
-        "www.example.com",
-        random,
-        session_id,
-        key,
-    );
+    let body = minimal_reality_client_hello_body("www.example.com", random, session_id, key);
 
     let parsed = parse_client_hello(&body).expect("valid ClientHello was rejected");
 
@@ -493,12 +476,7 @@ fn reality_parser_rejects_fixed_malformed_client_hello_fixtures() {
     let session_id = [0x22u8; 32];
     let key = [0x33u8; 32];
 
-    let valid = minimal_reality_client_hello_body(
-        "www.example.com",
-        random,
-        session_id,
-        key,
-    );
+    let valid = minimal_reality_client_hello_body("www.example.com", random, session_id, key);
 
     assert!(parse_client_hello(&[]).is_err());
     assert!(parse_client_hello(&[0x01]).is_err());
@@ -650,13 +628,7 @@ fn mkcp_segment_decode_rejects_incomplete_data_without_consuming_payload() {
 // TUN packet parser tests
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn ipv4_packet(
-    proto: u8,
-    src: [u8; 4],
-    dst: [u8; 4],
-    src_port: u16,
-    dst_port: u16,
-) -> Vec<u8> {
+fn ipv4_packet(proto: u8, src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u16) -> Vec<u8> {
     let mut pkt = vec![0u8; 24];
     pkt[0] = 0x45; // IPv4, IHL=5.
     pkt[2..4].copy_from_slice(&(24u16).to_be_bytes());
@@ -786,7 +758,7 @@ async fn websocket_handshake_with_idle_peer_times_out_in_test_harness() {
         Duration::from_millis(100),
         ws_connect(Box::new(client_raw), cfg),
     )
-        .await;
+    .await;
 
     assert!(
         result.is_err(),

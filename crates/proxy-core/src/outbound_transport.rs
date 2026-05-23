@@ -24,7 +24,10 @@ use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
 use proxy_protocol::vless::connect_vless_on_stream;
 use proxy_protocol::vmess::{auth::cmd_key, connect_vmess_on_stream};
-use proxy_transport::{grpc_connect, tls_connect, ws_connect, WsConnectConfig};
+use proxy_transport::{
+    grpc_connect, mkcp_connect, shadowtls_marker_connect, tls_connect, ws_connect,
+    MkcpClientConfig, WsConnectConfig,
+};
 
 /// VLESS outbound that honors `streamSettings.network = "ws"` and
 /// `streamSettings.security = "tls"` before sending the VLESS header.
@@ -150,9 +153,38 @@ async fn connect_transport(
     server: SocketAddr,
     stream_settings: &Option<StreamSettingsConfig>,
 ) -> Result<BoxedStream, ProxyError> {
+    if uses_kcp(stream_settings) {
+        let cfg = build_mkcp_client_config(server, stream_settings)?;
+        let stream = mkcp_connect(&cfg)
+            .await
+            .map_err(|e| ProxyError::Transport(format!("mKCP connect failed: {e}")))?;
+        return Ok(Box::new(stream));
+    }
+
     let tcp = TcpStream::connect(server).await?;
     tcp.set_nodelay(true)?;
     let mut stream: BoxedStream = Box::new(tcp);
+
+    if uses_shadowtls(stream_settings) {
+        let shadow = stream_settings
+            .as_ref()
+            .and_then(|s| s.shadow_tls_settings.as_ref())
+            .ok_or_else(|| {
+                ProxyError::Protocol("security=shadowtls but no shadowTlsSettings provided".into())
+            })?;
+        if shadow.version != 3 {
+            return Err(ProxyError::Protocol(format!(
+                "unsupported ShadowTLS version {}",
+                shadow.version
+            )));
+        }
+        if shadow.password.is_empty() || shadow.dest.is_empty() {
+            return Err(ProxyError::Protocol(
+                "ShadowTLS requires non-empty password and dest".into(),
+            ));
+        }
+        stream = shadowtls_marker_connect(stream, shadow.password.as_bytes(), &shadow.dest).await?;
+    }
 
     if uses_tls(stream_settings) {
         let settings = stream_settings.as_ref().expect("checked by uses_tls");
@@ -238,7 +270,11 @@ async fn connect_transport(
 }
 
 pub(crate) fn uses_outbound_transport(stream_settings: &Option<StreamSettingsConfig>) -> bool {
-    uses_tls(stream_settings) || uses_ws(stream_settings) || uses_grpc(stream_settings)
+    uses_tls(stream_settings)
+        || uses_shadowtls(stream_settings)
+        || uses_kcp(stream_settings)
+        || uses_ws(stream_settings)
+        || uses_grpc(stream_settings)
 }
 
 fn uses_grpc(stream_settings: &Option<StreamSettingsConfig>) -> bool {
@@ -253,8 +289,44 @@ fn uses_tls(stream_settings: &Option<StreamSettingsConfig>) -> bool {
         .is_some_and(|s| s.security == SecurityType::Tls)
 }
 
+fn uses_shadowtls(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.security == SecurityType::ShadowTls)
+}
+
 fn uses_ws(stream_settings: &Option<StreamSettingsConfig>) -> bool {
     stream_settings
         .as_ref()
         .is_some_and(|s| s.network == NetworkType::Ws)
+}
+
+fn uses_kcp(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.network == NetworkType::Kcp)
+}
+
+fn build_mkcp_client_config(
+    server: SocketAddr,
+    stream_settings: &Option<StreamSettingsConfig>,
+) -> Result<MkcpClientConfig, ProxyError> {
+    let settings = stream_settings
+        .as_ref()
+        .and_then(|s| s.kcp_settings.as_ref());
+    let header = settings
+        .map(|k| k.header.parse())
+        .transpose()
+        .map_err(|e: String| ProxyError::Protocol(e))?
+        .unwrap_or_default();
+
+    Ok(MkcpClientConfig {
+        server,
+        conv: 0,
+        header,
+        interval_ms: settings.map(|k| k.tti).unwrap_or(50),
+        rcv_wnd: settings.map(|k| k.read_buffer_size as u16).unwrap_or(128),
+        snd_wnd: settings.map(|k| k.write_buffer_size as u16).unwrap_or(128),
+        nodelay: true,
+    })
 }

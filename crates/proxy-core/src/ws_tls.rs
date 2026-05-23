@@ -21,7 +21,7 @@ use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::{ConnectionHandler, InboundHandler};
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_transport::{grpc_accept, tls_accept, ws_accept};
+use proxy_transport::{grpc_accept, shadowtls_marker_accept, tls_accept, ws_accept};
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -44,6 +44,13 @@ pub(crate) fn uses_grpc(stream_settings: &Option<StreamSettingsConfig>) -> bool 
     stream_settings
         .as_ref()
         .is_some_and(|s| s.network == NetworkType::Grpc)
+}
+
+/// Returns `true` when the config requests ShadowTLS marker wrapping.
+pub(crate) fn uses_shadowtls(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.security == SecurityType::ShadowTls)
 }
 
 // ── TLS inbound handler ───────────────────────────────────────────────────────
@@ -116,6 +123,40 @@ impl ConnectionHandler for WsConnectionHandler {
 pub(crate) struct GrpcConnectionHandler {
     service_name: String,
     inner: Arc<dyn ConnectionHandler>,
+}
+
+// ── ShadowTLS inbound handler ─────────────────────────────────────────────────
+
+pub(crate) struct ShadowTlsConnectionHandler {
+    password: String,
+    dest: String,
+    inner: Arc<dyn ConnectionHandler>,
+}
+
+impl ShadowTlsConnectionHandler {
+    pub(crate) fn new(
+        password: impl Into<String>,
+        dest: impl Into<String>,
+        inner: Arc<dyn ConnectionHandler>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            password: password.into(),
+            dest: dest.into(),
+            inner,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl ConnectionHandler for ShadowTlsConnectionHandler {
+    async fn handle_connection(
+        &self,
+        stream: BoxedStream,
+        source: SocketAddr,
+    ) -> Result<(), ProxyError> {
+        let stream = shadowtls_marker_accept(stream, self.password.as_bytes(), &self.dest).await?;
+        self.inner.handle_connection(stream, source).await
+    }
 }
 
 impl GrpcConnectionHandler {
@@ -224,6 +265,31 @@ pub(crate) fn build_conn_handler(
             .map_err(|e| anyhow::anyhow!("cannot read key file '{key_path}': {e}"))?;
 
         handler = TlsConnectionHandler::new(cert_pem, key_pem, handler);
+    }
+
+    if uses_shadowtls(stream_settings) {
+        let shadow_cfg = stream_settings
+            .as_ref()
+            .and_then(|s| s.shadow_tls_settings.as_ref())
+            .ok_or_else(|| {
+                anyhow::anyhow!("security=shadowtls but no shadowTlsSettings provided")
+            })?;
+        if shadow_cfg.version != 3 {
+            return Err(anyhow::anyhow!(
+                "unsupported ShadowTLS version {}",
+                shadow_cfg.version
+            ));
+        }
+        if shadow_cfg.password.is_empty() || shadow_cfg.dest.is_empty() {
+            return Err(anyhow::anyhow!(
+                "ShadowTLS requires non-empty password and dest"
+            ));
+        }
+        handler = ShadowTlsConnectionHandler::new(
+            shadow_cfg.password.clone(),
+            shadow_cfg.dest.clone(),
+            handler,
+        );
     }
 
     Ok(handler)

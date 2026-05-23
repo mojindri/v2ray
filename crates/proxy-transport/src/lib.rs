@@ -44,11 +44,16 @@ pub use hysteria2::{
     Hysteria2Client, Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server,
     Hysteria2ServerConfig,
 };
-pub use mkcp::{mkcp_connect, MkcpClientConfig, MkcpServerConfig};
+pub use mkcp::{
+    mkcp_accept_once, mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
+};
 pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed};
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
-pub use shadowtls::{compute_marker, shadowtls_accept, shadowtls_connect, write_marker_record};
+pub use shadowtls::{
+    compute_marker, shadowtls_accept, shadowtls_connect, shadowtls_marker_accept,
+    shadowtls_marker_connect, write_marker_record,
+};
 pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
 pub use tun::{create_tun, IpPacket, TransportProtocol, TunConfig};

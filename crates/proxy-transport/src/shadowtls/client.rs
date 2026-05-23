@@ -17,6 +17,7 @@
 use proxy_common::{BoxedStream, ProxyError};
 
 use super::marker::compute_marker;
+use super::pseudo_server_random;
 use super::server::write_marker_record;
 
 /// Connect using ShadowTLS v3.
@@ -43,6 +44,21 @@ pub async fn shadowtls_connect(
     write_marker_record(&mut stream, &marker).await?;
 
     Ok(stream)
+}
+
+/// Connect using the repo's current ShadowTLS marker transport.
+///
+/// This is not full upstream ShadowTLS v3 interop. It uses a deterministic
+/// pseudo server_random derived from `dest` so both local peers can compute the
+/// same marker without a relayed TLS handshake. Keep it behind local e2e tests
+/// until the real handshake relay is completed.
+pub async fn shadowtls_marker_connect(
+    stream: BoxedStream,
+    psk: &[u8],
+    dest: &str,
+) -> Result<BoxedStream, ProxyError> {
+    let server_random = pseudo_server_random(dest);
+    shadowtls_connect(stream, psk, &server_random).await
 }
 
 #[cfg(test)]
