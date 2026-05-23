@@ -32,6 +32,13 @@ fn parse_ipv4(buf: &[u8]) -> Option<IpPacket> {
         return None;
     }
     let ihl = (buf[0] & 0x0F) as usize * 4;
+    if ihl < 20 {
+        return None;
+    }
+    let total_length = u16::from_be_bytes([buf[2], buf[3]]) as usize;
+    if total_length < ihl || buf.len() < total_length {
+        return None;
+    }
     if buf.len() < ihl + 4 {
         return None;
     }
