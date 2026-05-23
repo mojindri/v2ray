@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -50,3 +50,26 @@ local-load: ## Start a managed local proxy and run HTTP load through SOCKS.
 
 slowloris: ## Run slow-client/slowloris diagnostic against a managed local proxy.
 	bash scripts/run-slowloris.sh reports/production 2>&1 | tee reports/production/slowloris.log
+
+
+pcap-local: ## Run local Docker/interop pcap capture helper.
+	bash scripts/run-pcap-local.sh reports/production 2>&1 | tee reports/production/pcap-local.log
+
+
+fingerprint-compare: ## Compare TLS/REALITY fingerprint artifacts when captures exist.
+	python3 scripts/compare-fingerprints.py --reports reports/production 2>&1 | tee reports/production/fingerprint-compare.log
+
+
+netem-local: ## Run local Docker network-hostility smoke if Docker supports tc/netem.
+	bash scripts/run-netem-local.sh reports/production 2>&1 | tee reports/production/netem-local.log
+
+
+netem-vps: ## Run VPS/Linux netem matrix through existing VPS helper.
+	$(MAKE) vps-netem
+
+
+hostility-local: netem-local slowloris ## Run local hostility diagnostics.
+
+
+ci-matrix-local: ## Run local Makefile-only CI matrix.
+	bash scripts/run-ci-matrix-local.sh reports/production 2>&1 | tee reports/production/ci-matrix-local.log

@@ -63,7 +63,7 @@ deny:
 	cargo deny check
 
 ## ci: Fast code-quality gate (fmt + lint + test + audit). Run before every push.
-ci: fmt-check lint test audit
+ci: fmt-check lint test audit-optional deny-optional
 
 ## ci-all: Run every local test tier, including the realistic lab and production-readiness helpers. Needs Docker.
 ci-all:
@@ -136,6 +136,11 @@ test-help: ## Show the simple command names.
 	@echo "  make local-prod           - production-readiness helpers only; no fuzz"
 	@echo "  make local-fuzz           - quick fuzz smoke only"
 	@echo "  make local-fuzz-total     - heavier fuzz pass; override with FUZZ_RUNS=10000"
+		@echo "  make local-pcap           - local Docker/interop pcap capture helper"
+	@echo "  make local-fingerprint-compare - compare fingerprint artifacts when captures exist"
+	@echo "  make local-netem          - local Docker network-hostility smoke"
+	@echo "  make local-hostility      - local netem + slow-client diagnostics"
+	@echo "  make local-ci-matrix      - local Makefile-only CI matrix"
 	@echo "  make local-total          - all local gates including fuzz; no VPS"
 	@echo "  make vps                  - VPS-only SSH gate; requires SSH_SERVER and SSH_CLIENT"
 	@echo "  make vps-total            - all non-fuzz local gates, then VPS gate"
@@ -149,3 +154,42 @@ local-load:
 
 local-slowloris:
 	$(MAKE) -C labs/realistic slowloris
+
+
+audit-optional:
+	@if command -v cargo-audit >/dev/null 2>&1; then \
+		cargo audit; \
+	else \
+		echo "SKIP: cargo-audit not installed. Install with: cargo install cargo-audit"; \
+	fi
+
+
+deny-optional:
+	@if command -v cargo-deny >/dev/null 2>&1; then \
+		cargo deny check; \
+	else \
+		echo "SKIP: cargo-deny not installed. Install with: cargo install cargo-deny"; \
+	fi
+
+
+ci-strict: fmt-check lint-strict test audit deny
+
+
+local-pcap:
+	$(MAKE) -C labs/realistic pcap-local
+
+
+local-fingerprint-compare:
+	$(MAKE) -C labs/realistic fingerprint-compare
+
+
+local-netem:
+	$(MAKE) -C labs/realistic netem-local
+
+
+local-hostility:
+	$(MAKE) -C labs/realistic hostility-local
+
+
+local-ci-matrix:
+	$(MAKE) -C labs/realistic ci-matrix-local
