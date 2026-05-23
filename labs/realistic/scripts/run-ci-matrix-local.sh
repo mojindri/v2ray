@@ -33,6 +33,7 @@ run_step local-fast make local-fast
 run_step local-load make local-load
 run_step local-slowloris make local-slowloris
 run_step local-prod make local-prod
+run_step pcap-local make local-pcap
 run_step fingerprint-compare make local-fingerprint-compare
 run_step netem-local make local-netem
 

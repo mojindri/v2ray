@@ -1,7 +1,7 @@
 # Production-readiness targets for the existing labs/realistic layout.
 # This file is included by labs/realistic/Makefile.
 
-.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local
+.PHONY: load soak fuzz-smoke fuzz-total fingerprint dns-chaos security real-devices prod-readiness prod-readiness-with-fuzz local-load slowloris pcap-local fingerprint-compare netem-local netem-vps hostility-local ci-matrix-local chrome-baseline-real chrome-baseline-docker fingerprint-total fingerprint-verify
 
 LOAD_ENV ?= configs/load.env
 SOAK_ENV ?= configs/soak.env
@@ -73,3 +73,18 @@ hostility-local: netem-local slowloris ## Run local hostility diagnostics.
 
 ci-matrix-local: ## Run local Makefile-only CI matrix.
 	bash scripts/run-ci-matrix-local.sh reports/production 2>&1 | tee reports/production/ci-matrix-local.log
+
+
+chrome-baseline-real: ## Capture real macOS Chrome TLS baseline. Prompts sudo first; does not auto-open Chrome unless CHROME_OPEN_BROWSER=1.
+	bash scripts/run-chrome-baseline-real.sh reports/production 2>&1 | tee reports/production/chrome-baseline-real.log
+
+
+chrome-baseline-docker: ## Capture Docker Chromium TLS baseline without host sudo.
+	bash scripts/run-chrome-baseline-docker.sh reports/production 2>&1 | tee reports/production/chrome-baseline-docker.log
+
+
+fingerprint-total: chrome-baseline-real fingerprint-verify ## Capture real Chrome baseline, then strictly verify fingerprints.
+
+
+fingerprint-verify: ## Strict fingerprint verification: requires artifact pcaps, baseline pcaps, and expected Chrome SNI.
+	python3 scripts/compare-fingerprints.py --reports reports/production --strict --expect-baseline-sni "$${CHROME_EXPECT_SNI:-www.cloudflare.com}" 2>&1 | tee reports/production/fingerprint-verify.log
