@@ -31,9 +31,9 @@ Must sign:
 Preferred gate (Docker lab):
 
 ```sh
-make verify-lab-docker
-# or atomically:
-make -C labs/realistic external-clients-docker
+make -C labs/realistic interop-docker
+# server-compat only:
+make -C labs/realistic interop-server-docker
 ```
 
 Expected summary:

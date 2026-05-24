@@ -15,6 +15,15 @@ external-client scenarios are compatible with the server side.
 From `labs/realistic`:
 
 ```sh
+make interop-server-docker    # server-compat: Xray/sing-box -> our server (Docker)
+make interop-client-reality   # client-compat: our Rust client -> Xray server (d1)
+make interop-docker           # both legs (used by verify-lab-docker)
+make interop-server-vps       # server-compat on two VPS hosts
+```
+
+Atoms (debugging only):
+
+```sh
 make external-clients-docker
 make external-clients-report
 ```
@@ -22,8 +31,7 @@ make external-clients-report
 For the two-VPS promotion gate:
 
 ```sh
-SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_hetzner make external-clients-vps
-make external-clients-report
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make interop-server-vps
 ```
 
 The VPS runner assumes the normal server/client setup already ran. It does not

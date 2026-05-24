@@ -44,14 +44,13 @@ What it proves:
 
 This is an internal consistency check against our own implementation.
 
-### `d1` live Xray interop
+### `d1` live Xray interop (client-compat leg)
 
 Run:
 
 ```sh
-make up
-cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture
-make down
+make -C labs/realistic interop-client-reality
+# or: cd tests/interop && make up && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture
 ```
 
 What it proves:

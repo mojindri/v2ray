@@ -33,8 +33,15 @@ make verify-local
 make verify-lab
 ```
 
-`verify-lab` runs the Docker matrix (stable tests, Xray REALITY, configured
-external-client checks) and Lima browser/fingerprint checks.
+`verify-lab` runs the Docker matrix (stable tests, **interop-docker** with
+server-compat + client-compat legs) and Lima browser/fingerprint checks.
+
+Debug one interop leg only:
+
+```sh
+make -C labs/realistic interop-server-docker    # Xray/sing-box -> our server
+make -C labs/realistic interop-client-reality   # our client -> Xray server
+```
 
 Subtargets:
 

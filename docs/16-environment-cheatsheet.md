@@ -33,9 +33,9 @@ Use when you need Xray interop, configured external-client checks, or containeri
 ```sh
 make verify-lab-docker
 # or lower-level:
-make -C labs/realistic docker-full
-make -C labs/realistic external-clients-docker
-make -C labs/realistic external-clients-report
+make -C labs/realistic docker-full          # stable + interop-docker
+make -C labs/realistic interop-server-docker
+make -C labs/realistic interop-client-reality
 make -C labs/realistic docker-down
 ```
 
@@ -76,7 +76,7 @@ Lower-level atoms:
 make -C labs/realistic vps-preflight
 make -C labs/realistic vps-test
 make -C labs/realistic vps-tun
-make -C labs/realistic external-clients-vps
+make -C labs/realistic interop-server-vps
 make perf-remote      # VPS benchmark
 ```
 
