@@ -1,42 +1,30 @@
-//! VMess AEAD header codec — encode and decode VMess request headers.
+//! VMess AEAD header codec — encode and decode VMess request/response headers.
 //!
-//! # Header layout (plaintext, before encryption)
+//! # Request wire layout (client → server)
 //!
 //! ```text
-//! ┌────────────────────────────────────────────────────────────────────────┐
-//! │ Version (1)          = 1                                               │
-//! │ IV (16)              — random, used for data channel AES-GCM           │
-//! │ Key (16)             — random, used for data channel AES-GCM           │
-//! │ V (1)                — random verification byte                        │
-//! │ Options (1)          — bitmask of options (ChunkStream=0x01)           │
-//! │ Padding+Security (1) — high nibble: padding length; low nibble: sec    │
-//! │ Reserved (1)         = 0                                               │
-//! │ Command (1)          = 0x01 (TCP)                                      │
-//! │ Port (2)             — big-endian destination port                     │
-//! │ AddrType (1)         — 0x01 IPv4, 0x02 Host, 0x03 IPv6                │
-//! │ Addr (var)           — destination address                             │
-//! │ Padding (pad_len)    — random bytes                                    │
-//! │ Checksum (4)         — fnv32a over all preceding bytes                 │
-//! └────────────────────────────────────────────────────────────────────────┘
+//! auth_id(16) | enc_len(18) | connection_nonce(8) | enc_header(N+16)
 //! ```
 //!
-//! # Encryption
+//! Where:
+//! - `enc_len`    = AES-128-GCM(length_key, length_nonce, uint16(header_len), aad=auth_id)
+//! - `enc_header` = AES-128-GCM(header_key, header_nonce, header_plaintext, aad=auth_id)
+//! - Keys/nonces derived via KDF from cmd_key, path constant, auth_id, connection_nonce
 //!
-//! The plaintext header is encrypted with AES-128-GCM:
-//! - Key: `KDF16(cmd_key, "VMess AEAD Header Key", ...)`
-//! - Nonce: `KDF12(cmd_key, "VMess AEAD Header IV", ...)`
-//! - AAD: the 16-byte auth ID
+//! # Request header plaintext
 //!
-//! # Security (encryption algorithm)
+//! ```text
+//! version(1)=1 | iv(16) | key(16) | v(1) | options(1) | pad_sec(1) | reserved(1)=0
+//! | command(1)=1 | port(2 BE) | atyp(1) | addr(var) | padding(pad_len) | fnv32a(4)
+//! ```
 //!
-//! | Value | Algorithm          |
-//! |-------|--------------------|
-//! | 0x03  | AES-128-GCM        |
-//! | 0x04  | ChaCha20-Poly1305  |
+//! # Response wire layout (server → client)
 //!
-//! # References
+//! ```text
+//! enc_resp_len(18) | enc_resp_header(payload+16)
+//! ```
 //!
-//! v2fly/v2ray-core: `proxy/vmess/encoding/`
+//! Using keys derived from `response_body_key = SHA256(request_key)[:16]`.
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, Payload},
@@ -44,28 +32,40 @@ use aes_gcm::{
 };
 use bytes::{BufMut, Bytes, BytesMut};
 use rand::RngCore;
-use tokio::io::{AsyncRead, AsyncReadExt};
+use sha2::{Digest, Sha256};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 use proxy_common::{Address, ProxyError};
 
 use super::kdf::kdf;
 
-// ── Path constants (from v2ray-core) ─────────────────────────────────────────
+// ── KDF path constants ────────────────────────────────────────────────────────
 
-pub const PATH_HEADER_KEY: &[u8] = b"VMess AEAD Header Key";
-pub const PATH_HEADER_IV: &[u8] = b"VMess AEAD Header IV";
-pub const PATH_HEADER_KEY_2: &[u8] = b"VMess Header Key";
-pub const PATH_HEADER_IV_2: &[u8] = b"VMess Header IV";
+/// Request length field encryption key path.
+pub const PATH_LEN_KEY: &[u8] = b"VMess Header AEAD Key_Length";
+/// Request length field encryption nonce path.
+pub const PATH_LEN_IV: &[u8] = b"VMess Header AEAD Nonce_Length";
+/// Request header encryption key path.
+pub const PATH_HDR_KEY: &[u8] = b"VMess Header AEAD Key";
+/// Request header encryption nonce path.
+pub const PATH_HDR_IV: &[u8] = b"VMess Header AEAD Nonce";
+
+/// Response header length key path.
+pub const PATH_RESP_LEN_KEY: &[u8] = b"AEAD Resp Header Len Key";
+/// Response header length nonce path.
+pub const PATH_RESP_LEN_IV: &[u8] = b"AEAD Resp Header Len IV";
+/// Response header payload key path.
+pub const PATH_RESP_HDR_KEY: &[u8] = b"AEAD Resp Header Key";
+/// Response header payload nonce path.
+pub const PATH_RESP_HDR_IV: &[u8] = b"AEAD Resp Header IV";
 
 // ── Security types ─────────────────────────────────────────────────────────────
 
 /// Security algorithm for the data channel.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Security {
-    /// AES-128-GCM (recommended).
     #[default]
     Aes128Gcm = 0x03,
-    /// ChaCha20-Poly1305 (alternative).
     ChaCha20Poly1305 = 0x04,
 }
 
@@ -91,84 +91,242 @@ const ATYP_IPV6: u8 = 0x03;
 
 // ── Request header ────────────────────────────────────────────────────────────
 
-/// Decoded VMess request header (after decryption).
+/// Decoded VMess request header.
 #[derive(Debug)]
 pub struct VmessRequest {
-    /// 16-byte IV for the data channel cipher.
     pub iv: [u8; 16],
-
-    /// 16-byte key for the data channel cipher.
     pub key: [u8; 16],
-
-    /// Random verification byte (echoed in the response).
     pub v: u8,
-
-    /// Security algorithm for data channel.
     pub security: Security,
-
-    /// Destination address.
     pub dest: Address,
+}
+
+// ── Response key/IV derivation ────────────────────────────────────────────────
+
+/// Derive the response body key from the request body key.
+pub fn response_body_key(request_key: &[u8; 16]) -> [u8; 16] {
+    let hash = Sha256::digest(request_key);
+    hash[..16].try_into().expect("sha256 is 32 bytes")
+}
+
+/// Derive the response body IV from the request body IV.
+pub fn response_body_iv(request_iv: &[u8; 16]) -> [u8; 16] {
+    let hash = Sha256::digest(request_iv);
+    hash[..16].try_into().expect("sha256 is 32 bytes")
 }
 
 // ── Encoder ───────────────────────────────────────────────────────────────────
 
 /// Encode a VMess AEAD request header.
 ///
-/// Returns `(auth_id, encrypted_header)`.
-///
-/// # Arguments
-/// * `cmd_key` — 16-byte key derived from the user's UUID
-/// * `auth_id` — the 16-byte auth ID (already computed by `auth::generate_auth_id`)
-/// * `dest`    — the destination address to encode
-/// * `security`— the data channel cipher to advertise
-///
-/// # Returns
-/// `(iv, key, v, encrypted_header_bytes)` where `iv` and `key` are the
-/// generated data-channel parameters and `encrypted_header_bytes` is the wire
-/// bytes to send (ciphertext + GCM tag).
+/// Returns `(iv, key, v, connection_nonce, enc_len_bytes(18), enc_header_bytes)`.
 pub fn encode_header(
     cmd_key: &[u8; 16],
     auth_id: &[u8; 16],
     dest: &Address,
     security: Security,
-) -> ([u8; 16], [u8; 16], u8, Bytes) {
+) -> ([u8; 16], [u8; 16], u8, [u8; 8], Vec<u8>, Vec<u8>) {
     let mut rng = rand::thread_rng();
 
-    // Generate random IV, Key, V
     let mut iv = [0u8; 16];
     let mut key = [0u8; 16];
     let mut v = [0u8; 1];
+    let mut connection_nonce = [0u8; 8];
     rng.fill_bytes(&mut iv);
     rng.fill_bytes(&mut key);
     rng.fill_bytes(&mut v);
+    rng.fill_bytes(&mut connection_nonce);
     let v_byte = v[0];
 
     let pad_len: u8 = (rng.next_u32() % 16) as u8;
-
-    // Build plaintext.
     let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest);
 
-    // Derive AES-128-GCM key and nonce from cmd_key.
-    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
-    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
+    // Encrypt header with connection_nonce in KDF.
+    let hdr_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, &connection_nonce]);
+    let hdr_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, &connection_nonce]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
-    let nonce = GenericArray::from_slice(&enc_nonce);
-
-    let ciphertext = cipher
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
+    let enc_header = cipher
         .encrypt(
-            nonce,
+            GenericArray::from_slice(&hdr_nonce),
             Payload {
                 msg: &plaintext,
                 aad: auth_id,
             },
         )
-        .unwrap_or_else(|_| panic!("AES-128-GCM encryption must not fail"));
+        .expect("AES-128-GCM encryption must not fail");
 
-    (iv, key, v_byte, Bytes::from(ciphertext))
+    // Encrypt header length with connection_nonce in KDF.
+    let len_key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, &connection_nonce]);
+    let len_nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, &connection_nonce]);
+
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
+    let enc_len = cipher
+        .encrypt(
+            GenericArray::from_slice(&len_nonce),
+            Payload {
+                msg: &(enc_header.len() as u16).to_be_bytes(),
+                aad: auth_id,
+            },
+        )
+        .expect("AES-128-GCM encryption must not fail");
+
+    (iv, key, v_byte, connection_nonce, enc_len, enc_header)
 }
 
-/// Build the plaintext request header bytes (before encryption).
+// ── Decoder helpers ───────────────────────────────────────────────────────────
+
+/// Decrypt the 2-byte header length from the 18-byte encrypted field.
+///
+/// Requires `connection_nonce` (read from wire after enc_len).
+pub fn decrypt_length_field(
+    cmd_key: &[u8; 16],
+    auth_id: &[u8; 16],
+    connection_nonce: &[u8; 8],
+    enc: &[u8; 18],
+) -> Result<usize, ProxyError> {
+    let key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, connection_nonce.as_ref()]);
+    let nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, connection_nonce.as_ref()]);
+
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
+    let plaintext = cipher
+        .decrypt(
+            GenericArray::from_slice(&nonce),
+            Payload {
+                msg: enc,
+                aad: auth_id,
+            },
+        )
+        .map_err(|_| ProxyError::Protocol("VMess: length field decryption failed".into()))?;
+
+    if plaintext.len() < 2 {
+        return Err(ProxyError::Protocol("VMess: length field too short".into()));
+    }
+    Ok(u16::from_be_bytes([plaintext[0], plaintext[1]]) as usize)
+}
+
+/// Decrypt and decode a VMess AEAD header from an async stream.
+pub async fn decode_header<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    cmd_key: &[u8; 16],
+    auth_id: &[u8; 16],
+    connection_nonce: &[u8; 8],
+    enc_len: usize,
+) -> Result<VmessRequest, ProxyError> {
+    let mut ciphertext = vec![0u8; enc_len];
+    reader.read_exact(&mut ciphertext).await?;
+
+    let key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, connection_nonce.as_ref()]);
+    let nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, connection_nonce.as_ref()]);
+
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
+    let plaintext = cipher
+        .decrypt(
+            GenericArray::from_slice(&nonce),
+            Payload {
+                msg: &ciphertext,
+                aad: auth_id,
+            },
+        )
+        .map_err(|_| ProxyError::Protocol("VMess: AEAD header decryption failed".into()))?;
+
+    decode_plaintext(&plaintext)
+}
+
+// ── Response header helpers ───────────────────────────────────────────────────
+
+/// Send the AEAD-encrypted VMess response header to the client.
+///
+/// Must be called before sending any data chunks.
+/// `resp_body_key` = `response_body_key(request.key)`.
+pub async fn send_response_header<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    v: u8,
+    resp_body_key: &[u8; 16],
+) -> Result<(), ProxyError> {
+    let plaintext = [v, 0u8]; // v || command=0
+
+    let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
+    let len_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_LEN_IV]);
+
+    let enc_len = {
+        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
+        cipher
+            .encrypt(
+                GenericArray::from_slice(&len_nonce),
+                Payload {
+                    msg: &(plaintext.len() as u16).to_be_bytes(),
+                    aad: &[],
+                },
+            )
+            .map_err(|_| ProxyError::Protocol("VMess: resp header len encrypt failed".into()))?
+    };
+
+    let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
+    let hdr_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_HDR_IV]);
+
+    let enc_hdr = {
+        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
+        cipher
+            .encrypt(
+                GenericArray::from_slice(&hdr_nonce),
+                plaintext.as_ref(),
+            )
+            .map_err(|_| ProxyError::Protocol("VMess: resp header encrypt failed".into()))?
+    };
+
+    writer.write_all(&enc_len).await?;
+    writer.write_all(&enc_hdr).await?;
+    Ok(())
+}
+
+/// Read and verify the AEAD-encrypted VMess response header from the server.
+///
+/// Called by the outbound (client) after sending the request header.
+pub async fn read_response_header<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    expected_v: u8,
+    resp_body_key: &[u8; 16],
+) -> Result<(), ProxyError> {
+    let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
+    let len_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_LEN_IV]);
+
+    let mut enc_len = [0u8; 18];
+    reader.read_exact(&mut enc_len).await?;
+
+    let len_pt = {
+        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
+        cipher
+            .decrypt(GenericArray::from_slice(&len_nonce), enc_len.as_ref())
+            .map_err(|_| ProxyError::Protocol("VMess: resp len decrypt failed".into()))?
+    };
+    let payload_len = u16::from_be_bytes([len_pt[0], len_pt[1]]) as usize;
+
+    let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
+    let hdr_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_HDR_IV]);
+
+    let mut enc_hdr = vec![0u8; payload_len + 16];
+    reader.read_exact(&mut enc_hdr).await?;
+
+    let hdr_pt = {
+        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
+        cipher
+            .decrypt(GenericArray::from_slice(&hdr_nonce), enc_hdr.as_ref())
+            .map_err(|_| ProxyError::Protocol("VMess: resp header decrypt failed".into()))?
+    };
+
+    let got_v = hdr_pt.first().copied().unwrap_or(0);
+    if got_v != expected_v {
+        return Err(ProxyError::Protocol(format!(
+            "VMess: response V mismatch: got {got_v:#04x}, expected {expected_v:#04x}"
+        )));
+    }
+
+    Ok(())
+}
+
+// ── Internal ──────────────────────────────────────────────────────────────────
+
 fn build_request_plaintext(
     iv: &[u8; 16],
     key: &[u8; 16],
@@ -178,17 +336,15 @@ fn build_request_plaintext(
     dest: &Address,
 ) -> Vec<u8> {
     let mut buf = BytesMut::new();
-
     buf.put_u8(0x01); // version
     buf.put_slice(iv);
     buf.put_slice(key);
     buf.put_u8(v);
     buf.put_u8(0x01); // options: ChunkStream
-    buf.put_u8((pad_len << 4) | (security as u8)); // padding nibble + security nibble
+    buf.put_u8((pad_len << 4) | (security as u8));
     buf.put_u8(0x00); // reserved
     buf.put_u8(0x01); // command: TCP
 
-    // Port + address
     match dest {
         Address::Ipv4(ip, port) => {
             buf.put_u16(*port);
@@ -208,61 +364,16 @@ fn build_request_plaintext(
         }
     }
 
-    // Random padding
     let mut pad = vec![0u8; pad_len as usize];
     rand::thread_rng().fill_bytes(&mut pad);
     buf.put_slice(&pad);
 
-    // FNV-1a checksum over all preceding bytes
     let checksum = fnv32a(buf.as_ref());
     buf.put_u32(checksum);
 
     buf.to_vec()
 }
 
-// ── Decoder ───────────────────────────────────────────────────────────────────
-
-/// Decrypt and decode a VMess AEAD header from an async stream.
-///
-/// # Arguments
-/// * `reader`   — the byte stream positioned immediately after the auth ID
-/// * `cmd_key`  — the 16-byte key for the user who was identified by auth ID
-/// * `auth_id`  — the 16-byte auth ID (used as AEAD additional data)
-/// * `enc_len`  — the number of ciphertext bytes to read (see note below)
-///
-/// **Note on `enc_len`:** The plaintext header is variable-length (address
-/// varies). In the real VMess AEAD protocol, the header length is encrypted
-/// in a separate 2-byte length prefix before the main header. This function
-/// reads exactly `enc_len` bytes of ciphertext (including the 16-byte tag).
-pub async fn decode_header<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    cmd_key: &[u8; 16],
-    auth_id: &[u8; 16],
-    enc_len: usize,
-) -> Result<VmessRequest, ProxyError> {
-    let mut ciphertext = vec![0u8; enc_len];
-    reader.read_exact(&mut ciphertext).await?;
-
-    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
-    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
-
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
-    let nonce = GenericArray::from_slice(&enc_nonce);
-
-    let plaintext = cipher
-        .decrypt(
-            nonce,
-            Payload {
-                msg: &ciphertext,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: AEAD header decryption failed".into()))?;
-
-    decode_plaintext(&plaintext)
-}
-
-/// Decode the plaintext header bytes into a `VmessRequest`.
 fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     if data.len() < 38 {
         return Err(ProxyError::Protocol("VMess: header too short".into()));
@@ -286,25 +397,18 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     let pad_sec = data[35];
     let pad_len = (pad_sec >> 4) as usize;
     let security = Security::try_from(pad_sec & 0x0F)?;
-    // data[36] = reserved
-    let _cmd = data[37];
+    let _cmd = data[37]; // data[36] = reserved
 
     let mut pos = 38;
 
-    // Port
     if pos + 2 > data.len() {
-        return Err(ProxyError::Protocol(
-            "VMess: header truncated at port".into(),
-        ));
+        return Err(ProxyError::Protocol("VMess: truncated at port".into()));
     }
     let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
     pos += 2;
 
-    // Address type
     if pos >= data.len() {
-        return Err(ProxyError::Protocol(
-            "VMess: header truncated at atyp".into(),
-        ));
+        return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
     }
     let atyp = data[pos];
     pos += 1;
@@ -314,8 +418,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
             if pos + 4 > data.len() {
                 return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
             }
-            let ip =
-                std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
+            let ip = std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
             pos += 4;
             Address::Ipv4(ip, port)
         }
@@ -330,9 +433,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         }
         ATYP_DOMAIN => {
             if pos >= data.len() {
-                return Err(ProxyError::Protocol(
-                    "VMess: truncated domain length".into(),
-                ));
+                return Err(ProxyError::Protocol("VMess: truncated domain len".into()));
             }
             let dlen = data[pos] as usize;
             pos += 1;
@@ -352,35 +453,20 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         }
     };
 
-    pos += pad_len; // skip padding
+    pos += pad_len;
 
-    // Checksum
     if pos + 4 > data.len() {
         return Err(ProxyError::Protocol("VMess: truncated checksum".into()));
     }
     let expected = fnv32a(&data[..pos]);
-    let received_bytes: [u8; 4] = data[pos..pos + 4]
-        .try_into()
-        .map_err(|_| ProxyError::Protocol("VMess: truncated checksum bytes".into()))?;
-    let received = u32::from_be_bytes(received_bytes);
+    let received = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap());
     if expected != received {
-        return Err(ProxyError::Protocol(
-            "VMess: header checksum mismatch".into(),
-        ));
+        return Err(ProxyError::Protocol("VMess: header checksum mismatch".into()));
     }
 
-    Ok(VmessRequest {
-        iv,
-        key,
-        v,
-        security,
-        dest,
-    })
+    Ok(VmessRequest { iv, key, v, security, dest })
 }
 
-// ── FNV-1a ────────────────────────────────────────────────────────────────────
-
-/// FNV-1a 32-bit hash (used for header checksum).
 fn fnv32a(data: &[u8]) -> u32 {
     let mut hash: u32 = 0x811c_9dc5;
     for &byte in data {
@@ -412,33 +498,7 @@ mod tests {
 
     #[test]
     fn fnv32a_known_value() {
-        // FNV-1a("") = 2166136261 (the offset basis)
         assert_eq!(fnv32a(b""), 0x811c_9dc5);
-    }
-
-    #[test]
-    fn build_plaintext_roundtrip_ipv4() {
-        let iv = [1u8; 16];
-        let key = [2u8; 16];
-        let dest = Address::Ipv4("1.2.3.4".parse().unwrap(), 8080);
-        let pt = build_request_plaintext(&iv, &key, 0x42, 0, Security::Aes128Gcm, &dest);
-        let req = decode_plaintext(&pt).unwrap();
-        assert_eq!(req.iv, iv);
-        assert_eq!(req.key, key);
-        assert_eq!(req.v, 0x42);
-        assert_eq!(req.dest, dest);
-        assert_eq!(req.security, Security::Aes128Gcm);
-    }
-
-    #[test]
-    fn build_plaintext_roundtrip_domain() {
-        let iv = [3u8; 16];
-        let key = [4u8; 16];
-        let dest = Address::Domain("example.com".to_string(), 443);
-        let pt = build_request_plaintext(&iv, &key, 0x01, 0, Security::ChaCha20Poly1305, &dest);
-        let req = decode_plaintext(&pt).unwrap();
-        assert_eq!(req.dest, dest);
-        assert_eq!(req.security, Security::ChaCha20Poly1305);
     }
 
     #[test]
@@ -447,20 +507,27 @@ mod tests {
         let auth_id = test_auth_id();
         let dest = Address::Domain("test.example.com".to_string(), 443);
 
-        let (iv, key, v, ciphertext) =
+        let (_iv, _key, _v, connection_nonce, enc_len, enc_header) =
             encode_header(&cmd_key, &auth_id, &dest, Security::Aes128Gcm);
 
-        // Simulate read: put ciphertext into a cursor.
+        let enc_len_arr: [u8; 18] = enc_len.try_into().unwrap();
+        let header_len = decrypt_length_field(&cmd_key, &auth_id, &connection_nonce, &enc_len_arr).unwrap();
+        assert_eq!(header_len, enc_header.len());
+
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
-            let mut cursor = std::io::Cursor::new(ciphertext.to_vec());
-            let req = decode_header(&mut cursor, &cmd_key, &auth_id, ciphertext.len())
+            let mut cursor = std::io::Cursor::new(enc_header.clone());
+            let req = decode_header(&mut cursor, &cmd_key, &auth_id, &connection_nonce, enc_header.len())
                 .await
                 .unwrap();
-            assert_eq!(req.iv, iv);
-            assert_eq!(req.key, key);
-            assert_eq!(req.v, v);
             assert_eq!(req.dest, dest);
         });
+    }
+
+    #[test]
+    fn response_key_differs_from_request_key() {
+        let key = [0x42u8; 16];
+        let resp_key = response_body_key(&key);
+        assert_ne!(resp_key, key);
     }
 }

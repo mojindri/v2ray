@@ -60,19 +60,25 @@ pub(crate) fn uses_shadowtls(stream_settings: &Option<StreamSettingsConfig>) -> 
 pub(crate) struct TlsConnectionHandler {
     cert_pem: String,
     key_pem: String,
+    /// ALPN protocols to advertise during the TLS handshake (e.g. `["h2"]` for gRPC).
+    alpn: Vec<String>,
     inner: Arc<dyn ConnectionHandler>,
 }
 
 impl TlsConnectionHandler {
     /// Wrap an existing handler with TLS.
+    ///
+    /// `alpn` should be `["h2"]` when the inner handler is gRPC, empty otherwise.
     pub(crate) fn new(
         cert_pem: String,
         key_pem: String,
+        alpn: Vec<String>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
         Arc::new(Self {
             cert_pem,
             key_pem,
+            alpn,
             inner,
         })
     }
@@ -85,7 +91,8 @@ impl ConnectionHandler for TlsConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let tls_stream = tls_accept(stream, &self.cert_pem, &self.key_pem, &[]).await?;
+        let alpn: Vec<&str> = self.alpn.iter().map(|s| s.as_str()).collect();
+        let tls_stream = tls_accept(stream, &self.cert_pem, &self.key_pem, &alpn).await?;
         self.inner.handle_connection(tls_stream, source).await
     }
 }
@@ -264,7 +271,13 @@ pub(crate) fn build_conn_handler(
         let key_pem = std::fs::read_to_string(key_path)
             .map_err(|e| anyhow::anyhow!("cannot read key file '{key_path}': {e}"))?;
 
-        handler = TlsConnectionHandler::new(cert_pem, key_pem, handler);
+        // gRPC runs over HTTP/2, which requires the "h2" ALPN token during TLS negotiation.
+        let alpn = if uses_grpc(stream_settings) {
+            vec!["h2".to_string()]
+        } else {
+            vec![]
+        };
+        handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handler);
     }
 
     if uses_shadowtls(stream_settings) {

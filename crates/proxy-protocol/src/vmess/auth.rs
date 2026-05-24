@@ -1,30 +1,16 @@
 //! VMess AEAD authentication ID generation and validation.
 //!
-//! The auth ID is a 16-byte value sent at the start of every VMess connection.
-//! It lets the server identify the user without a plaintext UUID, and includes
-//! a timestamp to prevent replay attacks.
-//!
 //! # Auth ID construction (client)
 //!
-//! 1. Compute `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`.
-//! 2. Build a 16-byte plaintext:
-//!    - bytes 0–7: current Unix timestamp (seconds, big-endian)
-//!    - bytes 8–11: `crc32(bytes 0..7)` (big-endian)
-//!    - bytes 12–15: 4 random bytes
-//! 3. Encrypt the plaintext with `AES-128` in ECB mode (single block, no IV)
-//!    using `cmd_key` as the key → produces the 16-byte auth ID.
+//! 1. Build a 16-byte plaintext:
+//!    - bytes 0–7:  current Unix timestamp (big-endian)
+//!    - bytes 8–11: 4 random bytes
+//!    - bytes 12–15: `crc32(bytes 0..12)` (big-endian)
+//! 2. Encrypt with `AES-128` ECB using `KDF16(cmd_key, "AES Auth ID Encryption")`.
 //!
-//! # Validation (server)
+//! # cmd_key
 //!
-//! For each registered UUID:
-//! 1. Compute `cmd_key`.
-//! 2. Decrypt the received auth ID with AES-128 ECB.
-//! 3. Verify `crc32(bytes 0..7) == bytes 8..11`.
-//! 4. Check `|now − timestamp| ≤ max_diff_secs` (replay protection).
-//!
-//! # References
-//!
-//! v2fly/v2ray-core: `proxy/vmess/inbound/inbound.go`, `common/protocol/headers.go`
+//! `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -35,17 +21,20 @@ use crc32fast::Hasher as Crc32Hasher;
 use md5::{Digest as Md5Digest, Md5};
 use rand::RngCore;
 
+use super::kdf::kdf;
+
 /// Maximum allowed clock difference in seconds for replay protection.
 pub const MAX_TIME_DIFF_SECS: u64 = 120;
 
 /// Salt appended to UUID bytes when deriving `cmd_key`.
 const CMD_KEY_SALT: &[u8] = b"c48619fe-8f02-49e0-b9e9-edf763e17e21";
 
+/// KDF label for the AES auth ID encryption key.
+const KDF_AUTH_ID: &[u8] = b"AES Auth ID Encryption";
+
 // ── cmd_key derivation ─────────────────────────────────────────────────────────
 
 /// Derive the 16-byte `cmd_key` from a 16-byte UUID.
-///
-/// `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`
 pub fn cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
     let mut hasher = Md5::new();
     hasher.update(uuid);
@@ -56,30 +45,31 @@ pub fn cmd_key(uuid: &[u8; 16]) -> [u8; 16] {
 // ── Auth ID generation ─────────────────────────────────────────────────────────
 
 /// Generate a 16-byte auth ID for the current time.
-///
-/// # Arguments
-/// * `cmd_key` — 16-byte key derived from the user's UUID
 pub fn generate_auth_id(cmd_key: &[u8; 16]) -> [u8; 16] {
     let now = current_timestamp();
     generate_auth_id_at(cmd_key, now)
 }
 
 /// Generate a 16-byte auth ID for a specific timestamp (useful for testing).
+///
+/// Plaintext layout: `timestamp_be(8) | random(4) | crc32(first_12)(4)`
+/// AES key: `KDF16(cmd_key, "AES Auth ID Encryption")`
 pub fn generate_auth_id_at(cmd_key: &[u8; 16], timestamp: u64) -> [u8; 16] {
     let mut plaintext = [0u8; 16];
 
     // bytes 0–7: timestamp
     plaintext[0..8].copy_from_slice(&timestamp.to_be_bytes());
 
-    // bytes 8–11: CRC32 of the timestamp bytes
-    let checksum = crc32_bytes(&plaintext[0..8]);
-    plaintext[8..12].copy_from_slice(&checksum.to_be_bytes());
+    // bytes 8–11: 4 random bytes
+    rand::thread_rng().fill_bytes(&mut plaintext[8..12]);
 
-    // bytes 12–15: random
-    rand::thread_rng().fill_bytes(&mut plaintext[12..16]);
+    // bytes 12–15: CRC32 of first 12 bytes
+    let checksum = crc32_bytes(&plaintext[0..12]);
+    plaintext[12..16].copy_from_slice(&checksum.to_be_bytes());
 
-    // Encrypt with AES-128 ECB (single block, no IV)
-    aes128_ecb_encrypt(cmd_key, &mut plaintext);
+    // Encrypt with AES-128 ECB, key = KDF16(cmd_key, "AES Auth ID Encryption")
+    let aes_key: [u8; 16] = kdf(cmd_key, &[KDF_AUTH_ID]);
+    aes128_ecb_encrypt(&aes_key, &mut plaintext);
 
     plaintext
 }
@@ -87,35 +77,26 @@ pub fn generate_auth_id_at(cmd_key: &[u8; 16], timestamp: u64) -> [u8; 16] {
 // ── Auth ID validation ─────────────────────────────────────────────────────────
 
 /// Validate a received auth ID against a `cmd_key`.
-///
-/// Returns `true` if the auth ID was produced by this `cmd_key` within the
-/// allowed time window.
-///
-/// # Arguments
-/// * `cmd_key`       — key derived from the user's UUID
-/// * `auth_id`       — the 16-byte auth ID received from the client
-/// * `max_diff_secs` — maximum allowed clock skew
 pub fn validate_auth_id(cmd_key: &[u8; 16], auth_id: &[u8; 16], max_diff_secs: u64) -> bool {
+    let aes_key: [u8; 16] = kdf(cmd_key, &[KDF_AUTH_ID]);
     let mut block = *auth_id;
-    aes128_ecb_decrypt(cmd_key, &mut block);
+    aes128_ecb_decrypt(&aes_key, &mut block);
 
-    // Extract and verify checksum.
-    let expected_crc = crc32_bytes(&block[0..8]);
-    let received_crc = u32::from_be_bytes([block[8], block[9], block[10], block[11]]);
+    // bytes 12–15 = CRC32(bytes 0..12)
+    let expected_crc = crc32_bytes(&block[0..12]);
+    let received_crc = u32::from_be_bytes([block[12], block[13], block[14], block[15]]);
     if expected_crc != received_crc {
         return false;
     }
 
-    // Extract and verify timestamp.
+    // bytes 0–7 = timestamp
     let ts_bytes: [u8; 8] = match block[0..8].try_into() {
         Ok(v) => v,
         Err(_) => return false,
     };
     let timestamp = u64::from_be_bytes(ts_bytes);
     let now = current_timestamp();
-    let diff = now.abs_diff(timestamp);
-
-    diff <= max_diff_secs
+    now.abs_diff(timestamp) <= max_diff_secs
 }
 
 // ── AES-128 ECB helpers ────────────────────────────────────────────────────────
@@ -164,16 +145,7 @@ mod tests {
     #[test]
     fn cmd_key_is_deterministic() {
         let uuid = test_uuid();
-        let k1 = cmd_key(&uuid);
-        let k2 = cmd_key(&uuid);
-        assert_eq!(k1, k2);
-    }
-
-    #[test]
-    fn cmd_key_length_is_16() {
-        let uuid = test_uuid();
-        let k = cmd_key(&uuid);
-        assert_eq!(k.len(), 16);
+        assert_eq!(cmd_key(&uuid), cmd_key(&uuid));
     }
 
     #[test]
@@ -200,9 +172,7 @@ mod tests {
         let key = cmd_key(&uuid);
         let now = current_timestamp();
         let auth = generate_auth_id_at(&key, now);
-
-        let other_uuid = [0u8; 16];
-        let other_key = cmd_key(&other_uuid);
+        let other_key = cmd_key(&[0u8; 16]);
         assert!(!validate_auth_id(&other_key, &auth, MAX_TIME_DIFF_SECS));
     }
 
@@ -212,7 +182,7 @@ mod tests {
         let key = cmd_key(&uuid);
         let now = current_timestamp();
         let mut auth = generate_auth_id_at(&key, now);
-        auth[0] ^= 0xFF; // flip bits
+        auth[0] ^= 0xFF;
         assert!(!validate_auth_id(&key, &auth, MAX_TIME_DIFF_SECS));
     }
 }
