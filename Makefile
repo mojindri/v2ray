@@ -14,7 +14,7 @@
 include make/verify.mk
 include make/aliases.mk
 
-.PHONY: all build dev test fmt fmt-check lint audit deny update-geoip fuzz-build \
+.PHONY: all build dev test fmt fmt-check lint lint-strict audit deny update-geoip fuzz-build \
 	fmt fmt-check lint audit audit-optional deny-optional fuzz-smoke \
 	clean clean-generated clean-all-generated clean-reports clean-pcaps clean-lima-artifacts clean-bench \
 	help help-compat help-internal bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total \
@@ -48,37 +48,43 @@ fmt:
 fmt-check:
 	cargo fmt --all -- --check
 
-## lint: Run Clippy with strict settings (same as CI).
+## lint: Run Clippy with -D warnings (same gate as verify-local).
 lint:
-	cargo clippy --workspace --all-features -- \
+	cargo clippy --workspace --all-targets -- -D warnings
+
+## lint-strict: Clippy with unwrap/expect denies (production-path hygiene).
+lint-strict:
+	cargo clippy --workspace --all-targets -- \
 		-D warnings \
 		-D clippy::unwrap_used \
 		-D clippy::expect_used
 
 ## audit: Check for known security vulnerabilities in dependencies.
 audit:
-	@if cargo --list | grep -q '^    audit$$'; then \
-		cargo audit; \
-	else \
-		echo "cargo-audit not installed; skipping audit step"; \
-	fi
+	@command -v cargo-audit >/dev/null || (echo "ERROR: cargo-audit not installed. Install with: cargo install cargo-audit"; exit 1)
+	cargo audit
+
+## deny: Check dependency licenses and for duplicate crates.
+deny:
+	@command -v cargo-deny >/dev/null || (echo "ERROR: cargo-deny not installed. Install with: cargo install cargo-deny"; exit 1)
+	cargo deny check
 
 ## fuzz-build: Build all cargo-fuzz targets with nightly.
 fuzz-build:
+	@command -v cargo-fuzz >/dev/null || (echo "ERROR: cargo-fuzz not installed. Install with: cargo install cargo-fuzz"; exit 1)
+	@rustup run nightly cargo --version >/dev/null 2>&1 || (echo "ERROR: nightly toolchain required for fuzz. Install with: rustup toolchain install nightly"; exit 1)
 	cargo +nightly fuzz build --manifest-path fuzz/Cargo.toml
 
 ## fuzz-smoke: Run each fuzz target for a short deterministic smoke pass.
 fuzz-smoke:
+	@command -v cargo-fuzz >/dev/null || (echo "ERROR: cargo-fuzz not installed. Install with: cargo install cargo-fuzz"; exit 1)
+	@rustup run nightly cargo --version >/dev/null 2>&1 || (echo "ERROR: nightly toolchain required for fuzz. Install with: rustup toolchain install nightly"; exit 1)
 	cargo +nightly fuzz run reality_client_hello --manifest-path fuzz/Cargo.toml -- -runs=100
 	cargo +nightly fuzz run vmess_aead_header --manifest-path fuzz/Cargo.toml -- -runs=100
 	cargo +nightly fuzz run vless_header --manifest-path fuzz/Cargo.toml -- -runs=100
 	cargo +nightly fuzz run hysteria2_frame --manifest-path fuzz/Cargo.toml -- -runs=100
 	cargo +nightly fuzz run shadowtls_handshake --manifest-path fuzz/Cargo.toml -- -runs=100
 	cargo +nightly fuzz run ss2022_chunk --manifest-path fuzz/Cargo.toml -- -runs=100
-
-## deny: Check dependency licenses and for duplicate crates.
-deny:
-	cargo deny check
 
 ## update-geoip: Download the latest GeoIP and GeoSite data files.
 update-geoip:
@@ -108,7 +114,8 @@ help:
 	@echo "Common atoms:"
 	@echo "  make build           - release build"
 	@echo "  make fmt-check       - formatting check"
-	@echo "  make lint            - strict clippy gate"
+	@echo "  make lint            - clippy with -D warnings (verify-local gate)"
+	@echo "  make lint-strict     - clippy + unwrap/expect denies"
 	@echo "  make test            - workspace tests"
 	@echo "  make security        - audit/deny + lab security helpers"
 	@echo "  make fuzz-smoke      - short nightly fuzz pass"
@@ -192,8 +199,9 @@ clean-bench:
 	rm -rf labs/realistic/reports/production/bench
 
 # lab / VM convenience wrappers (internal; see make help-internal)
-	$(MAKE) -C labs/realistic local-load
 
+local-load:
+	$(MAKE) -C labs/realistic local-load
 
 local-slowloris:
 	$(MAKE) -C labs/realistic slowloris

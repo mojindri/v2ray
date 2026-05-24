@@ -195,6 +195,8 @@ security:
 
 fuzz-long:
 	@echo "==> [fuzz-long] FUZZ_RUNS=$${FUZZ_RUNS:-100000} (requires nightly + cargo-fuzz)"
+	@command -v cargo-fuzz >/dev/null || (echo "ERROR: cargo-fuzz not installed. Install with: cargo install cargo-fuzz"; exit 1)
+	@rustup run nightly cargo --version >/dev/null 2>&1 || (echo "ERROR: nightly toolchain required for fuzz. Install with: rustup toolchain install nightly"; exit 1)
 	FUZZ_RUNS=$${FUZZ_RUNS:-100000} $(MAKE) -C $(LAB_DIR) fuzz-total
 
 perf-remote:
