@@ -82,7 +82,7 @@ Server responsibilities:
 - parse only the fields REALITY needs
 - derive the same shared secret
 - decrypt and validate token
-- if valid, continue into local TLS accept
+- if valid, run the custom TLS 1.3 server handshake (`complete_tls13_server_handshake`)
 - if invalid, forward to fallback
 
 ## What The ClientHello Is Doing

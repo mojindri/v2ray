@@ -52,7 +52,8 @@ Legend — **environment**: `host` | `docker` | `lima` | `vps` | `privileged` | 
 | `dev` | debug build | host | 1–3 min | public |
 | `test` | `cargo test --workspace` | host | 1–10 min | public |
 | `fmt` / `fmt-check` | rustfmt | host | seconds | public |
-| `lint` | clippy + unwrap/expect denies | host | 2–10 min | public |
+| `lint` | clippy with `-D warnings` | host | 2–10 min | public |
+| `lint-strict` | clippy + unwrap/expect denies | host | 2–10 min | public |
 | `audit` / `audit-optional` | cargo audit | host | 1–5 min | public / internal |
 | `deny` / `deny-optional` | cargo deny | host | 1–5 min | public / internal |
 | `fuzz-build` | nightly fuzz build | fuzz | 2–10 min | internal |

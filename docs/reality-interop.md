@@ -28,9 +28,11 @@ Must sign:
 
 ## Validation
 
-Run:
+Preferred gate (Docker lab):
 
 ```sh
+make verify-lab-docker
+# or atomically:
 make -C labs/realistic external-clients-docker
 ```
 

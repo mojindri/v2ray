@@ -58,4 +58,16 @@ Then run longer fuzz campaigns:
 make fuzz-long         # FUZZ_RUNS=100000 by default; override as needed
 ```
 
+## Log redaction
+
+Do not paste raw proxy logs or lab reports that may contain UUIDs, passwords,
+private keys, or REALITY key material. When sharing failures, redact:
+
+- inbound/outbound credentials and auth tokens
+- `SSH_KEY` paths if they reveal account structure
+- full `ClientHello` dumps unless explicitly needed for REALITY debugging
+
+`REALITY_DEBUG_HELLO=1` enables extra handshake fields in debug logs — use only
+in controlled environments.
+
 See [12-production-readiness.md](12-production-readiness.md) and [test-workflows.md](test-workflows.md).

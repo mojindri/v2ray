@@ -106,7 +106,8 @@ Full mapping: `make help-compat`.
 | --- | --- |
 | `make build` / `make dev` | Release / debug build |
 | `make fmt` / `make fmt-check` | rustfmt |
-| `make lint` | clippy with strict denies |
+| `make lint` | clippy with `-D warnings` (same as `verify-local`) |
+| `make lint-strict` | clippy + unwrap/expect denies (optional hygiene gate) |
 | `make test` | `cargo test --workspace` |
 | `make audit` / `make deny` | cargo-audit / cargo-deny |
 
