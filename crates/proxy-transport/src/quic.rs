@@ -142,9 +142,18 @@ pub fn build_client_endpoint(skip_verify: bool) -> Result<Endpoint> {
 /// Do not use in production — these certs are generated fresh every run
 /// and are not persisted anywhere.
 pub fn dev_self_signed() -> Result<(String, String)> {
+    dev_self_signed_for_names(&["localhost".to_string()])
+}
+
+/// Self-signed cert for dev/test with arbitrary DNS SAN entries (e.g. REALITY cover SNI).
+pub fn dev_self_signed_for_names(names: &[String]) -> Result<(String, String)> {
+    let subjects = if names.is_empty() {
+        vec!["localhost".to_string()]
+    } else {
+        names.to_vec()
+    };
     let rcgen::CertifiedKey { cert, signing_key } =
-        rcgen::generate_simple_self_signed(vec!["localhost".to_string()])
-            .context("failed to generate self-signed certificate")?;
+        rcgen::generate_simple_self_signed(subjects).context("failed to generate self-signed certificate")?;
     Ok((cert.pem(), signing_key.serialize_pem()))
 }
 

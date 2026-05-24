@@ -47,15 +47,20 @@ pub use hysteria2::{
 pub use mkcp::{
     mkcp_accept_once, mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
 };
-pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed};
+pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed, dev_self_signed_for_names};
 pub use quic::{BrutalCC, BrutalCCFactory};
-pub use reality::{RealityClient, RealityClientConfig, RealityServer, RealityServerConfig};
+pub use reality::{
+    tls_pem_for_auth_key, RealityAccepted, RealityClient, RealityClientConfig, RealityServer,
+    RealityServerConfig,
+};
 pub use shadowtls::{
     compute_marker, shadowtls_accept, shadowtls_connect, shadowtls_marker_accept,
     shadowtls_marker_connect, shadowtls_v3_connect, write_marker_record,
 };
 pub use tcp::{TcpClientTransport, TcpServerTransport};
-pub use tls::{build_server_config as tls_build_server_config, tls_accept, tls_connect};
+pub use tls::{
+    build_server_config as tls_build_server_config, tls_accept, tls_accept_tls13, tls_connect,
+};
 pub use tun::{
     build_tcp_rst, create_tun, IpPacket, TransportProtocol, TunConfig, TunRuntime, UdpNatTable,
 };

@@ -17,6 +17,7 @@
 //! - `server` validates incoming ClientHellos and handles fallback forwarding.
 //! - `parser` extracts only the ClientHello fields REALITY needs.
 
+mod cert;
 mod client;
 mod parser;
 mod server;
@@ -24,17 +25,16 @@ pub(crate) mod tls13;
 
 pub use client::{RealityClient, RealityClientConfig};
 pub use parser::{parse_client_hello, ClientHelloFields};
-pub use server::{RealityServer, RealityServerConfig};
+pub use cert::tls_pem_for_auth_key;
+pub use server::{RealityAccepted, RealityServer, RealityServerConfig};
 
 /// The HKDF info string used to derive the REALITY auth key.
 ///
 /// This must match exactly between client and server, including casing.
 pub(crate) const REALITY_HKDF_INFO: &[u8] = b"REALITY";
 
-/// The REALITY protocol version byte written into the encrypted token.
-///
-/// `0x00` means "no flow control", so the client sends `0x01`.
-pub(crate) const REALITY_TOKEN_VERSION: u8 = 0x01;
+/// Byte length of the encrypted REALITY auth plaintext (Xray / sing-box compatible).
+pub(crate) const REALITY_TOKEN_PLAINTEXT_LEN: usize = 16;
 
 /// Maximum allowed clock skew between client and server in seconds.
 pub(crate) const MAX_TIME_DIFF_SECS: i64 = 120;

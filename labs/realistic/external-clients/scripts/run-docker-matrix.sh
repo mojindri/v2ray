@@ -16,6 +16,7 @@ bash "$LAB_DIR/scripts/render-configs.sh" "$ENV_FILE" "$LAB_DIR/generated" > "$R
 "${COMPOSE[@]}" up -d target-http > "$REPORT_DIR/compose.log" 2>&1
 
 cleanup_case() {
+    "${COMPOSE[@]}" stop proxy-rs-server >/dev/null 2>&1 || true
     docker rm -f proxy-rs-server xray-client sing-box-client >/dev/null 2>&1 || true
     # Remove stale one-off server containers from prior matrix rows.
     while read -r cid; do
@@ -56,19 +57,19 @@ run_one() {
 
     cleanup_case
 
-    "${COMPOSE[@]}" run -d --name proxy-rs-server proxy-rs-server \
+    "${COMPOSE[@]}" run -d --no-deps --name proxy-rs-server proxy-rs-server \
         run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
 
     # Hysteria2 binds UDP after process start; wait before the client connects.
-    if [[ "$protocol" == "hysteria2" ]]; then
+    if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-reality" ]]; then
         sleep 2
     fi
 
     if [[ "$client" == "xray" ]]; then
-        "${COMPOSE[@]}" run -d --name xray-client xray-client \
+        "${COMPOSE[@]}" run -d --no-deps --name xray-client xray-client \
             run -c "/generated/${config_root}/${client_cfg}" >> "$log" 2>&1
     else
-        "${COMPOSE[@]}" run -d --name sing-box-client sing-box-client \
+        "${COMPOSE[@]}" run -d --no-deps --name sing-box-client sing-box-client \
             run -c "/generated/${config_root}/${client_cfg}" >> "$log" 2>&1
     fi
 
@@ -102,18 +103,18 @@ run_negative() {
 
     cleanup_case
 
-    "${COMPOSE[@]}" run -d --name proxy-rs-server proxy-rs-server \
+    "${COMPOSE[@]}" run -d --no-deps --name proxy-rs-server proxy-rs-server \
         run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
 
-    if [[ "$protocol" == "hysteria2" ]]; then
+    if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-reality" ]]; then
         sleep 2
     fi
 
     if [[ "$client" == "xray" ]]; then
-        "${COMPOSE[@]}" run -d --name xray-client xray-client \
+        "${COMPOSE[@]}" run -d --no-deps --name xray-client xray-client \
             run -c "/generated/${root}/${client_cfg}" >> "$log" 2>&1
     else
-        "${COMPOSE[@]}" run -d --name sing-box-client sing-box-client \
+        "${COMPOSE[@]}" run -d --no-deps --name sing-box-client sing-box-client \
             run -c "/generated/${root}/${client_cfg}" >> "$log" 2>&1
     fi
 

@@ -3,7 +3,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes128Gcm, Key, Nonce};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::Result;
 use hkdf::Hkdf;
 use sha2::Sha256;
@@ -16,6 +16,12 @@ use proxy_common::{BoxedStream, PrependedStream, ProxyError};
 
 use super::parser::{parse_client_hello, ClientHelloFields};
 use super::{MAX_TIME_DIFF_SECS, REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
+
+/// Stream ready for TLS after successful REALITY authentication.
+pub struct RealityAccepted {
+    pub stream: BoxedStream,
+    pub auth_key: [u8; 32],
+}
 
 /// REALITY server configuration read from the inbound config.
 pub struct RealityServerConfig {
@@ -55,8 +61,18 @@ impl RealityServer {
     /// This is the production shape: rustls must see the exact bytes we already
     /// parsed, so the returned `PrependedStream` gives those bytes back first.
     pub async fn accept(&self, stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
-        self.accept_inner(stream, ReplayMode::PrependClientHello)
-            .await
+        Ok(self.accept_with_key(stream).await?.stream)
+    }
+
+    /// Like [`accept`](Self::accept) but also returns the per-connection REALITY auth key.
+    pub async fn accept_with_key(
+        &self,
+        stream: BoxedStream,
+    ) -> Result<RealityAccepted, ProxyError> {
+        let (stream, auth_key) = self
+            .accept_inner(stream, ReplayMode::PrependClientHello)
+            .await?;
+        Ok(RealityAccepted { stream, auth_key })
     }
 
     /// Accept a connection without replaying the ClientHello.
@@ -64,15 +80,17 @@ impl RealityServer {
     /// Phase 2 uses this direct mode because full TLS completion is not wired
     /// yet. After authentication, the next readable byte is the VLESS header.
     pub async fn accept_direct(&self, stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
-        self.accept_inner(stream, ReplayMode::ConsumeClientHello)
-            .await
+        Ok(self
+            .accept_inner(stream, ReplayMode::ConsumeClientHello)
+            .await?
+            .0)
     }
 
     async fn accept_inner(
         &self,
         mut stream: BoxedStream,
         replay_mode: ReplayMode,
-    ) -> Result<BoxedStream, ProxyError> {
+    ) -> Result<(BoxedStream, [u8; 32]), ProxyError> {
         let mut record_header = [0u8; 5];
         stream.read_exact(&mut record_header).await?;
 
@@ -102,24 +120,32 @@ impl RealityServer {
             }
         };
 
-        if let Err(e) = self.authenticate(&fields, &handshake_body) {
-            debug!(error = %e, "REALITY authentication failed — forwarding to fallback");
-            let all_bytes = join_record(record_header, &handshake_body);
-            return self.do_fallback(stream, all_bytes).await;
-        }
+        let auth_key = match self.derive_auth_key(&fields, &handshake_body) {
+            Ok(key) => key,
+            Err(e) => {
+                debug!(error = %e, "REALITY authentication failed — forwarding to fallback");
+                let all_bytes = join_record(record_header, &handshake_body);
+                return self.do_fallback(stream, all_bytes).await;
+            }
+        };
 
         debug!("REALITY authentication succeeded");
-        match replay_mode {
+        let stream = match replay_mode {
             ReplayMode::PrependClientHello => {
                 let replay = join_record(record_header, &handshake_body);
-                Ok(Box::new(PrependedStream::new(stream, replay)))
+                Box::new(PrependedStream::new(stream, replay)) as BoxedStream
             }
-            ReplayMode::ConsumeClientHello => Ok(stream),
-        }
+            ReplayMode::ConsumeClientHello => stream,
+        };
+        Ok((stream, auth_key))
     }
 
-    /// Verify the encrypted REALITY token stored in the ClientHello session_id.
-    fn authenticate(&self, fields: &ClientHelloFields, handshake_body: &[u8]) -> Result<()> {
+    /// Derive the REALITY auth key and validate the encrypted session token.
+    fn derive_auth_key(
+        &self,
+        fields: &ClientHelloFields,
+        handshake_body: &[u8],
+    ) -> Result<[u8; 32]> {
         let client_pub = PublicKey::from(fields.x25519_key_share);
         let shared_secret = self.private_key.diffie_hellman(&client_pub);
 
@@ -134,7 +160,8 @@ impl RealityServer {
             &plaintext,
             &self.config.short_ids,
             self.config.max_time_diff,
-        )
+        )?;
+        Ok(auth_key)
     }
 
     /// Forward to the real fallback HTTPS site and finish the connection there.
@@ -142,7 +169,7 @@ impl RealityServer {
         &self,
         mut stream: BoxedStream,
         already_read: Vec<u8>,
-    ) -> Result<BoxedStream, ProxyError> {
+    ) -> Result<(BoxedStream, [u8; 32]), ProxyError> {
         warn!(fallback = %self.config.fallback, "forwarding to fallback");
 
         let mut fallback = TcpStream::connect(self.config.fallback)
@@ -190,7 +217,7 @@ fn decrypt_session_id(
     auth_key: &[u8; 32],
     aad: &[u8],
 ) -> Result<Vec<u8>> {
-    let cipher = Aes128Gcm::new(Key::<Aes128Gcm>::from_slice(&auth_key[..16]));
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(auth_key));
     let nonce = Nonce::from_slice(&fields.random[20..32]);
 
     cipher
@@ -213,8 +240,8 @@ fn validate_token(
         anyhow::bail!("decrypted token too short: {} bytes", plaintext.len());
     }
 
-    let ts = u32::from_be_bytes([plaintext[2], plaintext[3], plaintext[4], plaintext[5]]) as i64;
-    let short_id = &plaintext[6..14];
+    let ts = u32::from_be_bytes([plaintext[4], plaintext[5], plaintext[6], plaintext[7]]) as i64;
+    let short_id = &plaintext[8..16];
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
