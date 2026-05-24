@@ -28,7 +28,13 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context as _, Result};
 
-use super::proto::Destination;
+/// Destination inside a UDP datagram (legacy binary layout; not yet wired to server).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Destination {
+    V4(Ipv4Addr, u16),
+    V6(Ipv6Addr, u16),
+    Domain(String, u16),
+}
 
 /// A single UDP datagram (or fragment of one).
 #[derive(Debug, Clone, PartialEq)]

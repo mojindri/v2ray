@@ -48,9 +48,8 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
         .with_single_cert(certs, key)
         .context("invalid TLS certificate or key")?;
 
-    // Advertise both "hysteria" (Hysteria2 clients) and "h3" (HTTP/3).
-    // sing-box and other Hysteria2 clients require the "hysteria" ALPN token.
-    tls_config.alpn_protocols = vec![b"hysteria".to_vec(), b"h3".to_vec()];
+    // Hysteria2 auth is HTTP/3; sing-box and sing-quic negotiate ALPN "h3".
+    tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
     let quic_server_config = QuicServerConfig::try_from(tls_config)
         .context("failed to build QUIC server config from TLS config")?;
@@ -68,6 +67,43 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
     server_config.transport_config(Arc::new(transport));
 
     Endpoint::server(server_config, addr).context("failed to open QUIC server endpoint")
+}
+
+/// Build a QUIC server endpoint for Hysteria2 inbounds.
+///
+/// Same as [`build_server_endpoint`] but enables QUIC datagrams for future UDP relay.
+pub fn build_hysteria2_server_endpoint(
+    addr: SocketAddr,
+    cert_pem: &str,
+    key_pem: &str,
+) -> Result<Endpoint> {
+    ensure_crypto_provider();
+
+    let (certs, key) = parse_cert_and_key(cert_pem, key_pem)?;
+
+    let mut tls_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .context("invalid TLS certificate or key")?;
+
+    tls_config.alpn_protocols = vec![b"h3".to_vec()];
+
+    let quic_server_config = QuicServerConfig::try_from(tls_config)
+        .context("failed to build QUIC server config from TLS config")?;
+
+    let mut server_config = ServerConfig::with_crypto(Arc::new(quic_server_config));
+
+    let mut transport = TransportConfig::default();
+    let idle_timeout = match Duration::from_secs(30).try_into() {
+        Ok(v) => v,
+        Err(_) => panic!("30s fits in IdleTimeout"),
+    };
+    transport.max_idle_timeout(Some(idle_timeout));
+    transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+    transport.datagram_send_buffer_size(2 * 1024 * 1024);
+    server_config.transport_config(Arc::new(transport));
+
+    Endpoint::server(server_config, addr).context("failed to open Hysteria2 QUIC endpoint")
 }
 
 /// Build a QUIC client endpoint.

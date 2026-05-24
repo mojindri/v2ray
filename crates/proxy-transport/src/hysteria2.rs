@@ -1,30 +1,14 @@
 //! Hysteria2 transport — QUIC-based proxy protocol for high-latency links.
 //!
-//! Hysteria2 is designed for connections with high latency and packet loss,
-//! such as cross-border connections into China. It achieves high throughput
-//! by using QUIC with a custom "Brutal" congestion controller that ignores
-//! loss signals.
-//!
-//! # How a Hysteria2 connection works
-//!
-//! 1. Client connects via QUIC (UDP, TLS 1.3).
-//! 2. Client opens the first bidirectional QUIC stream and sends an
-//!    auth frame (password + requested bandwidth).
-//! 3. Server validates the password and responds OK or Unauthorized.
-//! 4. After auth, each new QUIC bidirectional stream = one proxied TCP connection.
-//! 5. UDP is proxied via QUIC datagrams (see `udp` module).
-//!
-//! # Module layout
-//!
-//! - `proto` — wire format encode/decode for all frame types
-//! - `auth` — authentication handshake helpers
-//! - `tcp` — TCP proxy stream request/response handling
-//! - `udp` — UDP proxy datagram encode/decode
+//! External clients (sing-box, Xray, Hiddify) speak HTTP/3 for authentication and
+//! QUIC-varint TCP framing on subsequent streams. See the [Hysteria2 protocol spec](https://v2.hysteria.network/docs/developers/Protocol/).
 
 pub mod auth;
+pub mod http3;
 pub mod proto;
 pub mod tcp;
 pub mod udp;
+mod varint;
 
 pub use auth::AuthError;
 pub use proto::{AuthRequest, AuthResponse, TcpRequest, TcpResponse};
@@ -40,71 +24,52 @@ use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::OutboundHandler;
 use proxy_common::{Address, BoxedStream, ProxyError, ReunionStream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
-use crate::quic::{build_server_endpoint, ensure_crypto_provider, BrutalCCFactory};
+use crate::quic::{build_hysteria2_server_endpoint, ensure_crypto_provider, BrutalCCFactory};
 
 /// Configuration for a Hysteria2 inbound server.
 #[derive(Debug, Clone)]
 pub struct Hysteria2ServerConfig {
-    /// UDP address to listen on.
     pub addr: SocketAddr,
-    /// Authentication password clients must supply.
     pub password: String,
-    /// Target upstream bandwidth in Mbps (client → server).
+    /// Max client → server rate in Mbps (server receive / `Hysteria-CC-RX` in auth response).
     pub up_mbps: u64,
-    /// Target downstream bandwidth in Mbps (server → client).
+    /// Max server → client rate in Mbps (used for Brutal on server→client path when enabled).
     pub down_mbps: u64,
-    /// PEM-encoded TLS certificate chain.
     pub cert_pem: String,
-    /// PEM-encoded TLS private key.
     pub key_pem: String,
 }
 
 /// Configuration for a Hysteria2 outbound client.
 #[derive(Debug, Clone)]
 pub struct Hysteria2ClientConfig {
-    /// Remote Hysteria2 server address.
     pub server: SocketAddr,
-    /// Server name for TLS SNI (usually the server's hostname).
     pub server_name: String,
-    /// Authentication password.
     pub password: String,
-    /// Client's target upstream bandwidth in Mbps.
     pub up_mbps: u64,
-    /// Client's target downstream bandwidth in Mbps.
     pub down_mbps: u64,
-    /// Whether to skip TLS certificate verification (dev/testing only).
     pub skip_cert_verify: bool,
 }
 
 /// A Hysteria2 proxy server.
-///
-/// Listens on a QUIC endpoint, authenticates clients, and dispatches each
-/// proxy stream to the configured `Dispatcher`.
 pub struct Hysteria2Server {
     config: Hysteria2ServerConfig,
 }
 
 impl Hysteria2Server {
-    /// Create a new server with the given config.
     pub fn new(config: Hysteria2ServerConfig) -> Self {
         Self { config }
     }
 
-    /// Start serving on the configured address.
-    ///
-    /// Accepts QUIC connections, authenticates each client, then dispatches
-    /// proxy streams to `dispatcher`. Runs until the endpoint is closed or an
-    /// unrecoverable error occurs.
     pub async fn serve(&self, dispatcher: Arc<dyn Dispatcher>) -> Result<()> {
-        let endpoint = build_server_endpoint(
+        let endpoint = build_hysteria2_server_endpoint(
             self.config.addr,
             &self.config.cert_pem,
             &self.config.key_pem,
         )?;
 
-        info!(addr = %self.config.addr, "Hysteria2 server listening");
+        info!(addr = %self.config.addr, "Hysteria2 server listening (HTTP/3)");
 
         while let Some(incoming) = endpoint.accept().await {
             let conn = match incoming.await {
@@ -115,11 +80,11 @@ impl Hysteria2Server {
                 }
             };
 
-            let password = self.config.password.clone();
+            let config = self.config.clone();
             let dispatcher = Arc::clone(&dispatcher);
             tokio::spawn(async move {
-                if let Err(e) = handle_connection(conn, password, dispatcher).await {
-                    debug!("Hysteria2 connection closed: {e}");
+                if let Err(e) = http3::serve_connection(conn, config, dispatcher).await {
+                    warn!("Hysteria2 connection closed: {e}");
                 }
             });
         }
@@ -128,94 +93,28 @@ impl Hysteria2Server {
     }
 }
 
-/// Handle a single QUIC connection: auth, then dispatch proxy streams.
-async fn handle_connection(
-    conn: quinn::Connection,
-    password: String,
-    dispatcher: Arc<dyn Dispatcher>,
-) -> Result<()> {
-    // The first stream is the auth stream.
-    let (mut auth_send, mut auth_recv) = conn.accept_bi().await?;
-
-    // Run the authentication handshake. Use a block so auth_stream's borrow ends
-    // before the accept loop below needs to borrow other variables.
-    {
-        let mut auth_stream = ReunionStream::new(&mut auth_recv, &mut auth_send);
-        auth::server_auth(&mut auth_stream, &password).await?;
-    }
-
-    // All subsequent streams are TCP proxy requests.
-    loop {
-        let (mut send, mut recv) = conn.accept_bi().await?;
-        let dispatcher = Arc::clone(&dispatcher);
-
-        tokio::spawn(async move {
-            let dest = match tcp::server_read_request(&mut recv).await {
-                Ok(d) => d,
-                Err(e) => {
-                    warn!("Hysteria2 bad TCP request: {e}");
-                    return;
-                }
-            };
-
-            if let Err(e) = tcp::server_write_response(&mut send, true, "").await {
-                warn!("Hysteria2 response write failed: {e}");
-                return;
-            }
-
-            // Combine the QUIC send+recv halves into a single BoxedStream.
-            let stream: BoxedStream = Box::new(ReunionStream::new(recv, send));
-
-            let ctx = Context {
-                source: None,
-                inbound_tag: "hysteria2".to_string(),
-                user: None,
-                sniffed_protocol: None,
-            };
-
-            if let Err(e) = dispatcher.dispatch(ctx, dest, stream).await {
-                debug!("Hysteria2 dispatch error: {e}");
-            }
-        });
-    }
-}
-
 /// A Hysteria2 proxy client.
-///
-/// Connects to a remote Hysteria2 server over QUIC and proxies TCP connections
-/// through it. Each call to `connect_and_dial()` opens a new QUIC stream on the
-/// existing connection.
 pub struct Hysteria2Client {
     config: Hysteria2ClientConfig,
 }
 
 impl Hysteria2Client {
-    /// Create a new client with the given config.
     pub fn new(config: Hysteria2ClientConfig) -> Self {
         Self { config }
     }
 
-    /// Connect to the Hysteria2 server, authenticate, and open a stream for `dest`.
-    ///
-    /// Returns a `BoxedStream` that can be used for bidirectional data relay.
-    ///
-    /// Note: Phase 3 creates a new QUIC connection per request. Connection
-    /// pooling (reusing the QUIC connection across streams) is a Phase 4
-    /// enhancement.
     pub async fn connect_and_dial(&self, dest: &Address) -> Result<BoxedStream, ProxyError> {
-        // Build the QUIC client endpoint with Brutal CC applied.
-        let target_bps = self.config.up_mbps * 1_000_000 / 8;
+        let rx_bps = self.config.down_mbps.saturating_mul(1_000_000 / 8);
+        let target_bps = self.config.up_mbps.saturating_mul(1_000_000 / 8);
         let mut transport_config = quinn::TransportConfig::default();
         transport_config.congestion_controller_factory(Arc::new(BrutalCCFactory::new(target_bps)));
         let transport_arc = Arc::new(transport_config);
 
-        // Build a fresh ClientConfig for this connection.
         let client_config =
             build_hysteria2_client_config(self.config.skip_cert_verify, transport_arc)
                 .map_err(|e| ProxyError::Transport(e.to_string()))?;
 
-        // Bind a client endpoint (any local port).
-        let bind_addr = "0.0.0.0:0"
+        let bind_addr: SocketAddr = "0.0.0.0:0"
             .parse()
             .map_err(|e| ProxyError::Transport(format!("invalid client bind addr: {e}")))?;
         let endpoint = quinn::Endpoint::client(bind_addr)
@@ -228,31 +127,8 @@ impl Hysteria2Client {
             .await
             .map_err(|e| ProxyError::Transport(format!("QUIC handshake: {e}")))?;
 
-        // Open the auth stream first.
-        let (mut auth_send, mut auth_recv) = conn
-            .open_bi()
-            .await
-            .map_err(|e| ProxyError::Transport(format!("open auth stream: {e}")))?;
+        client_h3_auth(&conn, &self.config.password, rx_bps).await?;
 
-        // Use a block so auth_stream's borrow of auth_send/auth_recv ends
-        // before we try to open the proxy stream below.
-        {
-            let mut auth_stream = ReunionStream::new(&mut auth_recv, &mut auth_send);
-            auth::client_auth(
-                &mut auth_stream,
-                &self.config.password,
-                self.config.up_mbps,
-                self.config.down_mbps,
-            )
-            .await
-            .map_err(|e| match e {
-                AuthError::WrongPassword => ProxyError::AuthFailed,
-                AuthError::Io(io_e) => ProxyError::Io(io_e),
-                AuthError::Protocol(msg) => ProxyError::Protocol(msg),
-            })?;
-        }
-
-        // Open a proxy stream for this request.
         let (mut send, mut recv) = conn
             .open_bi()
             .await
@@ -261,9 +137,6 @@ impl Hysteria2Client {
         tcp::client_write_request(&mut send, dest).await?;
         tcp::client_read_response(&mut recv).await?;
 
-        // Return a combined stream for bidirectional relay. Keep the QUIC
-        // connection and endpoint alive for as long as the stream is alive;
-        // dropping them here would reset the stream during relay.
         Ok(Box::new(Hysteria2Stream {
             inner: ReunionStream::new(recv, send),
             _conn: conn,
@@ -272,7 +145,67 @@ impl Hysteria2Client {
     }
 }
 
-/// A proxied Hysteria2 TCP stream plus the QUIC objects that keep it alive.
+/// Perform the HTTP/3 authentication handshake.
+async fn client_h3_auth(
+    conn: &quinn::Connection,
+    password: &str,
+    rx_bps: u64,
+) -> Result<(), ProxyError> {
+    use http::header::{HeaderName, HeaderValue};
+    use http::{Method, Request};
+
+    let (driver, mut send_request) = h3::client::new(h3_quinn::Connection::new(conn.clone()))
+        .await
+        .map_err(|e| ProxyError::Transport(format!("h3 client: {e}")))?;
+
+    // Keep the HTTP/3 connection driver alive for the lifetime of the QUIC session.
+    tokio::spawn(async move {
+        let _ = driver;
+    });
+
+    let mut req_builder = Request::builder()
+        .method(Method::POST)
+        .uri(format!("https://{}{}", proto::AUTH_HOST, proto::AUTH_PATH));
+    req_builder = req_builder.header(http::header::HOST, proto::AUTH_HOST);
+    req_builder = req_builder.header(
+        HeaderName::from_static("hysteria-auth"),
+        HeaderValue::from_str(password).map_err(|e| ProxyError::Protocol(e.to_string()))?,
+    );
+    req_builder = req_builder.header(
+        HeaderName::from_static("hysteria-cc-rx"),
+        HeaderValue::from_str(&rx_bps.to_string())
+            .map_err(|e| ProxyError::Protocol(e.to_string()))?,
+    );
+    req_builder = req_builder.header(
+        HeaderName::from_static("hysteria-padding"),
+        HeaderValue::from_static(""),
+    );
+    let req = req_builder
+        .body(())
+        .map_err(|e| ProxyError::Protocol(e.to_string()))?;
+
+    let mut stream = send_request
+        .send_request(req)
+        .await
+        .map_err(|e| ProxyError::Transport(format!("send auth request: {e}")))?;
+    stream
+        .finish()
+        .await
+        .map_err(|e| ProxyError::Transport(format!("finish auth request: {e}")))?;
+
+    let resp = stream
+        .recv_response()
+        .await
+        .map_err(|e| ProxyError::Transport(format!("recv auth response: {e}")))?;
+
+    if resp.status().as_u16() != proto::STATUS_AUTH_OK {
+        return Err(ProxyError::AuthFailed);
+    }
+
+    let _auth = proto::auth_response_from_headers(resp.headers(), resp.status().as_u16());
+    Ok(())
+}
+
 struct Hysteria2Stream {
     inner: ReunionStream<quinn::RecvStream, quinn::SendStream>,
     _conn: quinn::Connection,
@@ -310,14 +243,12 @@ impl AsyncWrite for Hysteria2Stream {
     }
 }
 
-/// A Hysteria2 outbound handler for use in `instance.rs`.
 pub struct Hysteria2OutboundHandler {
     client: Hysteria2Client,
     tag: String,
 }
 
 impl Hysteria2OutboundHandler {
-    /// Create a new outbound handler.
     pub fn new(config: Hysteria2ClientConfig, tag: String) -> Arc<Self> {
         Arc::new(Self {
             client: Hysteria2Client::new(config),
@@ -337,10 +268,6 @@ impl OutboundHandler for Hysteria2OutboundHandler {
     }
 }
 
-// ── Private helpers ────────────────────────────────────────────────────────────
-
-/// Build a `quinn::ClientConfig` with the given transport config and optional
-/// certificate verification skip.
 fn build_hysteria2_client_config(
     skip_verify: bool,
     transport: Arc<quinn::TransportConfig>,
@@ -351,13 +278,11 @@ fn build_hysteria2_client_config(
     ensure_crypto_provider();
 
     let mut tls_config = if skip_verify {
-        // Accept any server certificate — for testing only.
         rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(SkipVerifier))
             .with_no_client_auth()
     } else {
-        // Use platform root certificates.
         let mut roots = rustls::RootCertStore::empty();
         let result = rustls_native_certs::load_native_certs();
         for cert in result.certs {
@@ -367,8 +292,7 @@ fn build_hysteria2_client_config(
             .with_root_certificates(roots)
             .with_no_client_auth()
     };
-    // Hysteria2 requires the "hysteria" ALPN token; sing-box enforces this.
-    tls_config.alpn_protocols = vec![b"hysteria".to_vec()];
+    tls_config.alpn_protocols = vec![b"h3".to_vec()];
 
     let quic_config = QuicClientConfig::try_from(tls_config).context("build QuicClientConfig")?;
     let mut config = quinn::ClientConfig::new(Arc::new(quic_config));
@@ -376,7 +300,6 @@ fn build_hysteria2_client_config(
     Ok(config)
 }
 
-/// TLS verifier that accepts any certificate — for use in tests only.
 #[derive(Debug)]
 struct SkipVerifier;
 

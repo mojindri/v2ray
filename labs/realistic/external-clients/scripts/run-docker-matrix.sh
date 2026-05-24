@@ -17,6 +17,10 @@ bash "$LAB_DIR/scripts/render-configs.sh" "$ENV_FILE" "$LAB_DIR/generated" > "$R
 
 cleanup_case() {
     docker rm -f proxy-rs-server xray-client sing-box-client >/dev/null 2>&1 || true
+    # Remove stale one-off server containers from prior matrix rows.
+    while read -r cid; do
+        [[ -n "$cid" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true
+    done < <(docker ps -aq --filter "name=proxy-rs-server" 2>/dev/null || true)
 }
 
 cleanup_all() {
@@ -54,6 +58,11 @@ run_one() {
 
     "${COMPOSE[@]}" run -d --name proxy-rs-server proxy-rs-server \
         run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
+
+    # Hysteria2 binds UDP after process start; wait before the client connects.
+    if [[ "$protocol" == "hysteria2" ]]; then
+        sleep 2
+    fi
 
     if [[ "$client" == "xray" ]]; then
         "${COMPOSE[@]}" run -d --name xray-client xray-client \
@@ -95,6 +104,10 @@ run_negative() {
 
     "${COMPOSE[@]}" run -d --name proxy-rs-server proxy-rs-server \
         run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
+
+    if [[ "$protocol" == "hysteria2" ]]; then
+        sleep 2
+    fi
 
     if [[ "$client" == "xray" ]]; then
         "${COMPOSE[@]}" run -d --name xray-client xray-client \
