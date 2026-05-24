@@ -111,18 +111,17 @@ pub type EncodedHeader = ([u8; 16], [u8; 16], u8, [u8; 8], Vec<u8>, Vec<u8>);
 /// Derive the response body key from the request body key.
 pub fn response_body_key(request_key: &[u8; 16]) -> [u8; 16] {
     let hash = Sha256::digest(request_key);
-    // SHA-256 output is always 32 bytes; truncation to 16 cannot fail.
-    hash[..16]
-        .try_into()
-        .expect("SHA-256 digest is always 32 bytes")
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&hash[..16]);
+    out
 }
 
 /// Derive the response body IV from the request body IV.
 pub fn response_body_iv(request_iv: &[u8; 16]) -> [u8; 16] {
     let hash = Sha256::digest(request_iv);
-    hash[..16]
-        .try_into()
-        .expect("SHA-256 digest is always 32 bytes")
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&hash[..16]);
+    out
 }
 
 // ── Encoder ───────────────────────────────────────────────────────────────────

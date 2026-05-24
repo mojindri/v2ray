@@ -59,7 +59,7 @@ pub fn tls_pem_for_auth_key(
     let sni = normalize_sni(cover_sni);
     let template = get_template(sni, false)?;
     let cert_der = patch_cert_der(&template, auth_key)?;
-    Ok((der_to_pem("CERTIFICATE", &cert_der), template.key_pem))
+    Ok((der_to_pem("CERTIFICATE", &cert_der)?, template.key_pem))
 }
 
 fn normalize_sni(cover_sni: &str) -> &str {
@@ -263,16 +263,20 @@ fn get_template(sni: &str, mlkem_client: bool) -> Result<CertTemplate, ProxyErro
     Ok(template)
 }
 
-fn der_to_pem(label: &str, der: &[u8]) -> String {
+fn der_to_pem(label: &str, der: &[u8]) -> Result<String, ProxyError> {
     use base64::Engine;
     let b64 = base64::engine::general_purpose::STANDARD.encode(der);
     let mut pem = format!("-----BEGIN {label}-----\n");
     for chunk in b64.as_bytes().chunks(64) {
-        pem.push_str(std::str::from_utf8(chunk).unwrap());
+        // Base64 alphabet is ASCII; chunk boundaries cannot split a UTF-8 codepoint.
+        pem.push_str(
+            std::str::from_utf8(chunk)
+                .map_err(|e| ProxyError::Tls(format!("REALITY cert PEM encoding: {e}")))?,
+        );
         pem.push('\n');
     }
     pem.push_str(&format!("-----END {label}-----\n"));
-    pem
+    Ok(pem)
 }
 
 #[cfg(test)]

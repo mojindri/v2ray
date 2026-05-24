@@ -117,7 +117,13 @@ impl CipherSuite {
     }
 
     /// HKDF-Expand-Label as defined in RFC 8446 §7.1.
-    fn expand_label(self, prk: &[u8], label: &str, context: &[u8], len: usize) -> Vec<u8> {
+    fn expand_label(
+        self,
+        prk: &[u8],
+        label: &str,
+        context: &[u8],
+        len: usize,
+    ) -> Result<Vec<u8>, ProxyError> {
         let full_label = format!("tls13 {label}");
         // HkdfLabel = uint16(len) || uint8(label_len) || label || uint8(ctx_len) || ctx
         let mut info = Vec::with_capacity(2 + 1 + full_label.len() + 1 + context.len());
@@ -130,29 +136,32 @@ impl CipherSuite {
         let mut okm = vec![0u8; len];
         match self {
             Self::Aes128GcmSha256 => {
-                let hkdf = match Hkdf::<Sha256>::from_prk(prk) {
-                    Ok(v) => v,
-                    Err(_) => panic!("valid SHA-256 PRK"),
-                };
-                if let Err(_e) = hkdf.expand(&info, &mut okm) {
-                    panic!("expand length in range");
-                }
+                let hkdf = Hkdf::<Sha256>::from_prk(prk).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HKDF-Expand: invalid SHA-256 PRK".into())
+                })?;
+                hkdf.expand(&info, &mut okm).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HKDF-Expand: SHA-256 output length".into())
+                })?;
             }
             Self::Aes256GcmSha384 => {
-                let hkdf = match Hkdf::<Sha384>::from_prk(prk) {
-                    Ok(v) => v,
-                    Err(_) => panic!("valid SHA-384 PRK"),
-                };
-                if let Err(_e) = hkdf.expand(&info, &mut okm) {
-                    panic!("expand length in range");
-                }
+                let hkdf = Hkdf::<Sha384>::from_prk(prk).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HKDF-Expand: invalid SHA-384 PRK".into())
+                })?;
+                hkdf.expand(&info, &mut okm).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HKDF-Expand: SHA-384 output length".into())
+                })?;
             }
         }
-        okm
+        Ok(okm)
     }
 
     /// Derive-Secret(secret, label, messages) = Expand-Label(secret, label, Hash(messages), H)
-    fn derive_secret(self, prk: &[u8], label: &str, transcript_hash: &[u8]) -> Vec<u8> {
+    fn derive_secret(
+        self,
+        prk: &[u8],
+        label: &str,
+        transcript_hash: &[u8],
+    ) -> Result<Vec<u8>, ProxyError> {
         self.expand_label(prk, label, transcript_hash, self.hash_len())
     }
 
@@ -165,23 +174,21 @@ impl CipherSuite {
     }
 
     /// HMAC(key, data) with the suite's hash function.
-    pub(super) fn hmac(self, key: &[u8], data: &[u8]) -> Vec<u8> {
+    pub(super) fn hmac(self, key: &[u8], data: &[u8]) -> Result<Vec<u8>, ProxyError> {
         match self {
             Self::Aes128GcmSha256 => {
-                let mut mac = match Hmac::<Sha256>::new_from_slice(key) {
-                    Ok(v) => v,
-                    Err(_) => panic!("HMAC key length ok"),
-                };
+                let mut mac = Hmac::<Sha256>::new_from_slice(key).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HMAC: invalid SHA-256 key length".into())
+                })?;
                 mac.update(data);
-                mac.finalize().into_bytes().to_vec()
+                Ok(mac.finalize().into_bytes().to_vec())
             }
             Self::Aes256GcmSha384 => {
-                let mut mac = match Hmac::<Sha384>::new_from_slice(key) {
-                    Ok(v) => v,
-                    Err(_) => panic!("HMAC key length ok"),
-                };
+                let mut mac = Hmac::<Sha384>::new_from_slice(key).map_err(|_| {
+                    ProxyError::Tls("TLS 1.3 HMAC: invalid SHA-384 key length".into())
+                })?;
                 mac.update(data);
-                mac.finalize().into_bytes().to_vec()
+                Ok(mac.finalize().into_bytes().to_vec())
             }
         }
     }
@@ -220,7 +227,7 @@ pub(super) fn derive_handshake_keys(
     cs: CipherSuite,
     dhe: &[u8; 32],
     transcript_hash: &[u8],
-) -> HsKeys {
+) -> Result<HsKeys, ProxyError> {
     let hash_len = cs.hash_len();
     let zero = vec![0u8; hash_len];
 
@@ -229,31 +236,31 @@ pub(super) fn derive_handshake_keys(
 
     // derived = Derive-Secret(early_secret, "derived", "")
     let empty_hash = cs.hash(b"");
-    let derived = cs.derive_secret(&early_secret, "derived", &empty_hash);
+    let derived = cs.derive_secret(&early_secret, "derived", &empty_hash)?;
 
     // handshake_secret = HKDF-Extract(salt=derived, IKM=DHE)
     let hs_secret = cs.hkdf_extract(&derived, dhe);
 
     // {client,server}_handshake_traffic_secret
-    let c_hs_traffic = cs.derive_secret(&hs_secret, "c hs traffic", transcript_hash);
-    let s_hs_traffic = cs.derive_secret(&hs_secret, "s hs traffic", transcript_hash);
+    let c_hs_traffic = cs.derive_secret(&hs_secret, "c hs traffic", transcript_hash)?;
+    let s_hs_traffic = cs.derive_secret(&hs_secret, "s hs traffic", transcript_hash)?;
 
     // master_secret = HKDF-Extract(salt=Derive-Secret(hs, "derived", ""), IKM=0)
-    let derived2 = cs.derive_secret(&hs_secret, "derived", &empty_hash);
+    let derived2 = cs.derive_secret(&hs_secret, "derived", &empty_hash)?;
     let master_secret = cs.hkdf_extract(&derived2, &zero);
 
     // Derive write keys + IVs
     let key_len = cs.key_len();
-    let c_key = cs.expand_label(&c_hs_traffic, "key", b"", key_len);
-    let c_iv = iv_from_label(cs, &c_hs_traffic);
-    let s_key = cs.expand_label(&s_hs_traffic, "key", b"", key_len);
-    let s_iv = iv_from_label(cs, &s_hs_traffic);
+    let c_key = cs.expand_label(&c_hs_traffic, "key", b"", key_len)?;
+    let c_iv = iv_from_label(cs, &c_hs_traffic)?;
+    let s_key = cs.expand_label(&s_hs_traffic, "key", b"", key_len)?;
+    let s_iv = iv_from_label(cs, &s_hs_traffic)?;
 
     // Finished keys
-    let c_fin = cs.expand_label(&c_hs_traffic, "finished", b"", hash_len);
-    let s_fin = cs.expand_label(&s_hs_traffic, "finished", b"", hash_len);
+    let c_fin = cs.expand_label(&c_hs_traffic, "finished", b"", hash_len)?;
+    let s_fin = cs.expand_label(&s_hs_traffic, "finished", b"", hash_len)?;
 
-    HsKeys {
+    Ok(HsKeys {
         client_key: c_key,
         client_iv: c_iv,
         client_finished_key: c_fin,
@@ -261,7 +268,7 @@ pub(super) fn derive_handshake_keys(
         server_iv: s_iv,
         server_finished_key: s_fin,
         master_secret,
-    }
+    })
 }
 
 /// Derive application traffic keys from the master secret.
@@ -269,32 +276,30 @@ pub(super) fn derive_app_keys(
     cs: CipherSuite,
     master_secret: &[u8],
     transcript_hash: &[u8], // Hash(CH..server Finished)
-) -> AppKeys {
+) -> Result<AppKeys, ProxyError> {
     let key_len = cs.key_len();
 
-    let c_app = cs.derive_secret(master_secret, "c ap traffic", transcript_hash);
-    let s_app = cs.derive_secret(master_secret, "s ap traffic", transcript_hash);
+    let c_app = cs.derive_secret(master_secret, "c ap traffic", transcript_hash)?;
+    let s_app = cs.derive_secret(master_secret, "s ap traffic", transcript_hash)?;
 
-    let c_key = cs.expand_label(&c_app, "key", b"", key_len);
-    let c_iv = iv_from_label(cs, &c_app);
-    let s_key = cs.expand_label(&s_app, "key", b"", key_len);
-    let s_iv = iv_from_label(cs, &s_app);
+    let c_key = cs.expand_label(&c_app, "key", b"", key_len)?;
+    let c_iv = iv_from_label(cs, &c_app)?;
+    let s_key = cs.expand_label(&s_app, "key", b"", key_len)?;
+    let s_iv = iv_from_label(cs, &s_app)?;
 
-    AppKeys {
+    Ok(AppKeys {
         cs,
         client_key: c_key,
         client_iv: c_iv,
         server_key: s_key,
         server_iv: s_iv,
-    }
+    })
 }
 
-fn iv_from_label(cs: CipherSuite, traffic_secret: &[u8]) -> [u8; 12] {
-    let raw = cs.expand_label(traffic_secret, "iv", b"", 12);
-    match raw.try_into() {
-        Ok(v) => v,
-        Err(_) => panic!("iv is exactly 12 bytes"),
-    }
+fn iv_from_label(cs: CipherSuite, traffic_secret: &[u8]) -> Result<[u8; 12], ProxyError> {
+    let raw = cs.expand_label(traffic_secret, "iv", b"", 12)?;
+    raw.try_into()
+        .map_err(|_| ProxyError::Tls("TLS 1.3 IV derivation length mismatch".into()))
 }
 
 // ── AEAD ──────────────────────────────────────────────────────────────────────
@@ -684,7 +689,7 @@ pub(crate) async fn complete_tls13_handshake(
     let tls_dhe: [u8; 32] = tls_dhe
         .try_into()
         .map_err(|_| ProxyError::Protocol("TLS key agreement secret length mismatch".into()))?;
-    let hs_keys = derive_handshake_keys(cs, &tls_dhe, &transcript_hash_after_sh);
+    let hs_keys = derive_handshake_keys(cs, &tls_dhe, &transcript_hash_after_sh)?;
 
     // ── Read and decrypt server handshake messages ────────────────────────────
     // Expected: [ChangeCipherSpec], EncryptedExtensions, Certificate,
@@ -742,7 +747,8 @@ pub(crate) async fn complete_tls13_handshake(
                             // finished_key = Expand-Label(server_hs_traffic, "finished", "", H)
                             // verify_data = HMAC(finished_key, Hash(transcript_so_far))
                             let transcript_hash = cs.hash(&transcript);
-                            let expected = cs.hmac(&hs_keys.server_finished_key, &transcript_hash);
+                            let expected =
+                                cs.hmac(&hs_keys.server_finished_key, &transcript_hash)?;
                             let body_start = 4; // skip type(1)+len(3)
                             let verify_data = &msg_bytes[body_start..];
                             if verify_data != expected.as_slice() {
@@ -774,7 +780,7 @@ pub(crate) async fn complete_tls13_handshake(
     // ── App traffic secrets (derived before sending client Finished) ──────────
     // RFC 8446: app secrets use transcript Hash(CH..server Finished).
     let app_transcript_hash = cs.hash(&transcript);
-    let app_keys = derive_app_keys(cs, &hs_keys.master_secret, &app_transcript_hash);
+    let app_keys = derive_app_keys(cs, &hs_keys.master_secret, &app_transcript_hash)?;
 
     // ── Send legacy ChangeCipherSpec ──────────────────────────────────────────
     tcp.write_all(&[RT_CHANGE_CIPHER_SPEC, 0x03, 0x03, 0x00, 0x01, 0x01])
@@ -782,7 +788,7 @@ pub(crate) async fn complete_tls13_handshake(
 
     // ── Send client Finished ──────────────────────────────────────────────────
     // verify_data = HMAC(client_finished_key, Hash(transcript_so_far))
-    let client_finished_data = cs.hmac(&hs_keys.client_finished_key, &app_transcript_hash);
+    let client_finished_data = cs.hmac(&hs_keys.client_finished_key, &app_transcript_hash)?;
 
     // Build client Finished handshake message: type(1) + len(3) + verify_data
     let vd_len = client_finished_data.len() as u32;
