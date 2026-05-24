@@ -138,7 +138,7 @@ make -C labs/realistic docker-full
 
 This does three things in order:
 
-1. Builds the `proxy-rs:latest` Docker image.
+1. Builds the `blackwire:latest` Docker image.
 2. Starts `target-http` (hashicorp/http-echo) and `target-echo` (socat) as deterministic targets.
 3. Runs `cargo test -p integration-tests` (Tier 2).
 4. Starts `xray-server` and `nginx-fallback` via Docker Compose.
@@ -242,7 +242,7 @@ Runs all seven protocols over a real public network between two Ubuntu 24.04 VPS
 - Two Ubuntu 24.04 VPS machines (one server, one client).
 - Root SSH access to both.
 - A real domain name pointing at the server VPS (for TLS certs).
-- `proxy-rs` binary built for Linux x86_64.
+- `blackwire` binary built for Linux x86_64.
 
 ### Step 1 — Build the binary
 
@@ -250,7 +250,7 @@ On your dev machine:
 
 ```sh
 cargo build --release --target x86_64-unknown-linux-gnu
-# Binary at: target/x86_64-unknown-linux-gnu/release/proxy-rs
+# Binary at: target/x86_64-unknown-linux-gnu/release/blackwire
 ```
 
 If you don't have the cross-compile target installed:
@@ -273,13 +273,13 @@ Edit `matrix.env`:
 SERVER_HOST=1.2.3.4          # server VPS public IP
 TEST_DOMAIN=proxy.example.com # domain pointing at server VPS
 
-VLESS_UUID=<generate with: proxy-rs uuid>
-VMESS_UUID=<generate with: proxy-rs uuid>
+VLESS_UUID=<generate with: blackwire uuid>
+VMESS_UUID=<generate with: blackwire uuid>
 TROJAN_PASSWORD=<strong random string>
 SS2022_PASSWORD=<strong random string>
 HYSTERIA2_PASSWORD=<strong random string>
 
-# Generate with: proxy-rs x25519
+# Generate with: blackwire x25519
 REALITY_PRIVATE_KEY=<server private key>
 REALITY_PUBLIC_KEY=<client public key>
 REALITY_SHORT_ID=<8-byte hex, e.g. aabbccdd00000001>
@@ -295,9 +295,9 @@ SSH_SERVER=1.2.3.4 make -C labs/realistic vps-server-setup
 
 This will:
 - Install Caddy and obtain a TLS cert for `TEST_DOMAIN`.
-- Create the `proxy-rs` system user and directory layout.
-- Generate all seven server configs from templates into `/etc/proxy-rs/generated/`.
-- Sync the Caddy cert to `/etc/proxy-rs/certs/`.
+- Create the `blackwire` system user and directory layout.
+- Generate all seven server configs from templates into `/etc/blackwire/generated/`.
+- Sync the Caddy cert to `/etc/blackwire/certs/`.
 - Start a simple HTTP target on port 18080 for the matrix tests.
 - Open the required UFW firewall ports.
 
@@ -315,27 +315,27 @@ Port layout after setup:
 | 8388/tcp | TCP | Shadowsocks 2022 |
 | 4433/udp | QUIC | Hysteria2 |
 
-### Step 4 — Start server-side proxy-rs instances
+### Step 4 — Start server-side blackwire instances
 
 On the server VPS, start each protocol inbound:
 
 ```sh
 # Run one or all — each config is standalone
-proxy-rs run -c /etc/proxy-rs/generated/server-vless-tcp.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-vless-reality.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-vless-ws.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-vmess-grpc.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-trojan-tls.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-ss2022.json &
-proxy-rs run -c /etc/proxy-rs/generated/server-hysteria2.json &
+blackwire run -c /etc/blackwire/generated/server-vless-tcp.json &
+blackwire run -c /etc/blackwire/generated/server-vless-reality.json &
+blackwire run -c /etc/blackwire/generated/server-vless-ws.json &
+blackwire run -c /etc/blackwire/generated/server-vmess-grpc.json &
+blackwire run -c /etc/blackwire/generated/server-trojan-tls.json &
+blackwire run -c /etc/blackwire/generated/server-ss2022.json &
+blackwire run -c /etc/blackwire/generated/server-hysteria2.json &
 ```
 
 Or use the systemd service for a long-running deployment:
 
 ```sh
-cp labs/realistic/vps/proxy-rs-server.service /etc/systemd/system/
+cp labs/realistic/vps/blackwire-server.service /etc/systemd/system/
 # Edit ExecStart to point at the config you want
-systemctl daemon-reload && systemctl enable --now proxy-rs-server
+systemctl daemon-reload && systemctl enable --now blackwire-server
 ```
 
 ### Step 5 — Provision the client VPS
@@ -344,7 +344,7 @@ systemctl daemon-reload && systemctl enable --now proxy-rs-server
 SSH_CLIENT=5.6.7.8 make -C labs/realistic vps-client-setup
 ```
 
-This generates all seven client configs into `/etc/proxy-rs/generated/` on the client VPS.
+This generates all seven client configs into `/etc/blackwire/generated/` on the client VPS.
 
 ### Step 6 — Run the matrix
 
@@ -354,7 +354,7 @@ SSH_CLIENT=5.6.7.8 make -C labs/realistic vps-test
 
 This runs `scripts/run-matrix.sh` on the client VPS. For each protocol it:
 
-1. Starts `proxy-rs` with the client config (SOCKS5 on 127.0.0.1:1080).
+1. Starts `blackwire` with the client config (SOCKS5 on 127.0.0.1:1080).
 2. Sends `curl` traffic through the SOCKS5 proxy to `http://<SERVER_HOST>:18080`.
 3. Records PASS/FAIL.
 4. Copies the report back to `labs/realistic/reports/`.

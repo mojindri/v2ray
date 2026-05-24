@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Copy Caddy-managed cert+key to /etc/proxy-rs/certs/ so proxy-rs inbounds can read them.
+# Copy Caddy-managed cert+key to /etc/blackwire/certs/ so blackwire inbounds can read them.
 # Run as root after Caddy has obtained the certificate.
 set -euo pipefail
 
 DOMAIN="${1:?Usage: cert-sync.sh <domain>}"
-DEST=/etc/proxy-rs/certs
+DEST=/etc/blackwire/certs
 
 # Caddy stores certs under the home directory of the caddy user.
 CADDY_DATA="${CADDY_DATA_DIR:-/var/lib/caddy/.local/share/caddy}"
@@ -25,7 +25,7 @@ mkdir -p "$DEST"
 cp "$ACME_DIR/$DOMAIN.crt" "$DEST/cert.pem"
 # Convert to PKCS#8 to maximize parser compatibility across TLS stacks.
 openssl pkcs8 -topk8 -nocrypt -in "$ACME_DIR/$DOMAIN.key" -out "$DEST/key.pem"
-chown -R proxy-rs:proxy-rs "$DEST"
+chown -R blackwire:blackwire "$DEST"
 chmod 640 "$DEST/key.pem"
 
 echo "Certs synced to $DEST ($(date -u +%Y-%m-%dT%H:%M:%SZ))"

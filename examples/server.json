@@ -1,7 +1,7 @@
 {
   "_comment": "Server-side config. Run this on the remote server (VPS).",
   "_comment2": "The proxy listens for VLESS connections on port 10443 and forwards traffic to real destinations.",
-  "_comment3": "Replace the UUID below with your own (run: proxy-rs uuid).",
+  "_comment3": "Replace the UUID below with your own (run: blackwire uuid).",
 
   "log": {
     "level": "info"

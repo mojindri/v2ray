@@ -88,8 +88,8 @@ Only for debugging — not the normal workflow.
 
 ```sh
 ssh root@<server>
-systemctl status proxy-rs-*
-journalctl -u proxy-rs-* --no-pager | tail -200
+systemctl status blackwire-*
+journalctl -u blackwire-* --no-pager | tail -200
 ```
 
 Do **not** run `make verify-*` or legacy `make check-*` from inside a VPS shell.

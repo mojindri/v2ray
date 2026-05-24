@@ -14,7 +14,7 @@
 
 set -euo pipefail
 
-DATA_DIR="${DATA_DIR:-/usr/local/share/proxy-rs}"
+DATA_DIR="${DATA_DIR:-/usr/local/share/blackwire}"
 GEOIP_URL="https://github.com/v2fly/geoip/releases/latest/download/geoip.dat"
 GEOSITE_URL="https://github.com/v2fly/domain-list-community/releases/latest/download/dlc.dat"
 

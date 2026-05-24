@@ -3,14 +3,14 @@
 }
 
 # HTTP: ACME HTTP-01 challenge + Trojan/VLESS fallback page.
-# proxy-rs inbounds that need a fallback point to 127.0.0.1:80.
+# blackwire inbounds that need a fallback point to 127.0.0.1:80.
 :80 {
-    respond "proxy-rs realistic lab" 200
+    respond "blackwire realistic lab" 200
 }
 
 # HTTPS: Caddy owns cert acquisition for TEST_DOMAIN.
 # Certs land in Caddy's default storage; cert-sync.sh copies them out.
-# Caddy binds 443 here so proxy-rs uses other ports (10443, 8443, etc.).
+# Caddy binds 443 here so blackwire uses other ports (10443, 8443, etc.).
 ${TEST_DOMAIN} {
-    respond "proxy-rs realistic lab" 200
+    respond "blackwire realistic lab" 200
 }

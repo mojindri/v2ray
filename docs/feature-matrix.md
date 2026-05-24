@@ -1,4 +1,4 @@
-# proxy-rs Feature Matrix
+# blackwire Feature Matrix
 
 Status labels:
 
@@ -12,7 +12,7 @@ Status labels:
 
 ## Product scope
 
-**proxy-rs** is a Rust-native server that targets **wire compatibility** with
+**blackwire** is a Rust-native server that targets **wire compatibility** with
 Xray-core and sing-box clients on supported protocol/transport combinations.
 Validation runs against those upstream clients in local Docker labs and on real
 VPS hosts — not mock peers alone.

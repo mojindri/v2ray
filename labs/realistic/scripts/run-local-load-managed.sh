@@ -52,15 +52,15 @@ cat > "$CONFIG" <<JSON
 }
 JSON
 
-echo "==> building proxy-rs"
-cargo build --release --bin proxy-rs
+echo "==> building blackwire"
+cargo build --release --bin blackwire
 
 echo "==> starting local target HTTP server on 127.0.0.1:$TARGET_PORT"
 python3 -m http.server "$TARGET_PORT" --bind 127.0.0.1 > "$REPORT_DIR/load-target-http.log" 2>&1 &
 HTTP_PID=$!
 
-echo "==> starting proxy-rs on 127.0.0.1:$PROXY_PORT"
-RUST_LOG="${RUST_LOG:-info}" target/release/proxy-rs run -c "$CONFIG" > "$REPORT_DIR/load-proxy.log" 2>&1 &
+echo "==> starting blackwire on 127.0.0.1:$PROXY_PORT"
+RUST_LOG="${RUST_LOG:-info}" target/release/blackwire run -c "$CONFIG" > "$REPORT_DIR/load-proxy.log" 2>&1 &
 PROXY_PID=$!
 
 cleanup() {

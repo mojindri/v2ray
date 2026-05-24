@@ -42,5 +42,5 @@ The key pair in these files is disposable and only for localhost examples.
 Generate real deployment keys with:
 
 ```sh
-cargo run -p proxy-rs -- x25519
+cargo run -p blackwire -- x25519
 ```

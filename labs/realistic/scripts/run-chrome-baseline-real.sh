@@ -22,7 +22,7 @@ TS="$(date -u +%Y%m%dT%H%M%SZ)"
 
 CHROME_TARGET_URL="${CHROME_TARGET_URL:-https://www.cloudflare.com}"
 CHROME_TARGET_SLUG="${CHROME_TARGET_SLUG:-cloudflare}"
-CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-/tmp/proxy-rs-chrome-real-baseline-profile}"
+CHROME_PROFILE_DIR="${CHROME_PROFILE_DIR:-/tmp/blackwire-chrome-real-baseline-profile}"
 CHROME_CAPTURE_SECONDS="${CHROME_CAPTURE_SECONDS:-12}"
 CHROME_PCAP_IFACE="${CHROME_PCAP_IFACE:-en0}"
 CHROME_TCPDUMP_FILTER="${CHROME_TCPDUMP_FILTER:-tcp port 443}"

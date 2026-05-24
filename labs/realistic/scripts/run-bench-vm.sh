@@ -11,8 +11,8 @@ REPORT_DIR="$PROJECT_ROOT/labs/realistic/$REPORT_ROOT/bench"
 mkdir -p "$REPORT_DIR"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-LIMA_INSTANCE="${LIMA_INSTANCE:-proxy-rs-browser}"
-REMOTE_DIR="${LIMA_REMOTE_BENCH_DIR:-/tmp/proxy-rs-bench}"
+LIMA_INSTANCE="${LIMA_INSTANCE:-blackwire-browser}"
+REMOTE_DIR="${LIMA_REMOTE_BENCH_DIR:-/tmp/blackwire-bench}"
 REPORT="$REPORT_DIR/bench-vm-$MODE-$TS.txt"
 
 REQS_SMOKE="${BENCH_SMOKE_REQUESTS:-200}"

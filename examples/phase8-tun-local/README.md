@@ -29,7 +29,7 @@ only.
 Validate:
 
 ```sh
-cargo run -q -p proxy-rs -- test -c examples/phase8-tun-local/config.json
+cargo run -q -p blackwire -- test -c examples/phase8-tun-local/config.json
 cargo test -p proxy-core --test production_readiness top_level_tun_config_is_rejected_until_packet_runtime_exists
 ```
 

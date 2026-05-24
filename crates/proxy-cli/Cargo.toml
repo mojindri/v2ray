@@ -1,5 +1,5 @@
 [package]
-name        = "proxy-rs"
+name        = "blackwire"
 description = "Command-line binary for the proxy platform."
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [[bin]]
-name = "proxy-rs"
+name = "blackwire"
 path = "src/main.rs"
 
 [dependencies]

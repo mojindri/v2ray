@@ -51,9 +51,9 @@ cat > "$CONFIG" <<JSON
 }
 JSON
 
-cargo build --release --bin proxy-rs
+cargo build --release --bin blackwire
 
-RUST_LOG="${RUST_LOG:-info}" target/release/proxy-rs run -c "$CONFIG" > "$REPORT_DIR/slowloris-proxy.log" 2>&1 &
+RUST_LOG="${RUST_LOG:-info}" target/release/blackwire run -c "$CONFIG" > "$REPORT_DIR/slowloris-proxy.log" 2>&1 &
 PROXY_PID=$!
 
 cleanup() {

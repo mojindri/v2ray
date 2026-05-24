@@ -6,7 +6,7 @@ LOG="$REPORT_DIR/tls-fingerprint-$(date -u +%Y%m%dT%H%M%SZ).log"
 exec > >(tee "$LOG") 2>&1
 
 echo "=== TLS fingerprint helper ==="
-echo "This script does not start proxy-rs. Start the client/server path you want to inspect, then capture traffic."
+echo "This script does not start blackwire. Start the client/server path you want to inspect, then capture traffic."
 echo ""
 echo "Useful commands:"
 echo "  sudo tcpdump -i any -w $REPORT_DIR/clienthello.pcap 'tcp port 443 or tcp port 8443 or udp port 443'"

@@ -1,5 +1,5 @@
 [package]
-name = "proxy-rs-fuzz"
+name = "blackwire-fuzz"
 version = "0.0.0"
 publish = false
 edition = "2021"

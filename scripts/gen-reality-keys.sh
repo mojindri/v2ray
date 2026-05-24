@@ -14,16 +14,16 @@
 
 set -euo pipefail
 
-BINARY="${BINARY:-proxy-rs}"
+BINARY="${BINARY:-blackwire}"
 
 # Check that the binary exists.
 if ! command -v "$BINARY" &>/dev/null; then
     # Try the build output directory.
-    BINARY="./target/release/proxy-rs"
+    BINARY="./target/release/blackwire"
     if [[ ! -x "$BINARY" ]]; then
-        BINARY="./target/debug/proxy-rs"
+        BINARY="./target/debug/blackwire"
         if [[ ! -x "$BINARY" ]]; then
-            echo "Error: proxy-rs binary not found. Run 'cargo build' first." >&2
+            echo "Error: blackwire binary not found. Run 'cargo build' first." >&2
             exit 1
         fi
     fi

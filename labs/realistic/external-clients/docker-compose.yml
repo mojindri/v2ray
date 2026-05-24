@@ -3,14 +3,14 @@ services:
     image: hashicorp/http-echo:1.0
     command:
       - "-listen=:8080"
-      - "-text=proxy-rs external client target"
+      - "-text=blackwire external client target"
 
-  proxy-rs-server:
-    image: proxy-rs:latest
+  blackwire-server:
+    image: blackwire:latest
     volumes:
-      - ./generated/proxy-rs:/generated/proxy-rs:ro
-      - ./generated/certs:/etc/proxy-rs/certs:ro
-    command: ["run", "-c", "/generated/proxy-rs/server-vless-tcp.json"]
+      - ./generated/blackwire:/generated/blackwire:ro
+      - ./generated/certs:/etc/blackwire/certs:ro
+    command: ["run", "-c", "/generated/blackwire/server-vless-tcp.json"]
     depends_on:
       - target-http
 
@@ -20,7 +20,7 @@ services:
       - ./generated:/generated:ro
     command: ["run", "-c", "/generated/xray/vless-tcp.json"]
     depends_on:
-      - proxy-rs-server
+      - blackwire-server
 
   sing-box-client:
     image: ghcr.io/sagernet/sing-box:latest
@@ -28,4 +28,4 @@ services:
       - ./generated:/generated:ro
     command: ["run", "-c", "/generated/sing-box/vless-tcp.json"]
     depends_on:
-      - proxy-rs-server
+      - blackwire-server

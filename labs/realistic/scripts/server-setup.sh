@@ -35,17 +35,17 @@ https://dl.cloudsmith.io/public/caddy/stable/deb/debian any-version main" \
     apt-get install -y -qq caddy >/dev/null
 fi
 
-echo "==> Checking proxy-rs binary"
-if [[ ! -x /usr/local/bin/proxy-rs ]]; then
-    echo "ERROR: /usr/local/bin/proxy-rs not found."
-    echo "Build with: cargo build --release  then  scp target/release/proxy-rs server:/usr/local/bin/"
+echo "==> Checking blackwire binary"
+if [[ ! -x /usr/local/bin/blackwire ]]; then
+    echo "ERROR: /usr/local/bin/blackwire not found."
+    echo "Build with: cargo build --release  then  scp target/release/blackwire server:/usr/local/bin/"
     exit 1
 fi
 
-echo "==> Creating proxy-rs user and directories"
-useradd --system --home /var/lib/proxy-rs --shell /usr/sbin/nologin proxy-rs 2>/dev/null || true
-mkdir -p /etc/proxy-rs/certs /etc/proxy-rs/generated /var/lib/proxy-rs
-chown -R proxy-rs:proxy-rs /var/lib/proxy-rs
+echo "==> Creating blackwire user and directories"
+useradd --system --home /var/lib/blackwire --shell /usr/sbin/nologin blackwire 2>/dev/null || true
+mkdir -p /etc/blackwire/certs /etc/blackwire/generated /var/lib/blackwire
+chown -R blackwire:blackwire /var/lib/blackwire
 
 echo "==> Configuring Caddy"
 TEST_DOMAIN="$TEST_DOMAIN" envsubst < "$LAB_DIR/configs/caddy/Caddyfile" > /etc/caddy/Caddyfile
@@ -67,34 +67,34 @@ else
     echo "Certificate not reported yet; continuing with cert sync attempt."
 fi
 
-echo "==> Syncing certificates to /etc/proxy-rs/certs/"
+echo "==> Syncing certificates to /etc/blackwire/certs/"
 bash "$SCRIPT_DIR/cert-sync.sh" "$TEST_DOMAIN"
 
-echo "==> Generating proxy-rs server configs"
+echo "==> Generating blackwire server configs"
 for tpl in "$LAB_DIR/configs/server"/*.json; do
     name="$(basename "$tpl")"
-    envsubst < "$tpl" > "/etc/proxy-rs/generated/server-$name"
+    envsubst < "$tpl" > "/etc/blackwire/generated/server-$name"
 done
-chown -R proxy-rs:proxy-rs /etc/proxy-rs
+chown -R blackwire:blackwire /etc/blackwire
 
 echo "==> Starting target HTTP echo service on :18080"
 # Simple HTTP echo on port 18080 for the client-side matrix test.
-if ! systemctl is-active --quiet proxy-rs-target 2>/dev/null; then
-    cat > /etc/systemd/system/proxy-rs-target.service << 'EOF'
+if ! systemctl is-active --quiet blackwire-target 2>/dev/null; then
+    cat > /etc/systemd/system/blackwire-target.service << 'EOF'
 [Unit]
-Description=proxy-rs lab HTTP target
+Description=blackwire lab HTTP target
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 -m http.server 18080 --directory /var/lib/proxy-rs
+ExecStart=/usr/bin/python3 -m http.server 18080 --directory /var/lib/blackwire
 Restart=always
-User=proxy-rs
+User=blackwire
 
 [Install]
 WantedBy=multi-user.target
 EOF
     systemctl daemon-reload
-    systemctl enable --now proxy-rs-target
+    systemctl enable --now blackwire-target
 fi
 
 echo "==> Configuring UFW firewall"
@@ -111,17 +111,17 @@ ufw allow 4433/udp  # Hysteria2 QUIC
 ufw --force enable
 
 echo "==> Setting up weekly cert renewal sync"
-cat > /etc/cron.weekly/proxy-rs-cert-sync << EOF
+cat > /etc/cron.weekly/blackwire-cert-sync << EOF
 #!/bin/sh
 bash $SCRIPT_DIR/cert-sync.sh "$TEST_DOMAIN"
-for cfg in /etc/proxy-rs/generated/server-*.json; do
-    systemctl restart "proxy-rs-\$(basename \$cfg .json)" 2>/dev/null || true
+for cfg in /etc/blackwire/generated/server-*.json; do
+    systemctl restart "blackwire-\$(basename \$cfg .json)" 2>/dev/null || true
 done
 EOF
-chmod +x /etc/cron.weekly/proxy-rs-cert-sync
+chmod +x /etc/cron.weekly/blackwire-cert-sync
 
 echo ""
 echo "==> Server setup complete."
-echo "    Configs: /etc/proxy-rs/generated/server-*.json"
-echo "    Certs:   /etc/proxy-rs/certs/cert.pem  key.pem"
+echo "    Configs: /etc/blackwire/generated/server-*.json"
+echo "    Certs:   /etc/blackwire/certs/cert.pem  key.pem"
 echo "    Next: run the individual protocol services or use run-matrix.sh from the client VPS."

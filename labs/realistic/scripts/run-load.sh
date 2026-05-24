@@ -19,7 +19,7 @@ s=socket.socket(); s.settimeout(0.5)
 try:
     s.connect((host, port))
 except OSError:
-    print(f'SKIP: no local SOCKS proxy listening at {host}:{port}. Start proxy-rs first for a real load test.')
+    print(f'SKIP: no local SOCKS proxy listening at {host}:{port}. Start blackwire first for a real load test.')
 exit 0
     open('$OUT','w').write('{"status":"skipped","reason":"no local SOCKS proxy"}\n')
     sys.exit(0)

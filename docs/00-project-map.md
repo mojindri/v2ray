@@ -83,7 +83,7 @@ The workspace root `Cargo.toml` declares these crates:
   Raw TLS ClientHello builder used by REALITY client camouflage.
 
 - `proxy-cli`
-  The `proxy-rs` binary entrypoint.
+  The `blackwire` binary entrypoint.
 
 - `proxy-api`
   Planned management/stats API crate. Currently mostly a stub.

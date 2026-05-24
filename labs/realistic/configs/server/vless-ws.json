@@ -13,8 +13,8 @@
         "network": "ws",
         "security": "tls",
         "tlsSettings": {
-          "certificateFile": "/etc/proxy-rs/certs/cert.pem",
-          "keyFile": "/etc/proxy-rs/certs/key.pem"
+          "certificateFile": "/etc/blackwire/certs/cert.pem",
+          "keyFile": "/etc/blackwire/certs/key.pem"
         },
         "wsSettings": { "path": "/proxy" }
       }

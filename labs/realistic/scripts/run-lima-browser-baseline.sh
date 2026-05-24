@@ -18,11 +18,11 @@ mkdir -p "$BASELINE_DIR" "$LOG_DIR" "$CFG_DIR"
 cd "$PROJECT_ROOT"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-LIMA_INSTANCE="${LIMA_INSTANCE:-proxy-rs-browser}"
+LIMA_INSTANCE="${LIMA_INSTANCE:-blackwire-browser}"
 LIMA_TARGET_URL="${LIMA_TARGET_URL:-https://www.cloudflare.com}"
 LIMA_EXPECT_SNI="${LIMA_EXPECT_SNI:-www.cloudflare.com}"
 LIMA_CAPTURE_SECONDS="${LIMA_CAPTURE_SECONDS:-15}"
-LIMA_REMOTE_DIR="${LIMA_REMOTE_DIR:-/tmp/proxy-rs-lima-browser-lab}"
+LIMA_REMOTE_DIR="${LIMA_REMOTE_DIR:-/tmp/blackwire-lima-browser-lab}"
 SAFE_SNI="$(echo "$LIMA_EXPECT_SNI" | tr '/:' '__')"
 REMOTE_PCAP="$LIMA_REMOTE_DIR/lima-browser-$SAFE_SNI-$TS.pcap"
 LOCAL_PCAP="$BASELINE_DIR/lima-browser-$SAFE_SNI-$TS.pcap"
@@ -153,7 +153,7 @@ xvfb-run -a "$BROWSER" \
   --headless=new \
   --disable-dev-shm-usage \
   --remote-debugging-port=0 \
-  "$LIMA_TARGET_URL" >/tmp/proxy-rs-lima-browser.log 2>&1 &
+  "$LIMA_TARGET_URL" >/tmp/blackwire-lima-browser.log 2>&1 &
 
 BROWSER_PID=$!
 

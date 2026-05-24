@@ -25,7 +25,7 @@ before this feature is promoted into the mandatory Docker/VPS matrix.
 Validate:
 
 ```sh
-cargo run -q -p proxy-rs -- test -c examples/phase7-shadowtls-vless/client.json
-cargo run -q -p proxy-rs -- test -c examples/phase7-shadowtls-vless/server.json
+cargo run -q -p blackwire -- test -c examples/phase7-shadowtls-vless/client.json
+cargo run -q -p blackwire -- test -c examples/phase7-shadowtls-vless/server.json
 cargo test -p integration-tests phase7_vless_over_shadowtls_v3_transfers_data
 ```

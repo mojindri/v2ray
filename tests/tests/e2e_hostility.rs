@@ -361,7 +361,7 @@ async fn dns_resolution_failure() {
     // `.invalid` is reserved by RFC 2606 and always NXDOMAIN.
     let mut stream = timeout(
         Duration::from_secs(3),
-        socks5_connect(socks_port, "nonexistent.proxy-rs.invalid", 80),
+        socks5_connect(socks_port, "nonexistent.blackwire.invalid", 80),
     )
     .await
     .expect("SOCKS5 connect timed out");
@@ -806,5 +806,5 @@ async fn bandwidth_limited_remote_transfer_completes() {
 #[test]
 #[ignore = "SYN flood resistance is an OS-level guarantee (tcp_syncookies). \
             Enable with `sysctl net.ipv4.tcp_syncookies=1` on the server VPS. \
-            No proxy-rs code is involved."]
+            No blackwire code is involved."]
 fn syn_flood_resistance_delegated_to_os() {}

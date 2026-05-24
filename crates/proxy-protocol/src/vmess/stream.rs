@@ -147,7 +147,7 @@ impl SizeMask {
 
 /// VMess AEAD chunk stream with independent read and write ciphers.
 ///
-/// - `new()`: same key/iv both directions (proxy-rs ↔ proxy-rs)
+/// - `new()`: same key/iv both directions (blackwire ↔ blackwire)
 /// - `new_bidir()`: separate keys — use this when one peer is xray/sing-box
 pub struct VmessStream {
     inner: BoxedStream,
@@ -169,7 +169,7 @@ pub struct VmessStream {
 }
 
 impl VmessStream {
-    /// Same key/iv for both directions (internal proxy-rs use).
+    /// Same key/iv for both directions (internal blackwire use).
     pub fn new(inner: BoxedStream, key: &[u8; 16], iv: &[u8; 16]) -> Self {
         Self::new_bidir(inner, key, iv, key, iv, Security::Aes128Gcm, 0)
     }

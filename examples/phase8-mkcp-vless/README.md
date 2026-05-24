@@ -25,8 +25,8 @@ mandatory production matrix.
 Validate:
 
 ```sh
-cargo run -q -p proxy-rs -- test -c examples/phase8-mkcp-vless/client.json
-cargo run -q -p proxy-rs -- test -c examples/phase8-mkcp-vless/server.json
+cargo run -q -p blackwire -- test -c examples/phase8-mkcp-vless/client.json
+cargo run -q -p blackwire -- test -c examples/phase8-mkcp-vless/server.json
 cargo test -p integration-tests phase8_vless_over_mkcp
 ```
 

@@ -307,7 +307,7 @@ That means this crate must control:
 
 ### Purpose
 
-This is the executable, `proxy-rs`.
+This is the executable, `blackwire`.
 
 ### Main Responsibilities
 

@@ -117,7 +117,7 @@ pub fn auth_response_from_headers(headers: &HeaderMap, status: u16) -> AuthRespo
 /// Returns true if this HTTP request looks like a Hysteria2 auth request.
 ///
 /// Official clients use `:authority: hysteria`; sing-box uses the TLS SNI / server
-/// hostname (e.g. `proxy-rs.local`). Path `POST /auth` is the reliable signal.
+/// hostname (e.g. `blackwire.local`). Path `POST /auth` is the reliable signal.
 pub fn is_auth_request(method: &str, path: &str, _authority: Option<&str>) -> bool {
     method.eq_ignore_ascii_case("POST") && path == AUTH_PATH
 }

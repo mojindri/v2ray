@@ -63,12 +63,12 @@ if [ "${PCAP_ALLOW_SUDO:-0}" = "1" ]; then
   fi
 else
   # Check whether tcpdump can run without elevated privileges.
-  if ! tcpdump -i "$IFACE" -c 1 -w /tmp/proxy-rs-pcap-permission-check.pcap 'tcp or udp' >/dev/null 2>&1; then
-    rm -f /tmp/proxy-rs-pcap-permission-check.pcap 2>/dev/null || true
+  if ! tcpdump -i "$IFACE" -c 1 -w /tmp/blackwire-pcap-permission-check.pcap 'tcp or udp' >/dev/null 2>&1; then
+    rm -f /tmp/blackwire-pcap-permission-check.pcap 2>/dev/null || true
     echo "SKIP: tcpdump requires elevated privileges. Run 'sudo -v' then use PCAP_ALLOW_SUDO=1 make local-pcap." | tee -a "$SUMMARY"
     exit 0
   fi
-  rm -f /tmp/proxy-rs-pcap-permission-check.pcap 2>/dev/null || true
+  rm -f /tmp/blackwire-pcap-permission-check.pcap 2>/dev/null || true
 fi
 
 set +e

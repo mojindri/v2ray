@@ -59,7 +59,7 @@ Legend — **environment**: `host` | `docker` | `lima` | `vps` | `privileged` | 
 | `fuzz-build` | nightly fuzz build | fuzz | 2–10 min | internal |
 | `clean-generated` | rm reports + bench | host | seconds | **public** |
 | `clean` | `cargo clean` | host | seconds | public |
-| `gen-keys` | proxy-rs x25519 | host | seconds | public |
+| `gen-keys` | blackwire x25519 | host | seconds | public |
 | `update-geoip` | script | host | 1 min | public |
 
 ### Compatibility aliases (`make/aliases.mk`)

@@ -1,4 +1,4 @@
-//! proxy-rs — command-line entry point.
+//! blackwire — command-line entry point.
 //!
 //! This binary is the "front door" to the entire proxy platform. Everything
 //! you do — start the proxy, test a config file, generate crypto keys — goes
@@ -38,10 +38,10 @@ use proxy_core::Instance;
 
 /// A production-grade, v2ray-compatible proxy platform.
 ///
-/// Run `proxy-rs help <COMMAND>` for detailed usage of any subcommand.
+/// Run `blackwire help <COMMAND>` for detailed usage of any subcommand.
 #[derive(Parser)]
 #[command(
-    name    = "proxy-rs",
+    name    = "blackwire",
     version = env!("CARGO_PKG_VERSION"),
     about   = "A v2ray-compatible proxy platform written in pure Rust.",
     long_about = None,
@@ -87,7 +87,7 @@ enum Command {
 struct RunArgs {
     /// Path to the JSON config file.
     ///
-    /// Example: `proxy-rs run -c /etc/proxy-rs/config.json`
+    /// Example: `blackwire run -c /etc/blackwire/config.json`
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: PathBuf,
 }
@@ -97,7 +97,7 @@ struct RunArgs {
 struct TestArgs {
     /// Path to the JSON config file to validate.
     ///
-    /// Example: `proxy-rs test -c /etc/proxy-rs/config.json`
+    /// Example: `blackwire test -c /etc/blackwire/config.json`
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: PathBuf,
 }
@@ -159,7 +159,7 @@ fn main() {
         Command::Uuid => cmd_uuid(),
 
         Command::Version => {
-            println!("proxy-rs {}", env!("CARGO_PKG_VERSION"));
+            println!("blackwire {}", env!("CARGO_PKG_VERSION"));
         }
     }
 }
@@ -177,7 +177,7 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
     info!(
         version = env!("CARGO_PKG_VERSION"),
         config  = %config_path.display(),
-        "proxy-rs starting"
+        "blackwire starting"
     );
 
     // Step 2: Load and validate the config.
@@ -210,7 +210,7 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
         .await
         .context("building proxy instance from config")?;
 
-    info!("proxy-rs started — waiting for connections");
+    info!("blackwire started — waiting for connections");
 
     // Step 5: Wait for a shutdown signal or for all listeners to exit.
     // We listen for Ctrl-C (SIGINT) plus SIGTERM on Unix (what systemd sends).
@@ -330,8 +330,8 @@ fn cmd_uuid() {
 /// Default level is `info` if `RUST_LOG` is not set.
 ///
 /// Examples:
-///   `RUST_LOG=debug proxy-rs run -c config.json`   — very verbose
-///   `RUST_LOG=warn  proxy-rs run -c config.json`   — warnings only
+///   `RUST_LOG=debug blackwire run -c config.json`   — very verbose
+///   `RUST_LOG=warn  blackwire run -c config.json`   — warnings only
 fn init_tracing() {
     use tracing_subscriber::{fmt, EnvFilter};
 

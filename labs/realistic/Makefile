@@ -12,10 +12,10 @@ SSH_EXTRA_OPTS ?=
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
 
-build: ## Build the proxy-rs Docker image used by the lab
+build: ## Build the blackwire Docker image used by the lab
 	@mkdir -p $(REPORTS)
-	@docker build -q -f $(ROOT)/deploy/docker/Dockerfile -t proxy-rs:latest $(ROOT) > $(REPORTS)/docker-build-image.txt
-	@echo "Built proxy-rs:latest"
+	@docker build -q -f $(ROOT)/deploy/docker/Dockerfile -t blackwire:latest $(ROOT) > $(REPORTS)/docker-build-image.txt
+	@echo "Built blackwire:latest"
 
 docker-up: build ## Start deterministic target services
 	docker compose -f docker-compose.yml up -d target-http target-echo
@@ -111,11 +111,11 @@ vps-configs: ## Expand JSON templates locally using configs/matrix.env (requires
 	done
 	@echo "Expanded configs written to $(REPORTS)/generated-configs/"
 
-external-clients-docker: build ## Run Xray/sing-box clients against proxy-rs server in Docker
+external-clients-docker: build ## Run Xray/sing-box clients against blackwire server in Docker
 	@mkdir -p $(REPORTS)/external-clients
 	@bash external-clients/scripts/run-docker-matrix.sh $(REPORTS)/external-clients configs/matrix.env
 
-external-clients-vps: ## Run Xray/sing-box clients from CLIENT VPS against SERVER VPS proxy-rs inbounds
+external-clients-vps: ## Run Xray/sing-box clients from CLIENT VPS against SERVER VPS blackwire inbounds
 	@mkdir -p $(REPORTS)/external-clients-vps
 	@bash external-clients/scripts/run-vps-matrix.sh $(REPORTS)/external-clients-vps configs/matrix.env
 
@@ -162,13 +162,13 @@ vps-preflight: ## Validate VPS connectivity and required remote artifacts before
 	KEY_OPT=""; PORT_OPT=""; EXTRA_OPTS="$${SSH_EXTRA_OPTS:-$(SSH_EXTRA_OPTS)}"; USER="$${SSH_USER:-$(SSH_USER)}"; \
 	if [ -n "$${SSH_KEY:-$(SSH_KEY)}" ]; then KEY_OPT="-i $${SSH_KEY:-$(SSH_KEY)}"; fi; \
 	if [ -n "$${SSH_PORT:-$(SSH_PORT)}" ]; then PORT_OPT="-p $${SSH_PORT:-$(SSH_PORT)}"; fi; \
-	ssh $$PORT_OPT $$KEY_OPT $$EXTRA_OPTS "$$USER@$${SSH_CLIENT}" 'test -x /root/lab/scripts/run-matrix.sh && test -f /root/lab/configs/matrix.env && command -v /usr/local/bin/proxy-rs >/dev/null' || { \
-		echo "ERROR: CLIENT VPS is not ready (/root/lab, matrix.env, or /usr/local/bin/proxy-rs missing)."; \
+	ssh $$PORT_OPT $$KEY_OPT $$EXTRA_OPTS "$$USER@$${SSH_CLIENT}" 'test -x /root/lab/scripts/run-matrix.sh && test -f /root/lab/configs/matrix.env && command -v /usr/local/bin/blackwire >/dev/null' || { \
+		echo "ERROR: CLIENT VPS is not ready (/root/lab, matrix.env, or /usr/local/bin/blackwire missing)."; \
 		echo "Run: SSH_CLIENT=$${SSH_CLIENT} SSH_KEY=$${SSH_KEY:-$(SSH_KEY)} make vps-client-setup"; \
 		exit 1; \
 	}; \
-	ssh $$PORT_OPT $$KEY_OPT $$EXTRA_OPTS "$$USER@$${SSH_SERVER}" 'test -x /root/lab/scripts/run-tun-priv.sh && test -x /root/lab/scripts/run-netem.sh && command -v /usr/local/bin/proxy-rs >/dev/null && command -v cargo >/dev/null && command -v tc >/dev/null' || { \
-		echo "ERROR: SERVER VPS is not ready (scripts, proxy-rs, cargo, or tc missing)."; \
+	ssh $$PORT_OPT $$KEY_OPT $$EXTRA_OPTS "$$USER@$${SSH_SERVER}" 'test -x /root/lab/scripts/run-tun-priv.sh && test -x /root/lab/scripts/run-netem.sh && command -v /usr/local/bin/blackwire >/dev/null && command -v cargo >/dev/null && command -v tc >/dev/null' || { \
+		echo "ERROR: SERVER VPS is not ready (scripts, blackwire, cargo, or tc missing)."; \
 		echo "Run: SSH_SERVER=$${SSH_SERVER} SSH_KEY=$${SSH_KEY:-$(SSH_KEY)} make vps-server-setup"; \
 		exit 1; \
 	}; \

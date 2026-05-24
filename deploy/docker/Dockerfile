@@ -1,4 +1,4 @@
-# Multi-stage Dockerfile for proxy-rs.
+# Multi-stage Dockerfile for blackwire.
 #
 # Stage 1 (builder): Compiles the Rust binary in a full Rust environment.
 # Stage 2 (runtime): Copies only the compiled binary into a minimal image.
@@ -7,11 +7,11 @@
 # This minimises the attack surface and download time.
 #
 # Build:
-#   docker build -t proxy-rs:latest .
+#   docker build -t blackwire:latest .
 #
 # Run:
-#   docker run -v /path/to/config.json:/etc/proxy-rs/config.json \
-#              -p 443:443 proxy-rs:latest
+#   docker run -v /path/to/config.json:/etc/blackwire/config.json \
+#              -p 443:443 blackwire:latest
 
 # ── Stage 1: Build ────────────────────────────────────────────────────────────
 FROM rust:1.83-slim AS builder
@@ -49,7 +49,7 @@ COPY tests/ tests/
 COPY fingerprints/ fingerprints/
 
 # Build the release binary with maximum optimisations.
-RUN cargo build --release --bin proxy-rs
+RUN cargo build --release --bin blackwire
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 # debian:bookworm-slim has libc and TLS certs but no unnecessary packages.
@@ -61,18 +61,18 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only the compiled binary from the builder stage.
-COPY --from=builder /build/target/release/proxy-rs /usr/local/bin/proxy-rs
+COPY --from=builder /build/target/release/blackwire /usr/local/bin/blackwire
 
 # Copy GeoIP/GeoSite data files if they are present in the build context.
 # These are optional — the router works without them in Phase 1-3.
-COPY --from=builder /build/fingerprints/ /usr/local/share/proxy-rs/fingerprints/
+COPY --from=builder /build/fingerprints/ /usr/local/share/blackwire/fingerprints/
 
 # The config file is mounted at runtime via a Docker volume or bind mount.
-# Example: docker run -v /host/config.json:/etc/proxy-rs/config.json proxy-rs
-VOLUME ["/etc/proxy-rs"]
+# Example: docker run -v /host/config.json:/etc/blackwire/config.json blackwire
+VOLUME ["/etc/blackwire"]
 
 # Expose proxy port and metrics port.
 EXPOSE 443 8080
 
-ENTRYPOINT ["/usr/local/bin/proxy-rs"]
-CMD ["run", "-c", "/etc/proxy-rs/config.json"]
+ENTRYPOINT ["/usr/local/bin/blackwire"]
+CMD ["run", "-c", "/etc/blackwire/config.json"]

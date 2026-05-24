@@ -19,7 +19,7 @@ SSH_USER="${SSH_USER:-root}"
 SSH_PORT="${SSH_PORT:-22}"
 SSH_KEY="${SSH_KEY:-}"
 SSH_EXTRA_OPTS="${SSH_EXTRA_OPTS:-}"
-REMOTE_DIR="${VPS_REMOTE_BENCH_DIR:-/tmp/proxy-rs-bench}"
+REMOTE_DIR="${VPS_REMOTE_BENCH_DIR:-/tmp/blackwire-bench}"
 
 REQS_SMOKE="${BENCH_SMOKE_REQUESTS:-200}"
 REQS_TOTAL="${BENCH_TOTAL_REQUESTS:-2000}"
@@ -74,8 +74,8 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 apt-get update >/dev/null
 apt-get install -y python3 procps curl >/dev/null
-mkdir -p /tmp/proxy-rs-bench
-cd /tmp/proxy-rs-bench
+mkdir -p /tmp/blackwire-bench
+cd /tmp/blackwire-bench
 cat > server.py <<'PY'
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import os
@@ -96,8 +96,8 @@ class Handler(BaseHTTPRequestHandler):
 
 ThreadingHTTPServer(("0.0.0.0", 18080), Handler).serve_forever()
 PY
-pkill -f '/tmp/proxy-rs-bench/server.py' >/dev/null 2>&1 || true
-nohup python3 /tmp/proxy-rs-bench/server.py >/tmp/proxy-rs-bench/server.log 2>&1 &
+pkill -f '/tmp/blackwire-bench/server.py' >/dev/null 2>&1 || true
+nohup python3 /tmp/blackwire-bench/server.py >/tmp/blackwire-bench/server.log 2>&1 &
 sleep 1
 REMOTE
 

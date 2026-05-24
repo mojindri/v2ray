@@ -1,7 +1,7 @@
 {
   "_comment": "Phase 2 server config: VLESS over REALITY transport.",
   "_comment2": "Run on port 443 to blend with real HTTPS traffic.",
-  "_comment3": "Generate keys with: proxy-rs x25519",
+  "_comment3": "Generate keys with: blackwire x25519",
   "_comment4": "Then fill in privateKey below and give publicKey to your clients.",
 
   "log": { "level": "info" },

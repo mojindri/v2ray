@@ -83,7 +83,7 @@ pub(crate) fn write_dev_cert_files() -> (String, String) {
     let (cert_pem, key_pem) = proxy_transport::dev_self_signed().unwrap();
     let dir = std::env::temp_dir();
     let unique = format!(
-        "proxy-rs-phase4-{}-{}",
+        "blackwire-phase4-{}-{}",
         std::process::id(),
         unused_local_port()
     );

@@ -31,7 +31,7 @@ resolver = "2"
 version     = "0.1.0"
 edition     = "2021"
 license     = "MIT"
-authors     = ["moji.ndr", "proxy-rs contributors"]
+authors     = ["moji.ndr", "Blackwire contributors"]
 rust-version = "1.85"
 
 # ── Async runtime ──────────────────────────────────────────────────────────────

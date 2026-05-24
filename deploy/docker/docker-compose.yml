@@ -1,4 +1,4 @@
-# docker-compose.yml — example deployment for proxy-rs.
+# docker-compose.yml — example deployment for blackwire.
 #
 # Usage:
 #   # Build and start:
@@ -11,27 +11,27 @@
 #   docker-compose down
 #
 # Prerequisites:
-#   - Create /etc/proxy-rs/config.json on the host before starting.
+#   - Create /etc/blackwire/config.json on the host before starting.
 #   - The config should use metricsAddr: "0.0.0.0:8080" to expose the
 #     Prometheus metrics endpoint (port 8080 is mapped below).
 
 version: "3.9"
 
 services:
-  proxy-rs:
+  blackwire:
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile
-    image: proxy-rs:latest
-    container_name: proxy-rs
+    image: blackwire:latest
+    container_name: blackwire
 
     # Restart automatically unless explicitly stopped.
     restart: unless-stopped
 
     # Mount the config directory from the host.
-    # Place your config.json at /etc/proxy-rs/config.json on the host.
+    # Place your config.json at /etc/blackwire/config.json on the host.
     volumes:
-      - /etc/proxy-rs:/etc/proxy-rs:ro
+      - /etc/blackwire:/etc/blackwire:ro
 
     # Expose the main proxy port (443) and the metrics/health endpoint (8080).
     ports:

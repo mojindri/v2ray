@@ -3,7 +3,7 @@ services:
     image: hashicorp/http-echo:1.0
     command:
       - "-listen=:8080"
-      - "-text=proxy-rs realistic lab target"
+      - "-text=blackwire realistic lab target"
     ports:
       - "18080:8080"
 
@@ -14,7 +14,7 @@ services:
       - "19090:19090"
 
   proxy-image:
-    image: proxy-rs:latest
+    image: blackwire:latest
     build:
       context: ../..
       dockerfile: deploy/docker/Dockerfile

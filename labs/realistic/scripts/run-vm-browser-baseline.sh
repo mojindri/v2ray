@@ -19,7 +19,7 @@ mkdir -p "$BASELINE_DIR" "$LOG_DIR" "$CFG_DIR"
 VM_HOST="${VM_HOST:-}"
 VM_USER="${VM_USER:-lab}"
 VM_SSH_PORT="${VM_SSH_PORT:-22}"
-VM_REMOTE_DIR="${VM_REMOTE_DIR:-/tmp/proxy-rs-vm-browser-lab}"
+VM_REMOTE_DIR="${VM_REMOTE_DIR:-/tmp/blackwire-vm-browser-lab}"
 VM_TARGET_URL="${VM_TARGET_URL:-https://www.cloudflare.com}"
 VM_EXPECT_SNI="${VM_EXPECT_SNI:-www.cloudflare.com}"
 VM_CAPTURE_SECONDS="${VM_CAPTURE_SECONDS:-15}"
@@ -159,7 +159,7 @@ BROWSER_ARGS=(
   "$VM_TARGET_URL"
 )
 
-xvfb-run -a "$BROWSER" "${BROWSER_ARGS[@]}" >/tmp/proxy-rs-vm-browser.log 2>&1 &
+xvfb-run -a "$BROWSER" "${BROWSER_ARGS[@]}" >/tmp/blackwire-vm-browser.log 2>&1 &
 
 BROWSER_PID=$!
 

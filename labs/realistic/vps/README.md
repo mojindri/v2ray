@@ -3,7 +3,7 @@
 Target:
 
 - Ubuntu 24.04 on both hosts.
-- Native `systemd` services for `proxy-rs`.
+- Native `systemd` services for `blackwire`.
 - Real DNS name for TLS/SNI-facing tests.
 - Caddy owns ACME certificate issuance.
 
@@ -11,13 +11,13 @@ Target:
 
 Client VPS:
 
-- runs client-side `proxy-rs`
+- runs client-side `blackwire`
 - exposes SOCKS/HTTP only on localhost
 - runs traffic checks
 
 Server VPS:
 
-- runs server-side `proxy-rs`
+- runs server-side `blackwire`
 - exposes protocol ports publicly
 - runs Caddy for ACME
 - runs deterministic HTTP/TCP targets for controlled tests
@@ -27,23 +27,23 @@ Server VPS:
 ```sh
 sudo apt-get update
 sudo apt-get install -y curl ca-certificates build-essential pkg-config libssl-dev caddy ufw
-sudo useradd --system --home /var/lib/proxy-rs --shell /usr/sbin/nologin proxy-rs || true
-sudo mkdir -p /etc/proxy-rs /etc/proxy-rs/certs /var/lib/proxy-rs
-sudo chown -R proxy-rs:proxy-rs /var/lib/proxy-rs
+sudo useradd --system --home /var/lib/blackwire --shell /usr/sbin/nologin blackwire || true
+sudo mkdir -p /etc/blackwire /etc/blackwire/certs /var/lib/blackwire
+sudo chown -R blackwire:blackwire /var/lib/blackwire
 ```
 
-Build or install `proxy-rs`, then place it at:
+Build or install `blackwire`, then place it at:
 
 ```text
-/usr/local/bin/proxy-rs
+/usr/local/bin/blackwire
 ```
 
 ## Caddy ACME
 
 Point DNS for your test domain to the server VPS, then configure Caddy to obtain
-certificates. `proxy-rs` still terminates TLS for Trojan/TLS scenarios, so copy
-or sync cert/key material into `/etc/proxy-rs/certs/` with permissions readable
-by the `proxy-rs` user.
+certificates. `blackwire` still terminates TLS for Trojan/TLS scenarios, so copy
+or sync cert/key material into `/etc/blackwire/certs/` with permissions readable
+by the `blackwire` user.
 
 Do not use self-signed certs for the production-realism gate unless you are
 testing an explicit insecure/dev path.
@@ -52,16 +52,16 @@ testing an explicit insecure/dev path.
 
 Use the service templates in this directory:
 
-- [proxy-rs-client.service](proxy-rs-client.service)
-- [proxy-rs-server.service](proxy-rs-server.service)
+- [blackwire-client.service](blackwire-client.service)
+- [blackwire-server.service](blackwire-server.service)
 
 Install example:
 
 ```sh
-sudo cp proxy-rs-server.service /etc/systemd/system/
+sudo cp blackwire-server.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now proxy-rs-server
-sudo journalctl -u proxy-rs-server -f
+sudo systemctl enable --now blackwire-server
+sudo journalctl -u blackwire-server -f
 ```
 
 ## Firewall

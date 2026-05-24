@@ -1,4 +1,4 @@
-# cargo-deny policy for proxy-rs.
+# cargo-deny policy for blackwire.
 # Run: make deny  (requires: cargo install cargo-deny)
 
 [advisories]

@@ -24,26 +24,26 @@ apt-get update -qq >/dev/null
 apt-get install -y --no-install-recommends -qq \
     curl ca-certificates gettext-base netcat-openbsd >/dev/null
 
-echo "==> Checking proxy-rs binary"
-if [[ ! -x /usr/local/bin/proxy-rs ]]; then
-    echo "ERROR: /usr/local/bin/proxy-rs not found."
-    echo "Build with: cargo build --release  then  scp target/release/proxy-rs client:/usr/local/bin/"
+echo "==> Checking blackwire binary"
+if [[ ! -x /usr/local/bin/blackwire ]]; then
+    echo "ERROR: /usr/local/bin/blackwire not found."
+    echo "Build with: cargo build --release  then  scp target/release/blackwire client:/usr/local/bin/"
     exit 1
 fi
 
-echo "==> Creating proxy-rs user and directories"
-useradd --system --home /var/lib/proxy-rs --shell /usr/sbin/nologin proxy-rs 2>/dev/null || true
-mkdir -p /etc/proxy-rs/generated /var/lib/proxy-rs
-chown -R proxy-rs:proxy-rs /var/lib/proxy-rs
+echo "==> Creating blackwire user and directories"
+useradd --system --home /var/lib/blackwire --shell /usr/sbin/nologin blackwire 2>/dev/null || true
+mkdir -p /etc/blackwire/generated /var/lib/blackwire
+chown -R blackwire:blackwire /var/lib/blackwire
 
-echo "==> Generating proxy-rs client configs"
+echo "==> Generating blackwire client configs"
 for tpl in "$LAB_DIR/configs/client"/*.json; do
     name="$(basename "$tpl")"
-    envsubst < "$tpl" > "/etc/proxy-rs/generated/client-$name"
+    envsubst < "$tpl" > "/etc/blackwire/generated/client-$name"
 done
-chown -R proxy-rs:proxy-rs /etc/proxy-rs
+chown -R blackwire:blackwire /etc/blackwire
 
 echo ""
 echo "==> Client setup complete."
-echo "    Configs: /etc/proxy-rs/generated/client-*.json"
+echo "    Configs: /etc/blackwire/generated/client-*.json"
 echo "    Next: run  bash scripts/run-matrix.sh $ENV_FILE"

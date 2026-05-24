@@ -30,11 +30,11 @@ all: build
 
 ## build: Compile the project in release mode.
 build:
-	cargo build --release --bin proxy-rs
+	cargo build --release --bin blackwire
 
 ## dev: Compile in debug mode (faster compile, slower binary).
 dev:
-	cargo build --bin proxy-rs
+	cargo build --bin blackwire
 
 ## test: Run all unit and integration tests.
 test:
@@ -92,7 +92,7 @@ update-geoip:
 
 ## gen-keys: Generate a new REALITY X25519 keypair.
 gen-keys:
-	cargo run --bin proxy-rs -- x25519
+	cargo run --bin blackwire -- x25519
 
 ## clean: Remove all build artifacts.
 clean:
@@ -372,7 +372,7 @@ lima-fingerprint-total:
 local-total-with-lima: local-total lima-fingerprint-total ## Run local-total, then fully automated Li   ma browser fingerprint check.
 
 lima-stop: ## Stop the default Lima VM instance. Override with LIMA_INSTANCE=<name>.
-	@INSTANCE="$${LIMA_INSTANCE:-proxy-rs-browser}"; \
+	@INSTANCE="$${LIMA_INSTANCE:-blackwire-browser}"; \
 	if ! command -v limactl >/dev/null 2>&1; then \
 		echo "ERROR: limactl not found."; \
 		exit 1; \

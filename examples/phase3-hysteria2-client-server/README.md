@@ -37,6 +37,6 @@ bytes come back from the echo server.
 You can validate the example config files with:
 
 ```sh
-cargo run -p proxy-rs -- test -c examples/phase3-hysteria2-client-server/server.json
-cargo run -p proxy-rs -- test -c examples/phase3-hysteria2-client-server/client.json
+cargo run -p blackwire -- test -c examples/phase3-hysteria2-client-server/server.json
+cargo run -p blackwire -- test -c examples/phase3-hysteria2-client-server/client.json
 ```

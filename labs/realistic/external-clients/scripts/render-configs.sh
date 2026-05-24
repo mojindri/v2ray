@@ -16,8 +16,8 @@ set -a
 source "$ENV_FILE"
 set +a
 
-export EXTERNAL_SERVER_ADDRESS="${EXTERNAL_SERVER_ADDRESS:-proxy-rs-server}"
-export EXTERNAL_TLS_SERVER_NAME="${EXTERNAL_TLS_SERVER_NAME:-proxy-rs.local}"
+export EXTERNAL_SERVER_ADDRESS="${EXTERNAL_SERVER_ADDRESS:-blackwire-server}"
+export EXTERNAL_TLS_SERVER_NAME="${EXTERNAL_TLS_SERVER_NAME:-blackwire.local}"
 
 REALITY_PUBLIC_KEY_XRAY="$REALITY_PUBLIC_KEY"
 if [[ "$REALITY_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
@@ -32,7 +32,7 @@ export REALITY_PUBLIC_KEY_XRAY
 
 rm -rf "$OUT_DIR"
 mkdir -p \
-    "$OUT_DIR/proxy-rs" \
+    "$OUT_DIR/blackwire" \
     "$OUT_DIR/xray" \
     "$OUT_DIR/sing-box" \
     "$OUT_DIR/xray-negative" \
@@ -41,7 +41,7 @@ mkdir -p \
     "$OUT_DIR/hiddify"
 
 for tpl in "$REALISTIC_DIR/configs/server"/*.json; do
-    envsubst < "$tpl" > "$OUT_DIR/proxy-rs/server-$(basename "$tpl")"
+    envsubst < "$tpl" > "$OUT_DIR/blackwire/server-$(basename "$tpl")"
 done
 
 for tpl in "$LAB_DIR/configs/xray"/*.json.tmpl; do
@@ -73,20 +73,20 @@ openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 \
     -nodes -days 2 \
     -keyout "$OUT_DIR/certs/key.pem" \
     -out "$OUT_DIR/certs/cert.pem" \
-    -subj "/CN=proxy-rs.local" \
-    -addext "subjectAltName=DNS:proxy-rs.local,DNS:proxy-rs-server" \
+    -subj "/CN=blackwire.local" \
+    -addext "subjectAltName=DNS:blackwire.local,DNS:blackwire-server" \
     >/dev/null 2>&1
 
 cat > "$OUT_DIR/hiddify/vless-reality.txt" <<EOF
-vless://${VLESS_UUID}@${SERVER_HOST}:10443?encryption=none&security=reality&type=tcp&sni=${REALITY_SERVER_NAME}&fp=chrome&pbk=${REALITY_PUBLIC_KEY_XRAY}&sid=${REALITY_SHORT_ID}#proxy-rs-vless-reality
+vless://${VLESS_UUID}@${SERVER_HOST}:10443?encryption=none&security=reality&type=tcp&sni=${REALITY_SERVER_NAME}&fp=chrome&pbk=${REALITY_PUBLIC_KEY_XRAY}&sid=${REALITY_SHORT_ID}#blackwire-vless-reality
 EOF
 
 cat > "$OUT_DIR/hiddify/trojan-tls.txt" <<EOF
-trojan://${TROJAN_PASSWORD}@${SERVER_HOST}:8445?security=tls&sni=${TEST_DOMAIN}&type=tcp#proxy-rs-trojan-tls
+trojan://${TROJAN_PASSWORD}@${SERVER_HOST}:8445?security=tls&sni=${TEST_DOMAIN}&type=tcp#blackwire-trojan-tls
 EOF
 
 cat > "$OUT_DIR/hiddify/ss2022.txt" <<EOF
-ss://$(printf '2022-blake3-aes-256-gcm:%s' "$SS2022_PASSWORD" | base64 | tr -d '\n')@${SERVER_HOST}:8388#proxy-rs-ss2022
+ss://$(printf '2022-blake3-aes-256-gcm:%s' "$SS2022_PASSWORD" | base64 | tr -d '\n')@${SERVER_HOST}:8388#blackwire-ss2022
 EOF
 
 echo "Rendered external-client configs under $OUT_DIR"

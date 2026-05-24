@@ -82,7 +82,7 @@ cleanup_client() {
 }
 
 cleanup_server() {
-    ssh_server 'if [ -f /tmp/proxy-rs-external.pid ]; then kill "$(cat /tmp/proxy-rs-external.pid)" >/dev/null 2>&1 || true; rm -f /tmp/proxy-rs-external.pid; fi' \
+    ssh_server 'if [ -f /tmp/blackwire-external.pid ]; then kill "$(cat /tmp/blackwire-external.pid)" >/dev/null 2>&1 || true; rm -f /tmp/blackwire-external.pid; fi' \
         >> "$REPORT_DIR/cleanup.log" 2>&1 || true
 }
 
@@ -103,9 +103,9 @@ ssh_client 'command -v docker >/dev/null && command -v curl >/dev/null && comman
     echo "ERROR: CLIENT VPS needs docker, curl, and nc. Run client setup or install Docker manually." >&2
     exit 1
 }
-ssh_server 'test -x /usr/local/bin/proxy-rs && test -d /etc/proxy-rs/generated && test -f /etc/proxy-rs/certs/cert.pem' \
+ssh_server 'test -x /usr/local/bin/blackwire && test -d /etc/blackwire/generated && test -f /etc/blackwire/certs/cert.pem' \
     > "$REPORT_DIR/preflight-server.log" 2>&1 || {
-    echo "ERROR: SERVER VPS needs /usr/local/bin/proxy-rs plus generated configs/certs." >&2
+    echo "ERROR: SERVER VPS needs /usr/local/bin/blackwire plus generated configs/certs." >&2
     exit 1
 }
 ssh_client "mkdir -p '$REMOTE_DIR/generated'" > "$REPORT_DIR/remote-mkdir.log" 2>&1
@@ -125,14 +125,14 @@ run_one() {
 
     cleanup_all
 
-    ssh_server "nohup /usr/local/bin/proxy-rs run -c '/etc/proxy-rs/generated/${server_cfg}' > '/tmp/proxy-rs-external-${protocol}.log' 2>&1 & echo \$! > /tmp/proxy-rs-external.pid" \
+    ssh_server "nohup /usr/local/bin/blackwire run -c '/etc/blackwire/generated/${server_cfg}' > '/tmp/blackwire-external-${protocol}.log' 2>&1 & echo \$! > /tmp/blackwire-external.pid" \
         >> "$log" 2>&1
 
     if [[ "$protocol" != "hysteria2" ]]; then
         ssh_client "for i in \$(seq 1 15); do nc -z '${SERVER_HOST}' '${port}' && exit 0; sleep 1; done; exit 1" \
             >> "$log" 2>&1 || {
             echo "FAIL ${label} server-port-${port}" | tee -a "$SUMMARY"
-            ssh_server "cat '/tmp/proxy-rs-external-${protocol}.log'" >> "$log" 2>&1 || true
+            ssh_server "cat '/tmp/blackwire-external-${protocol}.log'" >> "$log" 2>&1 || true
             return 1
         }
     fi
@@ -152,7 +152,7 @@ run_one() {
     fi
 
     echo "FAIL ${label}" | tee -a "$SUMMARY"
-    ssh_server "cat '/tmp/proxy-rs-external-${protocol}.log'" >> "$log" 2>&1 || true
+    ssh_server "cat '/tmp/blackwire-external-${protocol}.log'" >> "$log" 2>&1 || true
     ssh_client "docker logs external-${client}-client" >> "$log" 2>&1 || true
     return 1
 }
@@ -177,14 +177,14 @@ run_negative() {
 
     cleanup_all
 
-    ssh_server "nohup /usr/local/bin/proxy-rs run -c '/etc/proxy-rs/generated/${server_cfg}' > '/tmp/proxy-rs-external-${protocol}.log' 2>&1 & echo \$! > /tmp/proxy-rs-external.pid" \
+    ssh_server "nohup /usr/local/bin/blackwire run -c '/etc/blackwire/generated/${server_cfg}' > '/tmp/blackwire-external-${protocol}.log' 2>&1 & echo \$! > /tmp/blackwire-external.pid" \
         >> "$log" 2>&1
 
     if [[ "$protocol" != "hysteria2" ]]; then
         ssh_client "for i in \$(seq 1 15); do nc -z '${SERVER_HOST}' '${port}' && exit 0; sleep 1; done; exit 1" \
             >> "$log" 2>&1 || {
             echo "FAIL ${label} server-port-${port}" | tee -a "$SUMMARY"
-            ssh_server "cat '/tmp/proxy-rs-external-${protocol}.log'" >> "$log" 2>&1 || true
+            ssh_server "cat '/tmp/blackwire-external-${protocol}.log'" >> "$log" 2>&1 || true
             return 1
         }
     fi
@@ -200,7 +200,7 @@ run_negative() {
     if ssh_client "for i in \$(seq 1 20); do curl -fsS --max-time 3 --socks5-hostname 127.0.0.1:1080 '${TARGET_URL}' >/dev/null && exit 0; sleep 1; done; exit 1" \
         >> "$log" 2>&1; then
         echo "FAIL ${label} accepted" | tee -a "$SUMMARY"
-        ssh_server "cat '/tmp/proxy-rs-external-${protocol}.log'" >> "$log" 2>&1 || true
+        ssh_server "cat '/tmp/blackwire-external-${protocol}.log'" >> "$log" 2>&1 || true
         ssh_client "docker logs external-${client}-client" >> "$log" 2>&1 || true
         return 1
     fi

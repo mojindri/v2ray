@@ -1,13 +1,13 @@
 # External Client Compatibility Lab
 
-This lab checks real external clients against `proxy-rs` server inbounds:
+This lab checks real external clients against `blackwire` server inbounds:
 
 ```text
-Xray or sing-box client -> proxy-rs server -> target-http
+Xray or sing-box client -> blackwire server -> target-http
 ```
 
-It is intentionally separate from `vps-test`, which checks `proxy-rs` client to
-`proxy-rs` server. Passing this lab is evidence that the currently configured
+It is intentionally separate from `vps-test`, which checks `blackwire` client to
+`blackwire` server. Passing this lab is evidence that the currently configured
 external-client scenarios are compatible with the server side.
 
 ## Commands
@@ -27,7 +27,7 @@ make external-clients-report
 ```
 
 The VPS runner assumes the normal server/client setup already ran. It does not
-install Docker or packages. It starts one `/usr/local/bin/proxy-rs` inbound at a
+install Docker or packages. It starts one `/usr/local/bin/blackwire` inbound at a
 time on the server VPS, runs Xray/sing-box Docker clients on the client VPS, and
 writes full logs under `labs/realistic/reports/external-clients-vps/`.
 

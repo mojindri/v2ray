@@ -1,6 +1,6 @@
 # Realistic Test Lab
 
-This lab is the production-realism layer for `proxy-rs`.
+This lab is the production-realism layer for `blackwire`.
 
 It has two jobs:
 
@@ -87,8 +87,8 @@ make -C labs/realistic docker-down
 ## External Client Compatibility
 
 The external-client lab checks the scenarios currently configured under
-`external-clients/scenarios.env` against a `proxy-rs` server inbound. This is
-different from `vps-test`, which checks `proxy-rs` client to `proxy-rs` server.
+`external-clients/scenarios.env` against a `blackwire` server inbound. This is
+different from `vps-test`, which checks `blackwire` client to `blackwire` server.
 
 ```sh
 make -C labs/realistic external-clients-docker
@@ -106,7 +106,7 @@ Generated configs and Hiddify import artifacts are written under
 `labs/realistic/reports/external-clients/`.
 
 Run this before claiming GUI-client compatibility for a specific scenario set. A
-passing `proxy-rs` client matrix does not prove Xray, sing-box, or Hiddify
+passing `blackwire` client matrix does not prove Xray, sing-box, or Hiddify
 inbound compatibility on paths that are not in the current external-client
 scenario file.
 
@@ -114,7 +114,7 @@ scenario file.
 
 The closest-to-production gate uses two Ubuntu 24.04 VPS machines:
 
-- client VPS: runs the client-side `proxy-rs` instance and traffic generator.
+- client VPS: runs the client-side `blackwire` instance and traffic generator.
 - server VPS: runs public protocol inbounds, target services, Caddy ACME, and firewall rules.
 
 See [docs/11-testing.md](../../docs/11-testing.md) for the full step-by-step VPS workflow.

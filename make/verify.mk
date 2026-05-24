@@ -80,7 +80,7 @@ lab-docker-down:
 lab-lima-preflight:
 	@echo "==> [lab-lima-preflight] checking Lima"
 	@command -v limactl >/dev/null || (echo "ERROR: limactl required for verify-lab-lima"; exit 1)
-	@echo "    limactl OK (instance: $${LIMA_INSTANCE:-proxy-rs-browser})"
+	@echo "    limactl OK (instance: $${LIMA_INSTANCE:-blackwire-browser})"
 
 lab-lima-test-fingerprint:
 	@echo "==> [lab-lima-test-fingerprint] browser TLS baseline (mutates Lima VM packages/network)"
@@ -109,8 +109,8 @@ remote-deploy:
 	@echo "==> [remote-deploy] rsync lab bundle + run setup scripts on BOTH VPS hosts"
 	@test -n "$${SSH_SERVER:-}" || (echo "ERROR: SSH_SERVER required"; exit 1)
 	@test -n "$${SSH_CLIENT:-}" || (echo "ERROR: SSH_CLIENT required"; exit 1)
-	@echo "    server: $${SSH_SERVER}  (installs proxy-rs, TUN/netem tooling)"
-	@echo "    client: $${SSH_CLIENT}  (installs proxy-rs client + matrix runner)"
+	@echo "    server: $${SSH_SERVER}  (installs blackwire, TUN/netem tooling)"
+	@echo "    client: $${SSH_CLIENT}  (installs blackwire client + matrix runner)"
 	SSH_SERVER="$${SSH_SERVER}" $(MAKE) -C $(LAB_DIR) vps-server-setup
 	SSH_CLIENT="$${SSH_CLIENT}" $(MAKE) -C $(LAB_DIR) vps-client-setup
 

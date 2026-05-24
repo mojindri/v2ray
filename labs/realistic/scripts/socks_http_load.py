@@ -56,7 +56,7 @@ async def one_request(args, sem, idx):
                 f"GET {path} HTTP/1.1\r\n"
                 f"Host: {target_host}\r\n"
                 "Connection: close\r\n"
-                "User-Agent: proxy-rs-load/1\r\n"
+                "User-Agent: blackwire-load/1\r\n"
                 "\r\n"
             ).encode()
             writer.write(req)

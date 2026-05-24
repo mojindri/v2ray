@@ -3,11 +3,11 @@
 # Usage: bash run-matrix.sh /path/to/matrix.env
 #
 # For each protocol it:
-#   1. Starts proxy-rs with the generated client config.
+#   1. Starts blackwire with the generated client config.
 #   2. Waits for the SOCKS5 port to be ready.
 #   3. Sends HTTP traffic through the proxy to a target on the server.
 #   4. Records pass/fail.
-#   5. Kills proxy-rs.
+#   5. Kills blackwire.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,7 +21,7 @@ fi
 # shellcheck source=/dev/null
 source "$ENV_FILE"
 
-PROXY_BIN="${PROXY_BIN:-/usr/local/bin/proxy-rs}"
+PROXY_BIN="${PROXY_BIN:-/usr/local/bin/blackwire}"
 SOCKS_PORT=1080
 # target-http on the server VPS listens on 18080.
 TARGET_URL="http://${SERVER_HOST}:18080"
@@ -63,14 +63,14 @@ run_test() {
 
     cleanup
 
-    "$PROXY_BIN" run -c "$cfg" >/tmp/proxy-rs-"$name".log 2>&1 &
+    "$PROXY_BIN" run -c "$cfg" >/tmp/blackwire-"$name".log 2>&1 &
     PROXY_PID=$!
 
     if ! wait_for_port "$SOCKS_PORT" 10; then
         echo "FAIL $name — proxy did not start (SOCKS port $SOCKS_PORT not up)"
         FAIL=$((FAIL+1))
         echo "FAIL $name" >> "$REPORT_FILE"
-        cat /tmp/proxy-rs-"$name".log >> "$REPORT_FILE"
+        cat /tmp/blackwire-"$name".log >> "$REPORT_FILE"
         cleanup
         return
     fi
@@ -89,13 +89,13 @@ run_test() {
         echo "FAIL $name — HTTP $http_code"
         FAIL=$((FAIL+1))
         echo "FAIL $name (HTTP $http_code)" >> "$REPORT_FILE"
-        cat /tmp/proxy-rs-"$name".log >> "$REPORT_FILE"
+        cat /tmp/blackwire-"$name".log >> "$REPORT_FILE"
     fi
 
     cleanup
 }
 
-CFG=/etc/proxy-rs/generated
+CFG=/etc/blackwire/generated
 
 echo "==> VPS matrix run — $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee "$REPORT_FILE"
 echo "    Server: $SERVER_HOST   Target: $TARGET_URL" | tee -a "$REPORT_FILE"

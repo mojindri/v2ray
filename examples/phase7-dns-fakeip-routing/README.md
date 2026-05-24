@@ -21,5 +21,5 @@ rules are templates for the intended deployment shape.
 Validate:
 
 ```sh
-cargo run -q -p proxy-rs -- test -c examples/phase7-dns-fakeip-routing/config.json
+cargo run -q -p blackwire -- test -c examples/phase7-dns-fakeip-routing/config.json
 ```

@@ -14,11 +14,11 @@
 
 set -euo pipefail
 
-BINARY="${1:-./target/debug/proxy-rs}"
+BINARY="${1:-./target/debug/blackwire}"
 
 if [[ ! -x "$BINARY" ]]; then
     echo "Binary not found at '$BINARY'. Run 'cargo build' first."
-    echo "Usage: bash examples/run-demo.sh [path/to/proxy-rs]"
+    echo "Usage: bash examples/run-demo.sh [path/to/blackwire]"
     exit 1
 fi
 

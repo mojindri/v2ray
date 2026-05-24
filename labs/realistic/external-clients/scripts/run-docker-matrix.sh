@@ -5,7 +5,7 @@ LAB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REALISTIC_DIR="$(cd "$LAB_DIR/.." && pwd)"
 REPORT_DIR="${1:-$REALISTIC_DIR/reports/external-clients}"
 ENV_FILE="${2:-$REALISTIC_DIR/configs/matrix.env}"
-PROJECT_NAME="${COMPOSE_PROJECT_NAME:-proxy-rs-external-clients}"
+PROJECT_NAME="${COMPOSE_PROJECT_NAME:-blackwire-external-clients}"
 COMPOSE=(docker compose -p "$PROJECT_NAME" -f "$LAB_DIR/docker-compose.yml")
 TARGET_URL="http://target-http:8080"
 NETWORK_NAME="${PROJECT_NAME}_default"
@@ -16,12 +16,12 @@ bash "$LAB_DIR/scripts/render-configs.sh" "$ENV_FILE" "$LAB_DIR/generated" > "$R
 "${COMPOSE[@]}" up -d target-http > "$REPORT_DIR/compose.log" 2>&1
 
 cleanup_case() {
-    "${COMPOSE[@]}" stop proxy-rs-server >/dev/null 2>&1 || true
-    docker rm -f proxy-rs-server xray-client sing-box-client >/dev/null 2>&1 || true
+    "${COMPOSE[@]}" stop blackwire-server >/dev/null 2>&1 || true
+    docker rm -f blackwire-server xray-client sing-box-client >/dev/null 2>&1 || true
     # Remove stale one-off server containers from prior matrix rows.
     while read -r cid; do
         [[ -n "$cid" ]] && docker rm -f "$cid" >/dev/null 2>&1 || true
-    done < <(docker ps -aq --filter "name=proxy-rs-server" 2>/dev/null || true)
+    done < <(docker ps -aq --filter "name=blackwire-server" 2>/dev/null || true)
 }
 
 cleanup_all() {
@@ -57,8 +57,8 @@ run_one() {
 
     cleanup_case
 
-    "${COMPOSE[@]}" run -d --no-deps --name proxy-rs-server proxy-rs-server \
-        run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
+    "${COMPOSE[@]}" run -d --no-deps --name blackwire-server blackwire-server \
+        run -c "/generated/blackwire/${server_cfg}" >> "$log" 2>&1
 
     # Hysteria2 binds UDP after process start; wait before the client connects.
     if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-reality" ]]; then
@@ -79,7 +79,7 @@ run_one() {
     fi
 
     echo "FAIL ${label}" | tee -a "$REPORT_DIR/summary.txt"
-    docker logs proxy-rs-server >> "$log" 2>&1 || true
+    docker logs blackwire-server >> "$log" 2>&1 || true
     docker logs "${client}-client" >> "$log" 2>&1 || true
     return 1
 }
@@ -103,8 +103,8 @@ run_negative() {
 
     cleanup_case
 
-    "${COMPOSE[@]}" run -d --no-deps --name proxy-rs-server proxy-rs-server \
-        run -c "/generated/proxy-rs/${server_cfg}" >> "$log" 2>&1
+    "${COMPOSE[@]}" run -d --no-deps --name blackwire-server blackwire-server \
+        run -c "/generated/blackwire/${server_cfg}" >> "$log" 2>&1
 
     if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-reality" ]]; then
         sleep 2
@@ -120,7 +120,7 @@ run_negative() {
 
     if wait_for_socks "${client}-client"; then
         echo "FAIL ${label} accepted" | tee -a "$REPORT_DIR/summary.txt"
-        docker logs proxy-rs-server >> "$log" 2>&1 || true
+        docker logs blackwire-server >> "$log" 2>&1 || true
         docker logs "${client}-client" >> "$log" 2>&1 || true
         return 1
     fi

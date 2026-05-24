@@ -16,7 +16,7 @@ mkdir -p "$LOG_DIR"
 VM_HOST="${VM_HOST:-}"
 VM_USER="${VM_USER:-lab}"
 VM_SSH_PORT="${VM_SSH_PORT:-22}"
-VM_REMOTE_DIR="${VM_REMOTE_DIR:-/tmp/proxy-rs-vm-browser-lab}"
+VM_REMOTE_DIR="${VM_REMOTE_DIR:-/tmp/blackwire-vm-browser-lab}"
 
 if [ -z "$VM_HOST" ]; then
   echo "ERROR: VM_HOST is required. Example:"
@@ -55,7 +55,7 @@ else
   echo "WARN: chromium package not found via apt. Install Google Chrome or Chromium manually."
 fi
 
-mkdir -p /tmp/proxy-rs-vm-browser-lab
+mkdir -p /tmp/blackwire-vm-browser-lab
 
 echo "VM browser lab setup complete."
 echo "Browser candidates:"

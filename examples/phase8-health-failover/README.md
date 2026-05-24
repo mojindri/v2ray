@@ -24,7 +24,7 @@ injection. Treat it as a starting point, not a production claim.
 Validate:
 
 ```sh
-cargo run -q -p proxy-rs -- test -c examples/phase8-health-failover/config.json
+cargo run -q -p blackwire -- test -c examples/phase8-health-failover/config.json
 ```
 
 Author: @moji.ndr
