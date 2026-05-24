@@ -69,6 +69,7 @@ pub struct OutboundConfig {
 /// Per-inbound runtime safety limits.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct InboundLimitsConfig {
+    /// Max concurrent connections on this inbound only (overrides global default).
     #[serde(
         default,
         rename = "maxConnections",
@@ -77,6 +78,8 @@ pub struct InboundLimitsConfig {
     )]
     pub max_connections: Option<usize>,
 
+    /// Handshake timeout for this inbound (seconds). Overrides global `limits.maxHandshakeSeconds`.
+    /// Applies to REALITY/TLS/VLESS header phases only — not the relay body.
     #[serde(
         default,
         rename = "maxHandshakeSeconds",
@@ -85,6 +88,7 @@ pub struct InboundLimitsConfig {
     )]
     pub max_handshake_seconds: Option<u64>,
 
+    /// Idle timeout for this inbound (reserved; not wired yet).
     #[serde(
         default,
         rename = "maxIdleSeconds",

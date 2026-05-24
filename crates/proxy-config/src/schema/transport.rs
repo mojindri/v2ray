@@ -260,23 +260,31 @@ fn default_shadowtls_version() -> u8 {
     3
 }
 
-/// mKCP transport settings.
+/// mKCP transport settings (UDP-based reliable stream).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KcpConfig {
+    /// Packet obfuscation header type (`"none"`, `"srtp"`, `"wechat-video"`, etc.).
     #[serde(default = "default_kcp_header")]
     pub header: String,
+    /// Maximum transmission unit for KCP segments.
     #[serde(default = "default_kcp_mtu")]
     pub mtu: u16,
+    /// Transmission time interval in milliseconds (how often KCP flushes).
     #[serde(default = "default_kcp_tti")]
     pub tti: u64,
+    /// Declared uplink capacity in MB/s (used for window sizing).
     #[serde(default = "default_kcp_capacity")]
     pub uplink_capacity: u32,
+    /// Declared downlink capacity in MB/s (used for window sizing).
     #[serde(default = "default_kcp_capacity")]
     pub downlink_capacity: u32,
+    /// Enable KCP congestion control (usually `false` for proxy workloads).
     #[serde(default)]
     pub congestion: bool,
+    /// KCP receive window size in packets.
     #[serde(default = "default_kcp_buf")]
     pub read_buffer_size: u32,
+    /// KCP send window size in packets.
     #[serde(default = "default_kcp_buf")]
     pub write_buffer_size: u32,
 }

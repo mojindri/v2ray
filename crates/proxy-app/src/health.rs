@@ -1,3 +1,11 @@
+//! Outbound health checking — probe members and mark them alive or dead.
+//!
+//! # How it works
+//!
+//! When a routing balancer references several outbounds, `HealthChecker` runs
+//! periodic HTTP probes through each member. Results update `HealthStates`, which
+//! the balancer reads to skip dead nodes.
+
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -12,11 +20,16 @@ use proxy_config::schema::HealthCheckConfig;
 use crate::context::Context;
 use crate::features::OutboundHandler;
 
+/// Latest health snapshot for one outbound (updated by probe tasks).
 #[derive(Clone, Debug)]
 pub struct OutboundState {
+    /// `false` after too many consecutive probe failures.
     pub alive: bool,
+    /// Last successful probe latency in milliseconds (`u64::MAX` if never probed).
     pub latency_ms: u64,
+    /// Probe failures in a row; resets on success.
     pub consecutive_failures: u32,
+    /// When this outbound was last probed.
     pub last_check: Instant,
 }
 
@@ -31,10 +44,13 @@ impl Default for OutboundState {
     }
 }
 
+/// Shared map from outbound tag → latest health snapshot (updated by the checker task).
 pub type HealthStates = Arc<DashMap<String, OutboundState>>;
 
+/// Background task that probes outbounds on an interval.
 pub struct HealthChecker {
     outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,
+    /// Live health table updated after each probe round.
     pub states: HealthStates,
     config: HealthCheckConfig,
     probe: HealthProbe,
@@ -48,6 +64,7 @@ struct HealthProbe {
 }
 
 impl HealthChecker {
+    /// Create a checker and an empty health table pre-filled for each outbound tag.
     pub fn new(
         outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,
         config: HealthCheckConfig,
@@ -66,6 +83,7 @@ impl HealthChecker {
         Ok((checker, states))
     }
 
+    /// Run probe rounds forever until the task is cancelled.
     pub async fn run(self: Arc<Self>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.interval_secs));
         interval.tick().await;

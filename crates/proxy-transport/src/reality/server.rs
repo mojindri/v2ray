@@ -19,7 +19,9 @@ use super::{MAX_TIME_DIFF_SECS, REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAK
 
 /// Stream ready for TLS after successful REALITY authentication.
 pub struct RealityAccepted {
+    /// Accepted stream positioned for the next protocol stage.
     pub stream: BoxedStream,
+    /// Per-connection key used by later REALITY/TLS steps.
     pub auth_key: [u8; 32],
 }
 
@@ -45,6 +47,9 @@ pub struct RealityServer {
 }
 
 impl RealityServer {
+    /// Create a REALITY server helper from inbound settings.
+    ///
+    /// If `max_time_diff` is non-positive, the default safety window is used.
     pub fn new(mut config: RealityServerConfig) -> Self {
         if config.max_time_diff <= 0 {
             config.max_time_diff = MAX_TIME_DIFF_SECS;

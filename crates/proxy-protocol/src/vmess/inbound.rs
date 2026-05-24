@@ -8,6 +8,17 @@
 //! ```text
 //! enc_resp_len(18) | enc_resp_header | response_data_chunks
 //! ```
+//!
+//! # How it works
+//!
+//! The inbound reads `auth_id`, finds a matching user by validating it, decrypts
+//! the request header, sends back the encrypted response header, and then relays
+//! traffic through `VmessStream`.
+//!
+//! # Why
+//!
+//! Doing auth and header checks first lets the server reject bad clients early
+//! and only open dispatch traffic for verified requests.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -32,23 +43,30 @@ use super::stream::VmessStream;
 // ── User registry ─────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone)]
+/// VMess user entry with precomputed key material.
 pub struct VmessUser {
+    /// User UUID in raw 16-byte form.
     pub uuid: [u8; 16],
+    /// Derived VMess command key for auth-id validation.
     pub cmd_key: [u8; 16],
+    /// Human-friendly user label used in logs and context.
     pub email: String,
 }
 
+/// In-memory VMess user registry keyed by command key.
 pub struct VmessUserRegistry {
     users: DashMap<[u8; 16], VmessUser>,
 }
 
 impl VmessUserRegistry {
+    /// Create an empty VMess user registry wrapped in `Arc`.
     pub fn new() -> Arc<Self> {
         Arc::new(Self {
             users: DashMap::new(),
         })
     }
 
+    /// Add one user and precompute the corresponding command key.
     pub fn add_user(&self, uuid: [u8; 16], email: impl Into<String>) {
         let key = cmd_key(&uuid);
         self.users.insert(
@@ -61,6 +79,7 @@ impl VmessUserRegistry {
         );
     }
 
+    /// Find the first user whose command key validates this auth ID.
     pub fn find_by_auth(&self, auth_id: &[u8; 16]) -> Option<VmessUser> {
         for entry in self.users.iter() {
             if validate_auth_id(entry.key(), auth_id, MAX_TIME_DIFF_SECS) {
@@ -81,12 +100,14 @@ impl Default for VmessUserRegistry {
 
 // ── Inbound handler ────────────────────────────────────────────────────────────
 
+/// VMess inbound handler that authenticates and dispatches TCP streams.
 pub struct VmessInbound {
     tag: String,
     registry: Arc<VmessUserRegistry>,
 }
 
 impl VmessInbound {
+    /// Build a VMess inbound handler with a tag and user registry.
     pub fn new(tag: impl Into<String>, registry: Arc<VmessUserRegistry>) -> Arc<Self> {
         Arc::new(Self {
             tag: tag.into(),

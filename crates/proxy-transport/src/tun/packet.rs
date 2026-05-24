@@ -1,30 +1,47 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
+/// Transport protocol extracted from an IP packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum TransportProtocol {
+    /// TCP (`IPPROTO_TCP` = 6).
     Tcp,
+    /// UDP (`IPPROTO_UDP` = 17).
     Udp,
+    /// Any other protocol number.
     Other(u8),
 }
 
+/// Parsed metadata for one IPv4 or IPv6 packet.
 #[derive(Debug, Clone)]
 pub struct IpPacket {
+    /// Source IP address.
     pub src: std::net::IpAddr,
+    /// Destination IP address.
     pub dst: std::net::IpAddr,
+    /// Source transport port (TCP/UDP).
     pub src_port: u16,
+    /// Destination transport port (TCP/UDP).
     pub dst_port: u16,
+    /// Transport protocol kind.
     pub protocol: TransportProtocol,
+    /// Length of the IP header section in bytes.
     pub header_len: usize,
+    /// Byte offset where transport payload starts.
     pub payload_offset: usize,
+    /// Payload length in bytes.
     pub payload_len: usize,
 }
 
 impl IpPacket {
+    /// Return the packet payload slice using this packet's cached offsets.
     pub fn payload<'a>(&self, packet: &'a [u8]) -> Option<&'a [u8]> {
         packet.get(self.payload_offset..self.payload_offset + self.payload_len)
     }
 }
 
+/// Parse a raw IPv4/IPv6 packet into [`IpPacket`] metadata.
+///
+/// Returns `None` for unsupported versions or malformed packet layout.
 pub fn parse_ip_packet(buf: &[u8]) -> Option<IpPacket> {
     if buf.is_empty() {
         return None;
@@ -245,6 +262,10 @@ fn tcp_checksum_ipv6(src: Ipv6Addr, dst: Ipv6Addr, tcp_segment: &[u8]) -> u16 {
     internet_checksum(&pseudo)
 }
 
+/// Build a UDP response packet by swapping request source/destination.
+///
+/// This is used by the NAT path to send remote UDP replies back to the
+/// original client through TUN.
 pub fn build_udp_response_packet(request: &IpPacket, payload: &[u8]) -> Option<Vec<u8>> {
     if request.protocol != TransportProtocol::Udp {
         return None;

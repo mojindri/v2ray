@@ -6,6 +6,7 @@ use bytes::{Buf, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
 
+/// Async byte stream backed by an mKCP session driver.
 pub struct MkcpStream {
     tx: mpsc::UnboundedSender<Bytes>,
     rx: mpsc::Receiver<Bytes>,
@@ -13,6 +14,7 @@ pub struct MkcpStream {
 }
 
 impl MkcpStream {
+    /// Create a new stream from driver channels.
     pub fn new(tx: mpsc::UnboundedSender<Bytes>, rx: mpsc::Receiver<Bytes>) -> Self {
         Self {
             tx,

@@ -31,24 +31,34 @@ use crate::quic::{build_hysteria2_server_endpoint, ensure_crypto_provider, Bruta
 /// Configuration for a Hysteria2 inbound server.
 #[derive(Debug, Clone)]
 pub struct Hysteria2ServerConfig {
+    /// Socket address to listen on (for example `0.0.0.0:443`).
     pub addr: SocketAddr,
+    /// Shared password that clients must send during HTTP/3 auth.
     pub password: String,
     /// Max client → server rate in Mbps (server receive / `Hysteria-CC-RX` in auth response).
     pub up_mbps: u64,
     /// Max server → client rate in Mbps (used for Brutal on server→client path when enabled).
     pub down_mbps: u64,
+    /// Server certificate in PEM format.
     pub cert_pem: String,
+    /// Private key for `cert_pem`, in PEM format.
     pub key_pem: String,
 }
 
 /// Configuration for a Hysteria2 outbound client.
 #[derive(Debug, Clone)]
 pub struct Hysteria2ClientConfig {
+    /// Remote Hysteria2 server socket address.
     pub server: SocketAddr,
+    /// TLS server name (SNI) to present during QUIC handshake.
     pub server_name: String,
+    /// Shared password used for HTTP/3 auth.
     pub password: String,
+    /// Max client upload rate in Mbps.
     pub up_mbps: u64,
+    /// Max client download rate in Mbps.
     pub down_mbps: u64,
+    /// If `true`, skip TLS certificate verification (unsafe, for testing only).
     pub skip_cert_verify: bool,
 }
 
@@ -58,10 +68,14 @@ pub struct Hysteria2Server {
 }
 
 impl Hysteria2Server {
+    /// Build a Hysteria2 server from static config.
     pub fn new(config: Hysteria2ServerConfig) -> Self {
         Self { config }
     }
 
+    /// Start accepting QUIC connections and proxying TCP streams.
+    ///
+    /// This runs until the endpoint is closed or the task is cancelled.
     pub async fn serve(&self, dispatcher: Arc<dyn Dispatcher>) -> Result<()> {
         let endpoint = build_hysteria2_server_endpoint(
             self.config.addr,
@@ -99,10 +113,14 @@ pub struct Hysteria2Client {
 }
 
 impl Hysteria2Client {
+    /// Build a Hysteria2 client from static config.
     pub fn new(config: Hysteria2ClientConfig) -> Self {
         Self { config }
     }
 
+    /// Connect to the server, authenticate, and open one proxied TCP stream.
+    ///
+    /// The returned stream is ready to carry bytes for `dest`.
     pub async fn connect_and_dial(&self, dest: &Address) -> Result<BoxedStream, ProxyError> {
         let rx_bps = self.config.down_mbps.saturating_mul(1_000_000 / 8);
         let target_bps = self.config.up_mbps.saturating_mul(1_000_000 / 8);
@@ -245,12 +263,14 @@ impl AsyncWrite for Hysteria2Stream {
     }
 }
 
+/// Outbound handler that dials destinations through a Hysteria2 client.
 pub struct Hysteria2OutboundHandler {
     client: Hysteria2Client,
     tag: String,
 }
 
 impl Hysteria2OutboundHandler {
+    /// Create a shared outbound handler with a fixed tag.
     pub fn new(config: Hysteria2ClientConfig, tag: String) -> Arc<Self> {
         Arc::new(Self {
             client: Hysteria2Client::new(config),

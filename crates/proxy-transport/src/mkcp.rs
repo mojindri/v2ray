@@ -1,6 +1,10 @@
+/// mKCP packet header disguises and helpers.
 pub mod header;
+/// Core KCP state machine used by mKCP.
 pub mod kcp;
+/// KCP wire-segment encode/decode primitives.
 pub mod segment;
+/// Async stream wrapper exposed to callers.
 pub mod stream;
 
 use std::collections::{HashMap, VecDeque};
@@ -22,13 +26,21 @@ use self::stream::MkcpStream;
 const SERVER_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone)]
+/// Client-side settings for one mKCP connection.
 pub struct MkcpClientConfig {
+    /// UDP socket address of the remote mKCP server.
     pub server: SocketAddr,
+    /// KCP conversation ID. Both peers must use the same value.
     pub conv: u32,
+    /// Fake header style added to each UDP packet.
     pub header: HeaderType,
+    /// How often (in milliseconds) the driver runs KCP update/flush.
     pub interval_ms: u64,
+    /// Receive window size in KCP segments.
     pub rcv_wnd: u16,
+    /// Send window size in KCP segments.
     pub snd_wnd: u16,
+    /// If true, use low-latency KCP mode.
     pub nodelay: bool,
 }
 
@@ -51,15 +63,23 @@ impl Default for MkcpClientConfig {
 }
 
 #[derive(Debug, Clone)]
+/// Server-side settings for accepting mKCP sessions.
 pub struct MkcpServerConfig {
+    /// Local UDP socket address to bind and listen on.
     pub listen: SocketAddr,
+    /// Fake header style expected on inbound packets.
     pub header: HeaderType,
+    /// How often (in milliseconds) each session driver ticks.
     pub interval_ms: u64,
+    /// Receive window size in KCP segments.
     pub rcv_wnd: u16,
+    /// Send window size in KCP segments.
     pub snd_wnd: u16,
+    /// If true, use low-latency KCP mode.
     pub nodelay: bool,
 }
 
+/// Open one outbound mKCP stream to the configured server.
 pub async fn mkcp_connect(cfg: &MkcpClientConfig) -> Result<MkcpStream> {
     let socket = Arc::new(UdpSocket::bind("0.0.0.0:0").await?);
     socket.connect(cfg.server).await?;
@@ -83,6 +103,9 @@ pub async fn mkcp_connect(cfg: &MkcpClientConfig) -> Result<MkcpStream> {
     Ok(MkcpStream::new(tx_to_driver, rx_from_driver))
 }
 
+/// Accept exactly one inbound mKCP stream, then return.
+///
+/// This is a small convenience wrapper around `mkcp_accept_sessions`.
 pub async fn mkcp_accept_once(cfg: &MkcpServerConfig) -> Result<(MkcpStream, SocketAddr)> {
     let mut sessions = mkcp_accept_sessions(cfg).await?;
     sessions

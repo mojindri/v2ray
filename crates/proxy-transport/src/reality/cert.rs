@@ -2,6 +2,18 @@
 //!
 //! Xray/sing-box clients verify `Signature == HMAC-SHA512(auth_key, ed25519_public_key)`
 //! instead of a normal PKIX chain.
+//!
+//! # Why cache certificates?
+//!
+//! Every REALITY handshake needs an ed25519 key pair and a DER template for
+//! the cover SNI (e.g. `www.microsoft.com`). Generating those is expensive.
+//! We cache the **template** per `(sni, mlkem)` key and only patch the HMAC
+//! signature field per connection using that client's `auth_key`.
+//!
+//! # Why DashMap?
+//!
+//! Many handshakes run concurrently. A global `Mutex<HashMap>` would serialize
+//! cache lookups; `DashMap` shards the map so readers rarely block each other.
 
 use std::sync::{Arc, OnceLock};
 
@@ -26,6 +38,7 @@ struct CertTemplate {
 }
 
 fn cert_cache() -> &'static DashMap<String, Arc<CertTemplate>> {
+    // Process-wide cache: SNI → pre-built cert template (signature patched per auth_key).
     static CACHE: OnceLock<DashMap<String, Arc<CertTemplate>>> = OnceLock::new();
     CACHE.get_or_init(DashMap::new)
 }

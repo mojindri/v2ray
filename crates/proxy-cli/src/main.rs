@@ -210,6 +210,8 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
         .await
         .context("building proxy instance from config")?;
 
+    // Step 4b: Apply hot-reload when config file changes (routing + VLESS users).
+    // Listeners keep running; only per-connection lookup tables are refreshed.
     {
         let reload = instance.reload.clone();
         let mut reload_rx = manager.subscribe();

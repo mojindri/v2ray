@@ -29,7 +29,7 @@ pub enum Address {
     /// A resolved IPv4 address and port, e.g. 93.184.216.34:443.
     Ipv4(Ipv4Addr, u16),
 
-    /// A resolved IPv6 address and port, e.g. [2606:2800::1]:443.
+    /// A resolved IPv6 address and port, e.g. `[2606:2800::1]:443`.
     Ipv6(Ipv6Addr, u16),
 
     /// An unresolved domain name and port, e.g. example.com:443.

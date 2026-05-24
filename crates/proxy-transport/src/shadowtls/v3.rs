@@ -37,14 +37,20 @@ const READ_PHASE_HEADER: u8 = 1;
 const READ_PHASE_BODY: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Decoded meaning of a ShadowTLS v3 ApplicationData frame.
 pub enum V3FrameKind {
+    /// Authenticated backend-handshake residue. Caller should ignore payload.
     ResidualHandshake,
+    /// Normal post-handshake application data.
     Data,
 }
 
 #[derive(Debug, Clone)]
+/// Parsed SessionID location and bytes from a TLS ClientHello.
 pub struct ClientHelloSession {
+    /// Full 32-byte SessionID as it appears on the wire.
     pub session_id: [u8; SESSION_ID_LEN],
+    /// Byte offset of SessionID start inside the TLS record.
     pub session_id_offset: usize,
 }
 
@@ -75,6 +81,7 @@ pub fn sign_client_hello_session_id<R: RngCore + ?Sized>(
     })
 }
 
+/// Verify the 4-byte HMAC tag inside a signed ClientHello SessionID.
 pub fn verify_client_hello_session_id(
     client_hello_record: &[u8],
     psk: &[u8],
@@ -97,15 +104,18 @@ pub fn verify_client_hello_session_id(
 }
 
 #[derive(Clone)]
+/// Stateful encoder for ShadowTLS v3 ApplicationData records.
 pub struct V3FrameEncoder {
     mac: ShadowHmac,
 }
 
 impl V3FrameEncoder {
+    /// Build encoder state for client-to-server data direction.
     pub fn client_to_server(psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self::new(psk, server_random, b"C")
     }
 
+    /// Build encoder state for server-to-client data direction.
     pub fn server_to_client(psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self::new(psk, server_random, b"S")
     }
@@ -120,6 +130,7 @@ impl V3FrameEncoder {
         Self { mac }
     }
 
+    /// Wrap plaintext into one authenticated TLS ApplicationData record.
     pub fn encode_application_data(&mut self, plaintext: &[u8]) -> Result<Vec<u8>, ProxyError> {
         if plaintext.len() > MAX_TLS_PLAINTEXT {
             return Err(ProxyError::Protocol(format!(
@@ -140,12 +151,14 @@ impl V3FrameEncoder {
 }
 
 #[derive(Clone)]
+/// Stateful decoder for ShadowTLS v3 ApplicationData records.
 pub struct V3FrameDecoder {
     data_mac: ShadowHmac,
     residual_mac: Option<ShadowHmac>,
 }
 
 impl V3FrameDecoder {
+    /// Build decoder state for frames sent by the client.
     pub fn client_to_server(psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self {
             data_mac: V3FrameEncoder::client_to_server(psk, server_random).mac,
@@ -153,6 +166,7 @@ impl V3FrameDecoder {
         }
     }
 
+    /// Build decoder state for frames sent by the server.
     pub fn server_to_client(psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self {
             data_mac: V3FrameEncoder::server_to_client(psk, server_random).mac,
@@ -160,6 +174,9 @@ impl V3FrameDecoder {
         }
     }
 
+    /// Decode one authenticated ApplicationData record.
+    ///
+    /// Returns frame kind plus plaintext payload (empty for residual frames).
     pub fn decode_application_data(
         &mut self,
         record: &[u8],
@@ -216,6 +233,7 @@ pub fn taint_backend_application_data(
     Ok(encode_tls_record(TLS_APPLICATION_DATA, &tainted))
 }
 
+/// Create residual-handshake HMAC state seeded from `psk` and `server_random`.
 pub fn residual_handshake_mac(psk: &[u8], server_random: &[u8; 32]) -> ShadowHmac {
     let mut mac = match ShadowHmac::new_from_slice(psk) {
         Ok(v) => v,
@@ -225,6 +243,7 @@ pub fn residual_handshake_mac(psk: &[u8], server_random: &[u8; 32]) -> ShadowHma
     mac
 }
 
+/// Extract the 32-byte server random from a TLS ServerHello record.
 pub fn server_random_from_server_hello_record(record: &[u8]) -> Option<[u8; 32]> {
     if record.len() < TLS_HEADER_LEN + 38 || record[0] != TLS_HANDSHAKE {
         return None;
@@ -261,6 +280,7 @@ pub struct V3Stream {
 }
 
 impl V3Stream {
+    /// Build the client-side post-handshake ShadowTLS v3 stream.
     pub fn client(inner: BoxedStream, psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self::new(
             inner,
@@ -269,6 +289,9 @@ impl V3Stream {
         )
     }
 
+    /// Build a client stream using an already-initialized decoder state.
+    ///
+    /// Use this when residual-handshake frames were processed earlier.
     pub fn client_after_residual(
         inner: BoxedStream,
         psk: &[u8],
@@ -282,6 +305,7 @@ impl V3Stream {
         )
     }
 
+    /// Build the server-side post-handshake ShadowTLS v3 stream.
     pub fn server(inner: BoxedStream, psk: &[u8], server_random: &[u8; 32]) -> Self {
         Self::new(
             inner,
@@ -290,6 +314,10 @@ impl V3Stream {
         )
     }
 
+    /// Build a server stream after consuming the first client data record.
+    ///
+    /// If that first record already contains user bytes, they are replayed by
+    /// wrapping the stream in `PrependedStream`.
     pub fn server_after_first_client_record(
         inner: BoxedStream,
         psk: &[u8],

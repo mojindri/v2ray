@@ -4,14 +4,21 @@ use std::time::{Duration, Instant};
 
 use super::packet::{IpPacket, TransportProtocol};
 
+/// Unique key for one client-to-remote transport flow.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct FlowKey {
+    /// Client endpoint (source side of the forward packet).
     pub client: SocketAddr,
+    /// Remote endpoint (destination side of the forward packet).
     pub remote: SocketAddr,
+    /// Flow protocol (TCP or UDP).
     pub protocol: TransportProtocol,
 }
 
 impl FlowKey {
+    /// Build a flow key from a parsed packet.
+    ///
+    /// Returns `None` for protocols we do not track.
     pub fn from_packet(packet: &IpPacket) -> Option<Self> {
         match packet.protocol {
             TransportProtocol::Tcp | TransportProtocol::Udp => Some(Self {
@@ -23,6 +30,7 @@ impl FlowKey {
         }
     }
 
+    /// Returns `true` if `packet` matches this flow in reverse direction.
     pub fn matches_response(&self, packet: &IpPacket) -> bool {
         packet.protocol == self.protocol
             && packet.src == self.remote.ip()
@@ -32,22 +40,30 @@ impl FlowKey {
     }
 }
 
+/// Runtime data for one observed flow.
 #[derive(Debug, Clone)]
 pub struct TunSession {
+    /// 5-tuple-like key for this flow.
     pub flow: FlowKey,
+    /// Last time we saw traffic for this flow.
     pub last_seen: Instant,
 }
 
+/// In-memory table of active TUN sessions.
 #[derive(Debug, Default)]
 pub struct TunSessionTable {
     sessions: HashMap<FlowKey, TunSession>,
 }
 
 impl TunSessionTable {
+    /// Create an empty session table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Track one outbound packet and refresh the flow timestamp.
+    ///
+    /// Returns the stored session, or `None` when protocol is unsupported.
     pub fn observe_packet(&mut self, packet: &IpPacket, now: Instant) -> Option<&TunSession> {
         let flow = FlowKey::from_packet(packet)?;
         let session = self.sessions.entry(flow.clone()).or_insert(TunSession {
@@ -58,12 +74,16 @@ impl TunSessionTable {
         Some(session)
     }
 
+    /// Find a tracked forward flow that matches this reverse packet.
     pub fn find_response_flow(&self, packet: &IpPacket) -> Option<&FlowKey> {
         self.sessions
             .keys()
             .find(|flow| flow.matches_response(packet))
     }
 
+    /// Remove sessions idle longer than `idle_timeout`.
+    ///
+    /// Returns number of removed sessions.
     pub fn remove_expired(&mut self, now: Instant, idle_timeout: Duration) -> usize {
         let before = self.sessions.len();
         self.sessions
@@ -71,10 +91,12 @@ impl TunSessionTable {
         before - self.sessions.len()
     }
 
+    /// Returns number of tracked sessions.
     pub fn len(&self) -> usize {
         self.sessions.len()
     }
 
+    /// Returns `true` when no sessions are tracked.
     pub fn is_empty(&self) -> bool {
         self.sessions.is_empty()
     }

@@ -39,7 +39,7 @@
 //!
 //! # References
 //!
-//! - gRPC over HTTP/2: https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md
+//! - gRPC over HTTP/2: <https://github.com/grpc/grpc/blob/master/doc/PROTOCOL-HTTP2.md>
 //! - xray-core Gun transport: `transport/internet/grpc/`
 
 use std::io;

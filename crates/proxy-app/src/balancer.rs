@@ -1,3 +1,16 @@
+//! Load-balancer outbound — pick the best member from a pool of outbounds.
+//!
+//! # How it works
+//!
+//! Routing can send traffic to a balancer tag instead of a single outbound.
+//! The balancer chooses one member outbound per connection using a strategy:
+//!
+//!   - **Latency** — prefer the alive member with the lowest probe latency
+//!   - **RoundRobin** — rotate through alive members in order
+//!   - **Random** — pick a random alive member
+//!
+//! Dead members (marked by `HealthChecker`) are skipped.
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
@@ -11,10 +24,14 @@ use crate::context::Context;
 use crate::features::OutboundHandler;
 use crate::health::HealthStates;
 
+/// How the balancer picks among alive member outbounds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Strategy {
+    /// Pick the alive outbound with the lowest measured latency.
     Latency,
+    /// Rotate through alive outbounds in fixed order.
     RoundRobin,
+    /// Pick a random alive outbound.
     Random,
 }
 
@@ -28,6 +45,7 @@ impl From<&str> for Strategy {
     }
 }
 
+/// Outbound handler that load-balances across several member outbounds.
 pub struct Balancer {
     tag: String,
     outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,
@@ -37,6 +55,7 @@ pub struct Balancer {
 }
 
 impl Balancer {
+    /// Build a balancer from config, member outbounds, and shared health state.
     pub fn new(
         config: &BalancerConfig,
         outbounds: Vec<(String, Arc<dyn OutboundHandler>)>,

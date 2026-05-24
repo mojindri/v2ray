@@ -28,12 +28,14 @@ pub mod tls;
 pub mod ws;
 
 // Phase 4+
+/// TUN transport runtime and packet helpers for full-device proxying.
 pub mod tun;
 
 // Phase 5: gRPC transport
 pub mod grpc;
 
 // mKCP transport
+/// mKCP transport implementation (KCP over UDP).
 pub mod mkcp;
 
 // Phase 7: ShadowTLS v3 transport

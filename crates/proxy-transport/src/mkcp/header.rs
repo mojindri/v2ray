@@ -1,17 +1,25 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+/// Packet disguise header used by mKCP UDP frames.
 pub enum HeaderType {
+    /// No extra header bytes.
     #[default]
     None,
+    /// 4-byte SRTP-like header.
     Srtp,
+    /// 4-byte uTP-like header.
     Utp,
+    /// 4-byte WeChat-video-like header.
     WechatVideo,
+    /// 13-byte DTLS-like record header.
     Dtls,
+    /// 4-byte WireGuard-like header.
     Wireguard,
 }
 
 impl HeaderType {
+    /// Return the number of disguise-header bytes for this type.
     pub fn size(self) -> usize {
         match self {
             HeaderType::None => 0,
@@ -23,6 +31,7 @@ impl HeaderType {
         }
     }
 
+    /// Prefix a payload with the configured disguise header.
     pub fn encode(self, payload: &[u8]) -> Vec<u8> {
         let hdr = self.size();
         let mut out = vec![0u8; hdr + payload.len()];
@@ -31,6 +40,9 @@ impl HeaderType {
         out
     }
 
+    /// Remove the configured disguise header from a packet.
+    ///
+    /// Returns `None` when the packet is shorter than the header.
     pub fn strip(self, packet: &[u8]) -> Option<&[u8]> {
         let hdr = self.size();
         if packet.len() < hdr {

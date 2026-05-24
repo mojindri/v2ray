@@ -11,6 +11,17 @@
 //! # cmd_key
 //!
 //! `cmd_key = MD5(uuid_bytes || "c48619fe-8f02-49e0-b9e9-edf763e17e21")`
+//!
+//! # How it works
+//!
+//! The client builds a short auth block from time, randomness, and CRC32, then
+//! encrypts it with a key derived from the user's UUID. The server reverses that
+//! process and checks time and checksum.
+//!
+//! # Why
+//!
+//! This lets the server quickly identify valid users and reject malformed or old
+//! auth IDs before doing expensive header processing.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -123,6 +134,7 @@ fn crc32_bytes(data: &[u8]) -> u32 {
 
 // ── Timestamp helper ──────────────────────────────────────────────────────────
 
+/// Return the current Unix timestamp in seconds.
 pub fn current_timestamp() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)

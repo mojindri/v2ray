@@ -31,8 +31,11 @@ use anyhow::{Context as _, Result};
 /// Destination inside a UDP datagram (legacy binary layout; not yet wired to server).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Destination {
+    /// IPv4 destination and port.
     V4(Ipv4Addr, u16),
+    /// IPv6 destination and port.
     V6(Ipv6Addr, u16),
+    /// Domain destination and port.
     Domain(String, u16),
 }
 

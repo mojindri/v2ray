@@ -87,6 +87,8 @@ pub struct Config {
 /// added later without changing the config shape.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct LimitsConfig {
+    /// Maximum concurrent connections for the whole process (optional).
+    /// Applied per TCP listener unless overridden by per-inbound limits.
     #[serde(
         default,
         rename = "maxConnections",
@@ -95,6 +97,7 @@ pub struct LimitsConfig {
     )]
     pub max_connections: Option<usize>,
 
+    /// Default per-inbound connection cap when an inbound has no own `limits` block.
     #[serde(
         default,
         rename = "maxConnectionsPerInbound",
@@ -103,6 +106,8 @@ pub struct LimitsConfig {
     )]
     pub max_connections_per_inbound: Option<usize>,
 
+    /// Wall-clock limit for inbound **handshake only** (REALITY/TLS/VLESS header).
+    /// Does not cut off an established relay. Omitted = no limit.
     #[serde(
         default,
         rename = "maxHandshakeSeconds",
@@ -111,6 +116,7 @@ pub struct LimitsConfig {
     )]
     pub max_handshake_seconds: Option<u64>,
 
+    /// Close idle connections after this many seconds (reserved; not wired yet).
     #[serde(
         default,
         rename = "maxIdleSeconds",
@@ -123,18 +129,25 @@ pub struct LimitsConfig {
 /// Top-level Linux TUN interception settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TunConfig {
+    /// TUN interface name (e.g. `"tun0"`).
     #[serde(default = "default_tun_name")]
     pub name: String,
+    /// IPv4 address assigned to the TUN device.
     #[serde(default = "default_tun_address")]
     pub address: String,
+    /// Netmask for the TUN IPv4 network.
     #[serde(default = "default_tun_netmask")]
     pub netmask: String,
+    /// MTU for the TUN interface.
     #[serde(default = "default_tun_mtu")]
     pub mtu: u16,
+    /// iptables/nftables mark for packets that should bypass the TUN path.
     #[serde(default = "default_tun_bypass_mark")]
     pub bypass_mark: u32,
+    /// Local port where redirected TCP connections are accepted.
     #[serde(default = "default_tun_redirect_port")]
     pub redirect_port: u16,
+    /// Local DNS port used by the transparent-proxy DNS path.
     #[serde(default = "default_tun_dns_port")]
     pub dns_port: u16,
 }

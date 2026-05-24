@@ -14,11 +14,16 @@ use super::varint::{read_varint, write_varint};
 
 /// HTTP/3 auth path and authority (sing-quic / official spec).
 pub const AUTH_HOST: &str = "hysteria";
+/// HTTP path used for authentication requests.
 pub const AUTH_PATH: &str = "/auth";
 
+/// Header that carries the shared password.
 pub const HEADER_AUTH: &str = "hysteria-auth";
+/// Header that tells the client whether UDP is enabled.
 pub const HEADER_UDP: &str = "hysteria-udp";
+/// Header that carries receive-rate hints (`bytes/sec` or `auto`).
 pub const HEADER_CC_RX: &str = "hysteria-cc-rx";
+/// Header used as random padding noise in auth traffic.
 pub const HEADER_PADDING: &str = "hysteria-padding";
 
 /// HTTP status code returned on successful authentication.
@@ -27,13 +32,17 @@ pub const STATUS_AUTH_OK: u16 = 233;
 /// TCP request frame type on each proxy stream.
 pub const FRAME_TYPE_TCP_REQUEST: u64 = 0x401;
 
+/// Maximum accepted `host:port` length in TCP requests.
 pub const MAX_ADDRESS_LENGTH: u64 = 2048;
+/// Maximum accepted message length in TCP responses.
 pub const MAX_MESSAGE_LENGTH: u64 = 2048;
+/// Maximum accepted padding length on frames.
 pub const MAX_PADDING_LENGTH: u64 = 4096;
 
 /// Auth request — parsed from HTTP/3 headers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthRequest {
+    /// Shared password sent by the client.
     pub auth: String,
     /// Client receive rate in bytes per second (`Hysteria-CC-RX`). Zero means unknown.
     pub rx_bps: u64,
@@ -42,7 +51,9 @@ pub struct AuthRequest {
 /// Auth response — encoded into HTTP/3 response headers.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthResponse {
+    /// Whether authentication succeeded.
     pub ok: bool,
+    /// Whether server supports UDP relay for this session.
     pub udp_enabled: bool,
     /// Server receive rate in bytes per second for the client to respect when uploading.
     pub rx_bps: u64,
@@ -53,13 +64,16 @@ pub struct AuthResponse {
 /// TCP proxy request — destination as `host:port` string.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpRequest {
+    /// Destination in `host:port` format.
     pub addr: String,
 }
 
 /// TCP proxy response.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TcpResponse {
+    /// Whether server accepted the connect request.
     pub ok: bool,
+    /// Human-readable error text when `ok` is `false`.
     pub message: String,
 }
 

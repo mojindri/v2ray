@@ -31,13 +31,14 @@ const WRITE_CHAN_CAP: usize = 1024;
 ///      by iptables REDIRECT → the proxy's TCP listener).
 ///   3. Writes synthesized response packets back into the TUN device.
 ///
-/// On Linux, [`TunRuntime::run`] also installs iptables/ip-rule entries via
-/// [`setup_routes`] before entering the loop and removes them on exit.
+/// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries via
+/// `setup_routes` (see `tun/route.rs`) before entering the loop and removes them on exit.
 pub struct TunRuntime {
     config: TunConfig,
 }
 
 impl TunRuntime {
+    /// Create a runtime from immutable TUN settings.
     pub fn new(config: TunConfig) -> Self {
         Self { config }
     }

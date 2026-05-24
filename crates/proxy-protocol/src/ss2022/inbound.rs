@@ -5,6 +5,17 @@
 //!
 //! Response stream layout:
 //! `salt | encrypted fixed header(43+16) | encrypted first payload(N+16) | data chunks...`
+//!
+//! # How it works
+//!
+//! The server reads the client salt, derives a subkey, decrypts the request
+//! headers, and extracts the target address. Then it sends its own response
+//! salt and response header so both sides can continue with encrypted chunks.
+//!
+//! # Why
+//!
+//! SS-2022 checks salt replay and timestamp drift before accepting traffic.
+//! That blocks simple replay attacks and stale handshakes.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -36,6 +47,7 @@ const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x03;
 const ATYP_IPV6: u8 = 0x04;
 
+/// SS-2022 inbound handler that accepts encrypted TCP sessions.
 pub struct Ss2022Inbound {
     tag: String,
     psk: [u8; 32],
@@ -43,6 +55,7 @@ pub struct Ss2022Inbound {
 }
 
 impl Ss2022Inbound {
+    /// Build a new SS-2022 inbound handler from tag and password.
     pub fn new(tag: impl Into<String>, password: &str) -> Arc<Self> {
         Arc::new(Self {
             tag: tag.into(),

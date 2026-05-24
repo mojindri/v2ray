@@ -12,7 +12,7 @@
 //! 1. Load config → build `Instance`
 //! 2. Call `instance.start()` → spawns Tokio tasks for each inbound listener
 //! 3. The instance runs until `instance.stop()` is called or a fatal error occurs
-//! 4. On SIGHUP → hot-reload config without stopping listeners
+//! 4. On config reload → `ReloadState::apply()` swaps router + VLESS users
 
 mod http;
 mod hysteria2;
@@ -26,4 +26,5 @@ mod vmess;
 mod ws_tls;
 
 pub use instance::Instance;
+/// Hot-reload handles: swap routing rules and VLESS users without restarting listeners.
 pub use reload::ReloadState;

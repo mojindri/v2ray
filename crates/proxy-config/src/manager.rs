@@ -15,6 +15,8 @@
 //!    (e.g. a connection currently being processed) continue using the old
 //!    version until they finish. New connections immediately see the new config.
 //! 4. If validation fails, the error is logged and the old config stays active.
+//! 5. Subscribers from `subscribe()` receive the new config; `blackwire run` calls
+//!    `ReloadState::apply()` to hot-swap routing rules and VLESS user lists.
 //!
 //! # Thread safety
 //!
@@ -134,6 +136,7 @@ impl ConfigManager {
                         Ok(new_cfg) => {
                             let new_cfg = Arc::new(new_cfg);
                             self.current.store(Arc::clone(&new_cfg));
+                            // Wake `subscribe()` receivers so ReloadState::apply() runs.
                             let _ = self.reload_tx.send(new_cfg);
                             info!(path = %self.path.display(), "config reloaded successfully");
                         }

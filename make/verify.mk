@@ -18,13 +18,15 @@ REPORT_LIMA := $(LAB_DIR)/reports/production
 # ── verify-local: host-only Rust validation ───────────────────────────────────
 
 verify-local:
-	@echo "==> [verify-local 1/4] fmt-check"
+	@echo "==> [verify-local 1/5] fmt-check"
 	$(MAKE) fmt-check
-	@echo "==> [verify-local 2/4] cargo check"
+	@echo "==> [verify-local 2/5] cargo check"
 	cargo check --workspace --all-targets
-	@echo "==> [verify-local 3/4] clippy"
+	@echo "==> [verify-local 3/5] clippy"
 	cargo clippy --workspace --all-targets -- -D warnings
-	@echo "==> [verify-local 4/4] tests"
+	@echo "==> [verify-local 4/5] rustdoc (strict)"
+	RUSTDOCFLAGS="-D missing_docs -D rustdoc::broken_intra_doc_links -D rustdoc::bare_urls" cargo doc --workspace --no-deps
+	@echo "==> [verify-local 5/5] tests"
 	cargo test --workspace --all-targets
 	@echo "==> verify-local complete"
 

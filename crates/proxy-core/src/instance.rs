@@ -16,16 +16,17 @@
 //!
 //! Each inbound now goes through a layered handler stack:
 //!
-//!   TCP accept → [TLS] → [WebSocket] → Protocol handler
+//!   TCP accept → \[TLS\] → \[WebSocket\] → Protocol handler
 //!
 //! The layers are applied based on `streamSettings.security` and
 //! `streamSettings.network` in the config. If neither is set, it is plain TCP.
 //!
-//! # Hot-reload (Phase 2)
+//! # Hot-reload
 //!
-//! When the config file changes, the config manager sends a notification.
-//! `Instance` rebuilds the handlers for changed inbounds/outbounds and
-//! replaces them without stopping the unchanged ones.
+//! When the config file changes, `ConfigManager` validates the new JSON and
+//! notifies subscribers. `ReloadState::apply()` (in `reload.rs`) then swaps
+//! routing rules and VLESS user lists **without** restarting TCP listeners.
+//! Outbound handlers and listen ports are still fixed at startup.
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -215,6 +216,7 @@ impl Instance {
 
         let (geoip, geosite) = load_geo_data(config.routing.as_ref());
         let router = LiveRouter::new(rules, default_tag, geoip, geosite);
+        // Shared with the config watcher: router swap + VLESS registry refresh on reload.
         let reload = ReloadState {
             router: Arc::clone(&router),
             vless_registries: Arc::new(DashMap::new()),
@@ -270,6 +272,7 @@ impl Instance {
             let handshake_timeout = handshake_timeout_for(in_cfg, &config.limits);
 
             if uses_kcp(&in_cfg.stream_settings) {
+                // Handshake timeout wraps the whole inbound stack (mKCP session + VLESS).
                 let conn_handler = Arc::new(HandshakeTimeoutHandler {
                     inner: Arc::new(InboundConnectionHandler {
                         inbound: Arc::clone(&handler),
@@ -579,7 +582,11 @@ struct InboundConnectionHandler {
     dispatcher: Arc<dyn Dispatcher>,
 }
 
-/// Optional wall-clock limit for inbound handshake phases (REALITY/TLS/VLESS header).
+/// Optional wall-clock limit for inbound handshake phases only.
+///
+/// Wraps REALITY/TLS/WebSocket/mKCP/plain TCP handlers. Once I/O is still in the
+/// handshake when the timer fires, the connection is dropped with `Timeout`.
+/// Once the inner handler returns, the relay runs without this limit.
 struct HandshakeTimeoutHandler {
     inner: Arc<dyn ConnectionHandler>,
     timeout: Option<Duration>,
@@ -611,6 +618,7 @@ fn handshake_timeout_for(
     in_cfg: &proxy_config::schema::InboundConfig,
     global: &proxy_config::schema::LimitsConfig,
 ) -> Option<Duration> {
+    // Per-inbound limit wins; fall back to global `limits.maxHandshakeSeconds`.
     let secs = in_cfg
         .limits
         .as_ref()
@@ -678,7 +686,7 @@ fn build_vless_outbound(
     }
 }
 
-/// Build a VLESS inbound handler from config.
+/// Build a VLESS inbound and register its user registry for hot-reload.
 fn build_vless_inbound(
     cfg: &proxy_config::schema::InboundConfig,
     registries: &Arc<DashMap<String, Arc<VlessUserRegistry>>>,
@@ -701,6 +709,7 @@ pub(crate) fn populate_vless_registry(
     registry: &VlessUserRegistry,
     cfg: &proxy_config::schema::InboundConfig,
 ) -> Result<()> {
+    // Clear + repopulate: used at startup and on each config reload.
     registry.clear();
     if let Some(clients) = cfg.settings["clients"].as_array() {
         for client in clients {

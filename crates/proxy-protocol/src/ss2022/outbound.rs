@@ -8,6 +8,17 @@
 //! 3. Send SIP022 request variable header (nonce=1):
 //!    `atyp | addr | port | padding_len(2 BE) | padding | initial_payload`
 //! 4. Data relay uses normal length/payload chunks (nonces continue from 2).
+//!
+//! # How it works
+//!
+//! This outbound opens TCP to the SS-2022 server, writes the encrypted request
+//! headers for the chosen destination, validates the encrypted response header,
+//! and then returns an `Ss2022Stream` for normal relay.
+//!
+//! # Why
+//!
+//! The split handshake keeps address metadata encrypted while still letting both
+//! sides agree on subkeys and nonce positions before data chunks start.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -46,6 +57,7 @@ pub struct Ss2022Outbound {
 }
 
 impl Ss2022Outbound {
+    /// Build a new SS-2022 outbound handler for one server.
     pub fn new(tag: impl Into<String>, server: SocketAddr, password: &str) -> Arc<Self> {
         Arc::new(Self {
             tag: tag.into(),

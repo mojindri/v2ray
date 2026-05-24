@@ -7,6 +7,17 @@
 //! Size is either plain big-endian or SHAKE-masked when ChunkMasking is set.
 //! AEAD payload nonces use `counter_be_u16 || iv[2..12]` and increment once
 //! per payload, matching Xray's VMess body reader/writer.
+//!
+//! # How it works
+//!
+//! Each write call becomes one framed chunk: a 2-byte size plus encrypted body.
+//! Each read call buffers raw bytes, peels full chunks, decrypts them, and gives
+//! plain payload bytes to callers.
+//!
+//! # Why
+//!
+//! VMess body framing keeps packet boundaries explicit and supports optional
+//! size masking and global padding to reduce metadata leakage.
 
 use std::io;
 use std::pin::Pin;
@@ -31,7 +42,9 @@ use proxy_common::BoxedStream;
 use super::codec::Security;
 
 const MAX_CHUNK_SIZE: usize = 16 * 1024;
+/// VMess request option bit that enables SHAKE-based chunk size masking.
 pub const REQUEST_OPTION_CHUNK_MASKING: u8 = 0x04;
+/// VMess request option bit that enables random global padding bytes per chunk.
 pub const REQUEST_OPTION_GLOBAL_PADDING: u8 = 0x08;
 
 fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {

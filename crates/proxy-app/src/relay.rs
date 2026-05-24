@@ -1,14 +1,27 @@
-//! Bidirectional relay implementations.
+//! Bidirectional relay — copy bytes between client and upstream until one side closes.
 //!
-//! The default relay uses `tokio::io::copy_bidirectional`, which works for any
-//! async stream. On Linux, raw TCP streams can use `splice(2)` to move bytes
-//! through kernel pipes without copying them into userspace.
+//! # How relay works
+//!
+//! After the dispatcher opens an outbound connection, it runs a relay loop:
+//!
+//!   client ←→ inbound stream ←→ outbound stream ←→ destination
+//!
+//! Both directions run concurrently until either side closes or errors.
+//!
+//! # Linux splice(2)
+//!
+//! On Linux, when **both** sides are raw `TcpStream`s, we try `splice(2)` first.
+//! Splice moves data through kernel pipes — bytes never touch userspace buffers,
+//! which saves CPU on large transfers. If either stream is wrapped (TLS, WebSocket,
+//! REALITY, etc.) or splice fails, we fall back to `tokio::io::copy_bidirectional`.
 
 use std::io;
 
 use proxy_common::BoxedStream;
 
 /// Relay bytes between two streams until either side closes.
+///
+/// Returns `(bytes_client_to_server, bytes_server_to_client)`.
 pub async fn relay_bidirectional(
     inbound: BoxedStream,
     outbound: BoxedStream,
@@ -17,6 +30,7 @@ pub async fn relay_bidirectional(
     {
         use proxy_common::{try_into_tcp_stream, BoxedStream};
 
+        // Wrapped streams (TLS/WS/REALITY) cannot splice — use async copy.
         let inbound = match try_into_tcp_stream(inbound) {
             Ok(stream) => stream,
             Err(inbound) => {
@@ -34,6 +48,7 @@ pub async fn relay_bidirectional(
         if let Ok(result) = proxy_common::splice::splice_bidirectional(&inbound, &outbound).await {
             return Ok(result);
         }
+        // splice can fail on exotic socket types — fall back safely.
         return tokio_copy_bidirectional(Box::new(inbound), Box::new(outbound)).await;
     }
 

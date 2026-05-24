@@ -47,6 +47,7 @@ pub fn hysteria_to_address(addr: &str) -> Result<Address, ProxyError> {
     }
 }
 
+/// Read and parse one TCP connect request on the server side.
 pub async fn server_read_request<R: AsyncRead + Unpin>(
     stream: &mut R,
 ) -> Result<Address, ProxyError> {
@@ -56,6 +57,7 @@ pub async fn server_read_request<R: AsyncRead + Unpin>(
     hysteria_to_address(&req.addr)
 }
 
+/// Write a TCP connect response (`ok` + optional message) on the server side.
 pub async fn server_write_response<W: AsyncWrite + Unpin>(
     stream: &mut W,
     ok: bool,
@@ -70,6 +72,7 @@ pub async fn server_write_response<W: AsyncWrite + Unpin>(
         .map_err(ProxyError::Io)
 }
 
+/// Encode and send the client connect request for `dest`.
 pub async fn client_write_request<W: AsyncWrite + Unpin>(
     stream: &mut W,
     dest: &Address,
@@ -80,6 +83,7 @@ pub async fn client_write_request<W: AsyncWrite + Unpin>(
         .map_err(ProxyError::Io)
 }
 
+/// Read the server response and return an error if connect was rejected.
 pub async fn client_read_response<R: AsyncRead + Unpin>(stream: &mut R) -> Result<(), ProxyError> {
     let resp = decode_tcp_response(stream)
         .await

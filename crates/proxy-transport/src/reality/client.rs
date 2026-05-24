@@ -46,6 +46,7 @@ pub struct RealityClient {
 }
 
 impl RealityClient {
+    /// Create a REALITY client from validated config values.
     pub fn new(config: RealityClientConfig) -> Self {
         Self { config }
     }

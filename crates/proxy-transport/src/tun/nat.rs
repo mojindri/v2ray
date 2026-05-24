@@ -38,6 +38,10 @@ pub struct UdpNatTable {
 }
 
 impl UdpNatTable {
+    /// Create an empty UDP NAT table.
+    ///
+    /// `bypass_mark` is applied to bypass sockets on Linux, and `idle_timeout`
+    /// controls when inactive flows are removed.
     pub fn new(bypass_mark: u32, idle_timeout: Duration) -> Self {
         Self {
             entries: HashMap::new(),
@@ -110,10 +114,12 @@ impl UdpNatTable {
         before - self.entries.len()
     }
 
+    /// Returns the number of active UDP NAT entries.
     pub fn len(&self) -> usize {
         self.entries.len()
     }
 
+    /// Returns `true` if there are no active UDP NAT entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }

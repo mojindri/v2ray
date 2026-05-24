@@ -25,6 +25,17 @@
 //! ```
 //!
 //! Using keys derived from `response_body_key = SHA256(request_key)[:16]`.
+//!
+//! # How it works
+//!
+//! The client encrypts a request header in two parts: one encrypted length field
+//! and one encrypted header payload. The server decrypts both using keys derived
+//! from `cmd_key`, `auth_id`, and `connection_nonce`.
+//!
+//! # Why
+//!
+//! Splitting length and payload keeps framing confidential and authenticated,
+//! while still allowing streaming reads without buffering a full connection.
 
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, Payload},
@@ -65,8 +76,11 @@ pub const PATH_RESP_HDR_IV: &[u8] = b"AEAD Resp Header IV";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Security {
     #[default]
+    /// Use AES-128-GCM for VMess body chunks.
     Aes128Gcm = 0x03,
+    /// Use ChaCha20-Poly1305 for VMess body chunks.
     ChaCha20Poly1305 = 0x04,
+    /// Disable payload encryption for VMess body chunks.
     None = 0x05,
 }
 
@@ -96,14 +110,21 @@ const ATYP_IPV6: u8 = 0x03;
 /// Decoded VMess request header.
 #[derive(Debug)]
 pub struct VmessRequest {
+    /// Request body IV used to build inbound body chunk nonces.
     pub iv: [u8; 16],
+    /// Request body key used to decrypt inbound body chunks.
     pub key: [u8; 16],
+    /// Random verification byte echoed in the response header.
     pub v: u8,
+    /// Request option flags (for example chunk masking and padding).
     pub options: u8,
+    /// Requested body security algorithm.
     pub security: Security,
+    /// Destination parsed from the VMess request header.
     pub dest: Address,
 }
 
+/// Tuple returned by `encode_header` with all wire pieces and body secrets.
 pub type EncodedHeader = ([u8; 16], [u8; 16], u8, [u8; 8], Vec<u8>, Vec<u8>);
 
 // ── Response key/IV derivation ────────────────────────────────────────────────

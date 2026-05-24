@@ -14,6 +14,7 @@ const PROBE_INIT: u32 = 7_000;
 const PROBE_LIMIT: u32 = 120_000;
 const DEAD_LINK: u32 = 20;
 
+/// Minimal KCP protocol engine used by mKCP drivers.
 pub struct Kcp {
     conv: u32,
     _mtu: usize,
@@ -52,6 +53,7 @@ pub struct Kcp {
 }
 
 impl Kcp {
+    /// Create a new KCP engine for one conversation ID.
     pub fn new(conv: u32) -> Self {
         let mtu = 1400usize;
         Self {
@@ -92,11 +94,15 @@ impl Kcp {
         }
     }
 
+    /// Enable or disable low-latency mode.
     pub fn set_nodelay(&mut self, nodelay: bool) {
         self.nodelay = nodelay;
         self.rx_minrto = if nodelay { RTO_NDL } else { RTO_MIN };
     }
 
+    /// Set send/receive window sizes in segments.
+    ///
+    /// Values of `0` are ignored.
     pub fn set_wndsize(&mut self, snd: u16, rcv: u16) {
         if snd > 0 {
             self.snd_wnd = snd;
@@ -106,10 +112,17 @@ impl Kcp {
         }
     }
 
+    /// Return `true` when the session is considered dead.
     pub fn is_dead(&self) -> bool {
         self.state == -1
     }
 
+    /// Read one fully reassembled message into `buf`.
+    ///
+    /// Returns:
+    /// - `> 0`: number of bytes written
+    /// - `-1`: no complete message ready
+    /// - `-2`: `buf` is too small
     pub fn recv(&mut self, buf: &mut [u8]) -> i32 {
         if self.rcv_queue.is_empty() {
             return -1;
@@ -142,6 +155,12 @@ impl Kcp {
         pos as i32
     }
 
+    /// Queue one application message for sending.
+    ///
+    /// Returns:
+    /// - `0`: queued
+    /// - `-1`: empty input
+    /// - `-2`: message would need too many fragments
     pub fn send(&mut self, buf: &[u8]) -> i32 {
         if buf.is_empty() {
             return -1;
@@ -163,6 +182,9 @@ impl Kcp {
         0
     }
 
+    /// Feed one or more received KCP segments into the engine.
+    ///
+    /// Returns `0` on success or a negative value on parse/validation failure.
     pub fn input(&mut self, data: &[u8]) -> i32 {
         let prev_una = self.snd_una;
         let mut maxack = 0u32;
@@ -234,6 +256,7 @@ impl Kcp {
         0
     }
 
+    /// Update internal clocks before calling `flush`.
     pub fn update(&mut self, current: u32) {
         self.current = current;
         if !self.updated {
@@ -242,6 +265,9 @@ impl Kcp {
         }
     }
 
+    /// Flush outbound packets into `out`.
+    ///
+    /// Each entry in `out` is one encoded UDP payload to send.
     pub fn flush(&mut self, out: &mut Vec<Vec<u8>>) {
         if !self.updated {
             return;

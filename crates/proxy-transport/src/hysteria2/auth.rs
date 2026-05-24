@@ -7,9 +7,11 @@ use super::proto::{auth_request_from_headers, AuthRequest};
 /// Errors that can occur during Hysteria2 authentication.
 #[derive(Debug, thiserror::Error)]
 pub enum AuthError {
+    /// Password in the request did not match server config.
     #[error("authentication failed: wrong password")]
     WrongPassword,
 
+    /// Request headers were malformed or missing required fields.
     #[error("protocol error: {0}")]
     Protocol(String),
 }
