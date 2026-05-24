@@ -34,22 +34,57 @@ pub fn kdf<const N: usize>(key: &[u8], paths: &[&[u8]]) -> [u8; N] {
         "KDF output cannot exceed 32 bytes (HMAC-SHA256 size)"
     );
 
-    // The derivation starts with the base key. Each path segment is added by
-    // using the current output as the new key and the path as the message.
-    let mut current_key = key.to_vec();
+    let digest = kdf_hash(paths, key);
+    let mut out = [0u8; N];
+    out.copy_from_slice(&digest[..N]);
+    out
+}
 
-    for &path in paths {
-        let mut mac = match HmacSha256::new_from_slice(&current_key) {
-            Ok(v) => v,
-            Err(_) => panic!("HMAC accepts any key length"),
-        };
-        mac.update(path);
-        current_key = mac.finalize().into_bytes().to_vec();
+const VMESS_AEAD_KDF_SALT: &[u8] = b"VMess AEAD KDF";
+const HMAC_BLOCK_SIZE: usize = 64;
+
+fn kdf_hash(paths: &[&[u8]], msg: &[u8]) -> [u8; 32] {
+    if paths.is_empty() {
+        let mut mac = HmacSha256::new_from_slice(VMESS_AEAD_KDF_SALT)
+            .expect("HMAC accepts any key length");
+        mac.update(msg);
+        let digest = mac.finalize().into_bytes();
+        let mut out = [0u8; 32];
+        out.copy_from_slice(&digest);
+        return out;
     }
 
-    let mut out = [0u8; N];
-    out.copy_from_slice(&current_key[..N]);
-    out
+    hmac_with_kdf_hash(&paths[..paths.len() - 1], paths[paths.len() - 1], msg)
+}
+
+fn hmac_with_kdf_hash(hash_paths: &[&[u8]], key: &[u8], msg: &[u8]) -> [u8; 32] {
+    let mut block_key = [0u8; HMAC_BLOCK_SIZE];
+
+    if key.len() > HMAC_BLOCK_SIZE {
+        let hashed_key = kdf_hash(hash_paths, key);
+        block_key[..hashed_key.len()].copy_from_slice(&hashed_key);
+    } else {
+        block_key[..key.len()].copy_from_slice(key);
+    }
+
+    let mut ipad = [0x36u8; HMAC_BLOCK_SIZE];
+    let mut opad = [0x5cu8; HMAC_BLOCK_SIZE];
+
+    for i in 0..HMAC_BLOCK_SIZE {
+        ipad[i] ^= block_key[i];
+        opad[i] ^= block_key[i];
+    }
+
+    let mut inner_input = Vec::with_capacity(HMAC_BLOCK_SIZE + msg.len());
+    inner_input.extend_from_slice(&ipad);
+    inner_input.extend_from_slice(msg);
+    let inner = kdf_hash(hash_paths, &inner_input);
+
+    let mut outer_input = Vec::with_capacity(HMAC_BLOCK_SIZE + inner.len());
+    outer_input.extend_from_slice(&opad);
+    outer_input.extend_from_slice(&inner);
+
+    kdf_hash(hash_paths, &outer_input)
 }
 
 // ── Unit tests ─────────────────────────────────────────────────────────────────
@@ -103,13 +138,10 @@ mod tests {
         assert_ne!(a, b);
     }
 
-    /// Zero paths: one HMAC round with an empty message acts as identity.
     #[test]
-    fn zero_paths_uses_key_directly() {
+    fn zero_paths_uses_salted_hmac() {
         let key = b"my-key";
-        // With no paths, `current_key` stays as `key` and we just copy the first N bytes.
-        // But we do NOT apply any HMAC in that case — so the result is the key itself.
         let out: [u8; 6] = kdf(key, &[]);
-        assert_eq!(&out, b"my-key");
+        assert_ne!(&out, b"my-key");
     }
 }

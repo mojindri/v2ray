@@ -52,7 +52,8 @@ fn make_nonce(counter: u64) -> [u8; 12] {
 /// stateful: the nonce counter increments with every encrypted field.
 pub struct Ss2022Stream {
     inner: BoxedStream,
-    cipher: Aes256Gcm,
+    read_cipher: Aes256Gcm,
+    write_cipher: Aes256Gcm,
 
     // Read state
     read_counter: u64,
@@ -62,6 +63,7 @@ pub struct Ss2022Stream {
     // Write state
     write_counter: u64,
     write_buf: BytesMut, // encrypted bytes waiting to be flushed
+    response_header: Option<[u8; 43]>,
 }
 
 impl Ss2022Stream {
@@ -69,21 +71,35 @@ impl Ss2022Stream {
     ///
     /// For SIP022 compatibility, pass `start_nonce = 2` (handshake consumes nonces 0 and 1).
     pub fn new_with_nonce(inner: BoxedStream, subkey: &[u8; 32], start_nonce: u64) -> Self {
-        let cipher = Aes256Gcm::new(GenericArray::from_slice(subkey));
-        Self {
-            inner,
-            cipher,
-            read_counter: start_nonce,
-            read_buf: BytesMut::new(),
-            read_raw: BytesMut::new(),
-            write_counter: start_nonce,
-            write_buf: BytesMut::new(),
-        }
+        Self::new_bidir(inner, subkey, start_nonce, subkey, start_nonce, BytesMut::new(), None)
     }
 
     /// Create a new `Ss2022Stream` wrapping `inner`, nonces starting at 0.
     pub fn new(inner: BoxedStream, subkey: &[u8; 32]) -> Self {
         Self::new_with_nonce(inner, subkey, 0)
+    }
+
+    /// Create a stream with independent read/write keys and counters.
+    pub fn new_bidir(
+        inner: BoxedStream,
+        read_subkey: &[u8; 32],
+        read_start_nonce: u64,
+        write_subkey: &[u8; 32],
+        write_start_nonce: u64,
+        initial_read: BytesMut,
+        response_header: Option<[u8; 43]>,
+    ) -> Self {
+        Self {
+            inner,
+            read_cipher: Aes256Gcm::new(GenericArray::from_slice(read_subkey)),
+            write_cipher: Aes256Gcm::new(GenericArray::from_slice(write_subkey)),
+            read_counter: read_start_nonce,
+            read_buf: initial_read,
+            read_raw: BytesMut::new(),
+            write_counter: write_start_nonce,
+            write_buf: BytesMut::new(),
+            response_header,
+        }
     }
 
     /// Try to decrypt the next chunk from `src`.
@@ -100,7 +116,7 @@ impl Ss2022Stream {
         let len_ct = &src[..18];
 
         let len_pt = match self
-            .cipher
+            .read_cipher
             .decrypt(GenericArray::from_slice(&len_nonce), len_ct)
         {
             Ok(v) => v,
@@ -135,7 +151,7 @@ impl Ss2022Stream {
         let data_ct = src.split_to(data_len + 16);
         let data_nonce = make_nonce(self.read_counter);
 
-        let plaintext = match self.cipher.decrypt(
+        let plaintext = match self.read_cipher.decrypt(
             GenericArray::from_slice(&data_nonce),
             Payload {
                 msg: &data_ct,
@@ -157,10 +173,33 @@ impl Ss2022Stream {
 
     /// Encrypt `data` and return the wire bytes (length ciphertext + data ciphertext).
     fn encrypt_chunk(&mut self, data: &[u8]) -> Vec<u8> {
+        if let Some(mut fixed_header) = self.response_header.take() {
+            fixed_header[41..43].copy_from_slice(&(data.len() as u16).to_be_bytes());
+
+            let header_nonce = make_nonce(self.write_counter);
+            let header_ct = self
+                .write_cipher
+                .encrypt(GenericArray::from_slice(&header_nonce), fixed_header.as_slice())
+                .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+            self.write_counter += 1;
+
+            let data_nonce = make_nonce(self.write_counter);
+            let data_ct = self
+                .write_cipher
+                .encrypt(GenericArray::from_slice(&data_nonce), data)
+                .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+            self.write_counter += 1;
+
+            let mut out = Vec::with_capacity(header_ct.len() + data_ct.len());
+            out.extend_from_slice(&header_ct);
+            out.extend_from_slice(&data_ct);
+            return out;
+        }
+
         let len_nonce = make_nonce(self.write_counter);
         let data_len = data.len() as u16;
         let len_ct = self
-            .cipher
+            .write_cipher
             .encrypt(
                 GenericArray::from_slice(&len_nonce),
                 data_len.to_be_bytes().as_slice(),
@@ -170,7 +209,7 @@ impl Ss2022Stream {
 
         let data_nonce = make_nonce(self.write_counter);
         let data_ct = self
-            .cipher
+            .write_cipher
             .encrypt(GenericArray::from_slice(&data_nonce), data)
             .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
         self.write_counter += 1;

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 
 use proxy_app::context::Context;
@@ -24,8 +24,7 @@ use proxy_common::{BoxedStream, Network, ProxyError};
 
 use super::auth::{cmd_key, validate_auth_id, MAX_TIME_DIFF_SECS};
 use super::codec::{
-    decode_header, decrypt_length_field, response_body_iv, response_body_key, send_response_header,
-    Security,
+    decode_header, decrypt_length_field, response_body_iv, response_body_key, Security,
 };
 use super::stream::VmessStream;
 
@@ -138,25 +137,32 @@ impl InboundHandler for VmessInbound {
         let header_len = decrypt_length_field(&user.cmd_key, &auth_id, &connection_nonce, &enc_len)?;
 
         // 6. Decrypt request header.
-        let request = decode_header(&mut stream, &user.cmd_key, &auth_id, &connection_nonce, header_len).await?;
+        let request = match decode_header(&mut stream, &user.cmd_key, &auth_id, &connection_nonce, header_len).await {
+            Ok(v) => v,
+            Err(e) => {
+                warn!(source = %source, error = %e, header_len, "VMess header decode failed");
+                return Err(e);
+            }
+        };
 
-        debug!(source = %source, dest = %request.dest, "VMess header decoded");
+        warn!(source = %source, dest = %request.dest, security = ?request.security, "VMess header decoded");
 
         // 7. Derive response keys.
         let resp_key = response_body_key(&request.key);
         let resp_iv = response_body_iv(&request.iv);
 
-        // 8. Send AEAD response header (xray requires this before any data).
-        send_response_header(&mut stream, request.v, &resp_key).await?;
-
-        // 9. Wrap in bidirectional AEAD stream.
-        //    Read side (from xray): request_key/iv
-        //    Write side (to xray):  response_key/iv
-        let vmess_stream: BoxedStream = match request.security {
-            Security::Aes128Gcm | Security::ChaCha20Poly1305 => Box::new(
-                VmessStream::new_bidir(stream, &request.key, &request.iv, &resp_key, &resp_iv),
-            ),
+        // 8. Wrap in bidirectional VMess body stream.
+        let mut vmess_stream = match request.security {
+            Security::Aes128Gcm | Security::ChaCha20Poly1305 => {
+                VmessStream::new_bidir(stream, &request.key, &request.iv, &resp_key, &resp_iv)
+            }
         };
+
+        // 9. VMess response header is encrypted as the first body bytes.
+        vmess_stream.write_all(&[request.v, 0u8]).await?;
+        vmess_stream.flush().await?;
+
+        let vmess_stream: BoxedStream = Box::new(vmess_stream);
 
         let ctx = Context::new(&self.tag, source).with_user(user.email);
         dispatcher.dispatch(ctx, request.dest, vmess_stream).await
