@@ -48,8 +48,9 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
         .with_single_cert(certs, key)
         .context("invalid TLS certificate or key")?;
 
-    // Advertise h3 so HTTP/3 and Hysteria2 clients can use this endpoint.
-    tls_config.alpn_protocols = vec![b"h3".to_vec()];
+    // Advertise both "hysteria" (Hysteria2 clients) and "h3" (HTTP/3).
+    // sing-box and other Hysteria2 clients require the "hysteria" ALPN token.
+    tls_config.alpn_protocols = vec![b"hysteria".to_vec(), b"h3".to_vec()];
 
     let quic_server_config = QuicServerConfig::try_from(tls_config)
         .context("failed to build QUIC server config from TLS config")?;
