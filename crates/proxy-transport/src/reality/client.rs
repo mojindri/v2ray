@@ -113,11 +113,12 @@ impl RealityClient {
             client_hello_hs_body,
             &key_shares.x25519_secret,
             Some(&key_shares.secp256r1_secret),
+            &auth_key,
         )
         .await?;
 
         debug!(server = %self.config.server, "REALITY Phase 3 handshake complete");
-        Ok(Box::new(Tls13Stream::new(tcp, app_keys)))
+        Ok(Box::new(Tls13Stream::new(Box::new(tcp), app_keys)))
     }
 }
 

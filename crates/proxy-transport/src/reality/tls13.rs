@@ -35,7 +35,7 @@ use tokio::net::TcpStream;
 use tracing::debug;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::ProxyError;
+use proxy_common::{BoxedStream, ProxyError};
 
 // ── TLS record types ─────────────────────────────────────────────────────────
 
@@ -46,6 +46,7 @@ const RT_APPLICATION_DATA: u8 = 0x17;
 
 // ── TLS handshake message types ───────────────────────────────────────────────
 
+const HS_CLIENT_HELLO: u8 = 0x01;
 const HS_SERVER_HELLO: u8 = 0x02;
 const HS_ENCRYPTED_EXTENSIONS: u8 = 0x08;
 const HS_CERTIFICATE: u8 = 0x0b;
@@ -75,6 +76,13 @@ impl CipherSuite {
             other => Err(ProxyError::Protocol(format!(
                 "unsupported TLS 1.3 cipher suite 0x{other:04x}"
             ))),
+        }
+    }
+
+    pub(super) fn to_u16(self) -> u16 {
+        match self {
+            Self::Aes128GcmSha256 => 0x1301,
+            Self::Aes256GcmSha384 => 0x1302,
         }
     }
 
@@ -149,7 +157,7 @@ impl CipherSuite {
     }
 
     /// Hash(data) with the suite's hash function.
-    fn hash(self, data: &[u8]) -> Vec<u8> {
+    pub(super) fn hash(self, data: &[u8]) -> Vec<u8> {
         match self {
             Self::Aes128GcmSha256 => Sha256::digest(data).to_vec(),
             Self::Aes256GcmSha384 => Sha384::digest(data).to_vec(),
@@ -157,7 +165,7 @@ impl CipherSuite {
     }
 
     /// HMAC(key, data) with the suite's hash function.
-    fn hmac(self, key: &[u8], data: &[u8]) -> Vec<u8> {
+    pub(super) fn hmac(self, key: &[u8], data: &[u8]) -> Vec<u8> {
         match self {
             Self::Aes128GcmSha256 => {
                 let mut mac = match Hmac::<Sha256>::new_from_slice(key) {
@@ -182,7 +190,7 @@ impl CipherSuite {
 // ── Key material ─────────────────────────────────────────────────────────────
 
 /// Handshake-phase traffic keys (client and server).
-struct HsKeys {
+pub(super) struct HsKeys {
     client_key: Vec<u8>,
     client_iv: [u8; 12],
     client_finished_key: Vec<u8>,
@@ -194,7 +202,7 @@ struct HsKeys {
 }
 
 /// Application-phase traffic keys.
-pub(crate) struct AppKeys {
+pub struct AppKeys {
     pub(crate) cs: CipherSuite,
     pub(crate) client_key: Vec<u8>,
     pub(crate) client_iv: [u8; 12],
@@ -208,7 +216,7 @@ pub(crate) struct AppKeys {
 ///
 /// `dhe` is the x25519 shared secret from the TLS key_share exchange.
 /// `transcript_hash` is Hash(ClientHello || ServerHello).
-fn derive_handshake_keys(cs: CipherSuite, dhe: &[u8; 32], transcript_hash: &[u8]) -> HsKeys {
+pub(super) fn derive_handshake_keys(cs: CipherSuite, dhe: &[u8; 32], transcript_hash: &[u8]) -> HsKeys {
     let hash_len = cs.hash_len();
     let zero = vec![0u8; hash_len];
 
@@ -253,7 +261,7 @@ fn derive_handshake_keys(cs: CipherSuite, dhe: &[u8; 32], transcript_hash: &[u8]
 }
 
 /// Derive application traffic keys from the master secret.
-fn derive_app_keys(
+pub(super) fn derive_app_keys(
     cs: CipherSuite,
     master_secret: &[u8],
     transcript_hash: &[u8], // Hash(CH..server Finished)
@@ -302,7 +310,7 @@ fn compute_nonce(iv: &[u8; 12], seq: u64) -> [u8; 12] {
 ///
 /// `header` is the 5-byte TLS record header (used as AAD).
 /// Returns `(inner_plaintext, inner_content_type)`.
-fn decrypt_app_record(
+pub(super) fn decrypt_app_record(
     cs: CipherSuite,
     key: &[u8],
     iv: &[u8; 12],
@@ -357,7 +365,7 @@ fn decrypt_app_record(
 ///
 /// `inner_type` is the inner content type (0x16 = handshake, 0x17 = app data).
 /// Returns the full 5-byte-header + ciphertext record.
-fn encrypt_app_record(
+pub(super) fn encrypt_app_record(
     cs: CipherSuite,
     key: &[u8],
     iv: &[u8; 12],
@@ -429,6 +437,24 @@ async fn read_record(tcp: &mut TcpStream) -> Result<([u8; 5], Vec<u8>), ProxyErr
     let mut body = vec![0u8; body_len];
     tcp.read_exact(&mut body).await?;
     Ok((header, body))
+}
+
+pub(super) async fn read_record_stream(stream: &mut BoxedStream) -> Result<([u8; 5], Vec<u8>), ProxyError> {
+    let mut header = [0u8; 5];
+    stream.read_exact(&mut header).await?;
+    let body_len = u16::from_be_bytes([header[3], header[4]]) as usize;
+    let mut body = vec![0u8; body_len];
+    stream.read_exact(&mut body).await?;
+    Ok((header, body))
+}
+
+pub(super) fn write_handshake_record(body: &[u8]) -> Vec<u8> {
+    let mut record = Vec::with_capacity(5 + body.len());
+    record.push(RT_HANDSHAKE);
+    record.extend_from_slice(&[0x03, 0x03]);
+    record.extend_from_slice(&(body.len() as u16).to_be_bytes());
+    record.extend_from_slice(body);
+    record
 }
 
 // ── ServerHello parser ────────────────────────────────────────────────────────
@@ -558,7 +584,7 @@ fn describe_server_hello_extension(ext_type: u16, ext_data: &[u8]) -> String {
 ///
 /// Each returned element is `(hs_type, raw_msg)` where `raw_msg` is the full
 /// 4-byte-prefixed handshake message (type + 3-byte length + body).
-fn split_handshake_messages(data: &[u8]) -> Vec<(u8, &[u8])> {
+pub(super) fn split_handshake_messages(data: &[u8]) -> Vec<(u8, &[u8])> {
     let mut msgs = Vec::new();
     let mut pos = 0;
     while pos + 4 <= data.len() {
@@ -591,6 +617,7 @@ pub(crate) async fn complete_tls13_handshake(
     client_hello_hs_body: &[u8],
     client_x25519_secret: &StaticSecret,
     client_p256_secret: Option<&P256EphemeralSecret>,
+    auth_key: &[u8; 32],
 ) -> Result<AppKeys, ProxyError> {
     // Running transcript: concatenation of all handshake message bodies.
     let mut transcript: Vec<u8> = client_hello_hs_body.to_vec();
@@ -695,8 +722,13 @@ pub(crate) async fn complete_tls13_handshake(
                 // Parse one or more handshake messages from the decrypted payload.
                 for (hs_type, msg_bytes) in split_handshake_messages(&inner) {
                     match hs_type {
-                        HS_ENCRYPTED_EXTENSIONS | HS_CERTIFICATE | HS_CERTIFICATE_VERIFY => {
-                            // Add to transcript; no validation needed for camouflage.
+                        HS_CERTIFICATE => {
+                            let cert_der = super::cert::parse_certificate_message_der(msg_bytes)?;
+                            super::cert::verify_reality_cert_hmac(auth_key, &cert_der)?;
+                            debug!("REALITY server certificate HMAC verified");
+                            transcript.extend_from_slice(msg_bytes);
+                        }
+                        HS_ENCRYPTED_EXTENSIONS | HS_CERTIFICATE_VERIFY => {
                             transcript.extend_from_slice(msg_bytes);
                         }
                         HS_FINISHED => {
@@ -779,11 +811,11 @@ const RPHASE_BODY: u8 = 2; // accumulating record body
 pin_project! {
     /// A TLS 1.3 application-data stream.
     ///
-    /// Wraps a raw [`TcpStream`] and transparently AEAD-encrypts/decrypts
-    /// all I/O using the application traffic keys derived after the handshake.
+    /// Wraps a raw byte stream and transparently AEAD-encrypts/decrypts all I/O
+    /// using the application traffic keys derived after the handshake.
     pub struct Tls13Stream {
         #[pin]
-        tcp: TcpStream,
+        inner: BoxedStream,
 
         cs: CipherSuite,
 
@@ -810,13 +842,24 @@ pin_project! {
         write_buf: Vec<u8>,      // encrypted record waiting to be flushed
         write_pos: usize,        // bytes of write_buf already sent
         write_chunk_len: usize,  // plaintext bytes that produced write_buf
+        is_server: bool, // inbound REALITY server endpoint when true
     }
 }
 
 impl Tls13Stream {
-    pub(crate) fn new(tcp: TcpStream, keys: AppKeys) -> Self {
+    /// Application stream for a TLS client (outbound REALITY).
+    pub fn new(inner: BoxedStream, keys: AppKeys) -> Self {
+        Self::with_role(inner, keys, false)
+    }
+
+    /// Application stream for a TLS server (inbound REALITY after handshake).
+    pub fn new_server(inner: BoxedStream, keys: AppKeys) -> Self {
+        Self::with_role(inner, keys, true)
+    }
+
+    fn with_role(inner: BoxedStream, keys: AppKeys, is_server: bool) -> Self {
         Self {
-            tcp,
+            inner,
             cs: keys.cs,
             client_key: keys.client_key,
             client_iv: keys.client_iv,
@@ -824,6 +867,7 @@ impl Tls13Stream {
             server_key: keys.server_key,
             server_iv: keys.server_iv,
             server_seq: 0,
+            is_server,
             plain_buf: Vec::new(),
             plain_pos: 0,
             header_buf: [0u8; 5],
@@ -869,7 +913,7 @@ impl AsyncRead for Tls13Stream {
             if *me.read_phase == RPHASE_HEADER {
                 while *me.header_pos < 5 {
                     let mut rb = ReadBuf::new(&mut me.header_buf[*me.header_pos..]);
-                    ready!(me.tcp.as_mut().poll_read(cx, &mut rb))?;
+                    ready!(me.inner.as_mut().poll_read(cx, &mut rb))?;
                     let n = rb.filled().len();
                     if n == 0 {
                         return Poll::Ready(Err(io::Error::new(
@@ -889,7 +933,7 @@ impl AsyncRead for Tls13Stream {
             if *me.read_phase == RPHASE_BODY {
                 while *me.body_pos < me.body_buf.len() {
                     let mut rb = ReadBuf::new(&mut me.body_buf[*me.body_pos..]);
-                    ready!(me.tcp.as_mut().poll_read(cx, &mut rb))?;
+                    ready!(me.inner.as_mut().poll_read(cx, &mut rb))?;
                     let n = rb.filled().len();
                     if n == 0 {
                         return Poll::Ready(Err(io::Error::new(
@@ -904,14 +948,25 @@ impl AsyncRead for Tls13Stream {
                 let rec_type = me.header_buf[0];
                 match rec_type {
                     RT_APPLICATION_DATA => {
-                        let result = decrypt_app_record(
-                            *me.cs,
-                            me.server_key,
-                            me.server_iv,
-                            *me.server_seq,
-                            me.body_buf,
-                            *me.header_buf,
-                        );
+                        let result = if *me.is_server {
+                            decrypt_app_record(
+                                *me.cs,
+                                me.client_key,
+                                me.client_iv,
+                                *me.client_seq,
+                                me.body_buf,
+                                *me.header_buf,
+                            )
+                        } else {
+                            decrypt_app_record(
+                                *me.cs,
+                                me.server_key,
+                                me.server_iv,
+                                *me.server_seq,
+                                me.body_buf,
+                                *me.header_buf,
+                            )
+                        };
                         match result {
                             Err(e) => {
                                 return Poll::Ready(Err(io::Error::new(
@@ -920,7 +975,11 @@ impl AsyncRead for Tls13Stream {
                                 )));
                             }
                             Ok((inner, inner_type)) => {
-                                *me.server_seq += 1;
+                                if *me.is_server {
+                                    *me.client_seq += 1;
+                                } else {
+                                    *me.server_seq += 1;
+                                }
                                 match inner_type {
                                     RT_APPLICATION_DATA => {
                                         *me.plain_buf = inner;
@@ -985,7 +1044,7 @@ impl AsyncWrite for Tls13Stream {
         if !me.write_buf.is_empty() {
             while *me.write_pos < me.write_buf.len() {
                 let n = ready!(me
-                    .tcp
+                    .inner
                     .as_mut()
                     .poll_write(cx, &me.write_buf[*me.write_pos..]))?;
                 if n == 0 {
@@ -1008,23 +1067,38 @@ impl AsyncWrite for Tls13Stream {
         let chunk_len = buf.len().min(16384);
         *me.write_chunk_len = chunk_len;
 
-        let record = encrypt_app_record(
-            *me.cs,
-            me.client_key,
-            me.client_iv,
-            *me.client_seq,
-            &buf[..chunk_len],
-            RT_APPLICATION_DATA,
-        )
+        let record = if *me.is_server {
+            encrypt_app_record(
+                *me.cs,
+                me.server_key,
+                me.server_iv,
+                *me.server_seq,
+                &buf[..chunk_len],
+                RT_APPLICATION_DATA,
+            )
+        } else {
+            encrypt_app_record(
+                *me.cs,
+                me.client_key,
+                me.client_iv,
+                *me.client_seq,
+                &buf[..chunk_len],
+                RT_APPLICATION_DATA,
+            )
+        }
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))?;
-        *me.client_seq += 1;
+        if *me.is_server {
+            *me.server_seq += 1;
+        } else {
+            *me.client_seq += 1;
+        }
         *me.write_buf = record;
         *me.write_pos = 0;
 
-        // ── Write the record to TCP (may be partial) ──────────────────────────
+        // ── Write the record (may be partial) ─────────────────────────────────
         while *me.write_pos < me.write_buf.len() {
             match me
-                .tcp
+                .inner
                 .as_mut()
                 .poll_write(cx, &me.write_buf[*me.write_pos..])
             {
@@ -1044,10 +1118,14 @@ impl AsyncWrite for Tls13Stream {
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().tcp.poll_flush(cx)
+        self.project().inner.poll_flush(cx)
     }
 
     fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.project().tcp.poll_shutdown(cx)
+        self.project().inner.poll_shutdown(cx)
     }
 }
+
+#[path = "tls13_server.rs"]
+mod tls13_server;
+pub use tls13_server::complete_tls13_server_handshake;

@@ -116,6 +116,80 @@ const GROUP_X25519: u16 = 29;
 /// TLS named group: X25519MLKEM768 (draft). Chrome / sing-box may offer this first.
 const GROUP_X25519_MLKEM768: u16 = 0x11ec;
 
+/// Public keys used for REALITY auth ECDH, in Xray server preference order.
+pub(crate) fn reality_auth_peer_public_keys(body: &[u8]) -> Vec<[u8; 32]> {
+    let Some(ext_data) = key_share_extension_data(body) else {
+        return Vec::new();
+    };
+
+    let mut standalone_x25519 = None;
+    let mut mlkem_tail = None;
+    let shares_len = u16::from_be_bytes([ext_data[0], ext_data[1]]) as usize;
+    let mut pos = 2;
+    while pos + 4 <= 2 + shares_len && pos + 4 <= ext_data.len() {
+        let group = u16::from_be_bytes([ext_data[pos], ext_data[pos + 1]]);
+        let key_len = u16::from_be_bytes([ext_data[pos + 2], ext_data[pos + 3]]) as usize;
+        pos += 4;
+        if pos + key_len > ext_data.len() {
+            break;
+        }
+        if group == GROUP_X25519 && key_len == 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&ext_data[pos..pos + 32]);
+            standalone_x25519 = Some(key);
+        } else if group == GROUP_X25519_MLKEM768 && key_len >= 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&ext_data[pos + key_len - 32..pos + key_len]);
+            mlkem_tail = Some(key);
+        }
+        pos += key_len;
+    }
+
+    // Match xtls/reality server order: standalone X25519 first, then ML-KEM768 tail.
+    let mut out = Vec::new();
+    if let Some(k) = standalone_x25519 {
+        out.push(k);
+    }
+    if let Some(k) = mlkem_tail {
+        if standalone_x25519 != Some(k) {
+            out.push(k);
+        }
+    }
+    out
+}
+
+fn key_share_extension_data(body: &[u8]) -> Option<&[u8]> {
+    if body.len() < 39 || body[0] != 0x01 {
+        return None;
+    }
+    let sid_len = body[38] as usize;
+    let mut pos = 39 + sid_len;
+    if pos + 2 > body.len() {
+        return None;
+    }
+    let cs_len = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
+    pos += 2 + cs_len + 1;
+    if pos + 2 > body.len() {
+        return None;
+    }
+    let ext_total = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
+    pos += 2;
+    let ext_end = (pos + ext_total).min(body.len());
+    while pos + 4 <= ext_end {
+        let ext_type = u16::from_be_bytes([body[pos], body[pos + 1]]);
+        let ext_len = u16::from_be_bytes([body[pos + 2], body[pos + 3]]) as usize;
+        pos += 4;
+        if pos + ext_len > body.len() {
+            break;
+        }
+        if ext_type == 0x0033 {
+            return Some(&body[pos..pos + ext_len]);
+        }
+        pos += ext_len;
+    }
+    None
+}
+
 fn parse_x25519_key_share(ext_data: &[u8]) -> Option<[u8; 32]> {
     // key_share body: client_shares_len(2) + [group(2) + key_len(2) + key_bytes]*.
     if ext_data.len() < 2 {
