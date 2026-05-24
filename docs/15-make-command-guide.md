@@ -1,191 +1,152 @@
 # Make Command Guide
 
-This file explains the Make targets without dumping the whole Makefile into the
-root README.
+This file explains Make targets without dumping the whole Makefile into the root
+README.
 
-Rule of thumb:
+**Public surface:** `verify-*` targets separate host, lab, and remote validation.
+Legacy `check-*` / `ci-*` names remain as compatibility aliases (they print a
+deprecation hint when run).
 
-- use the public commands first
-- use compatibility aliases only when you need a specific older flow
-
-If you only want discovery from the terminal, run:
+Terminal discovery:
 
 ```sh
-make help
-make test-help
+make help           # canonical commands only
+make help-compat    # deprecated alias map
+make help-internal  # atomic targets
 ```
+
+See also: [test-workflows.md](test-workflows.md), [make-target-inventory.md](make-target-inventory.md).
 
 ## Recommended Commands
 
-These are the public commands most people should use first:
-
 | Command | When to use it |
 | --- | --- |
-| `make check` | Main local validation gate |
-| `make check-browser` | Browser/TLS fingerprint validation inside Lima Ubuntu VM |
-| `make check-vps` | Closest production-style validation with two VPS machines |
-| `make perf` | Performance benchmark inside Lima VM |
-| `make lima-stop` | Stop the default Lima VM instance |
-| `make clean-generated` | Remove generated reports/logs/pcaps/bench outputs |
+| `make verify-local` | Everyday Rust development (no Docker/Lima/VPS) |
+| `make verify-lab` | Protocol/transport changes needing Docker + Lima |
+| `make verify-remote` | Production-style validation on two VPS hosts |
+| `make verify-sweep` | Broad quick gate before a larger change |
+| `make verify-release` | Slow pre-release gate |
+| `make perf` | Lima VM performance benchmark |
+| `make perf-remote` | VPS performance benchmark (`SSH_SERVER`, `SSH_CLIENT`) |
+| `make security` | Audit/deny + lab security helpers |
+| `make fuzz-smoke` | Short nightly fuzz pass |
+| `make clean-generated` | Remove generated reports/logs/pcaps/bench |
+
+### Subtargets (lab / remote)
+
+| Command | Purpose |
+| --- | --- |
+| `make verify-lab-docker` | Docker stable + Xray + external clients + phase78 |
+| `make verify-lab-lima` | Lima browser TLS fingerprint baseline |
+| `make lab-docker-preflight` / `lab-docker-down` | Docker preflight / teardown |
+| `make lab-lima-preflight` / `lab-lima-down` | Lima preflight / stop VM |
+| `make remote-preflight` / `remote-deploy` | VPS SSH checks / rsync + setup |
+| `make remote-test-protocols` | Full protocol matrix from client VPS |
+| `make remote-test-fingerprint` | Xray/sing-box external clients on VPS |
 
 ## Environment Separation
 
-This is the practical rule:
+Run top-level `make …` from your **local checkout**. Commands orchestrate
+Docker, Lima, or VPS over SSH — do not SSH into a VPS to run repo-level gates.
 
-- run top-level `make ...` commands from your local checkout on your Mac/Linux dev machine
-- let those commands orchestrate Docker, Lima VM, or VPS work for you
-- only SSH into a VPS directly when you are debugging the VPS itself
-
-### Run From Local Checkout
-
-These are invoked from the repository root on your own machine:
-
-| Command | Invoke from | Actually runs on | Needs real VPS? |
+| Command | Invoke from | Executes on | Needs VPS? |
 | --- | --- | --- | --- |
-| `make check` | local checkout | local machine only | no |
-| `make check-browser` | local checkout | local machine + Lima VM | no |
-| `make check-vps` | local checkout | local machine + remote VPS machines over SSH | yes |
+| `make verify-local` | local checkout | local machine | no |
+| `make verify-lab-docker` | local checkout | local + Docker | no |
+| `make verify-lab-lima` | local checkout | local + Lima VM | no |
+| `make verify-remote` | local checkout | local + two VPS over SSH | yes |
 | `make perf` | local checkout | Lima VM | no |
-| `make lima-stop` | local checkout | local Lima VM control plane | no |
-| `make perf-vps` | local checkout | remote VPS machines over SSH | yes |
-| `make clean-generated` | local checkout | local checkout only | no |
+| `make perf-remote` | local checkout | two VPS over SSH | yes |
 
-VPS SSH variables:
+VPS variables: `SSH_SERVER`, `SSH_CLIENT`, optional `SSH_KEY`, `SSH_USER`,
+`SSH_PORT`, `SSH_EXTRA_OPTS`.
 
-- `SSH_SERVER=<server-ip>`
-- `SSH_CLIENT=<client-ip>`
-- `SSH_KEY=~/.ssh/id_hetzner`
-- optional: `SSH_USER=<user>`
-- optional: `SSH_PORT=<port>`
-- optional: `SSH_EXTRA_OPTS='-o StrictHostKeyChecking=no'`
+Example:
 
-### Run Directly On A Real VPS
+```sh
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make verify-remote
+```
 
-Usually not needed for the normal workflow. Do this only for debugging,
-inspection, or manual setup verification.
+### Docker vs Lima vs VPS
 
-Examples:
+| Environment | Typical command | Notes |
+| --- | --- | --- |
+| Host Rust | `make verify-local` | fastest feedback |
+| Docker lab | `make verify-lab-docker` | Xray/sing-box external clients |
+| Lima VM | `make verify-lab-lima` | browser TLS fingerprint |
+| Real VPS | `make verify-remote` | protocol matrix, TUN, netem |
 
-- `ssh root@<server>` then inspect `systemctl status proxy-rs-*`
-- `ssh root@<server>` then inspect `/etc/proxy-rs/generated/`
-- `ssh root@<server>` then run `journalctl -u proxy-rs-*`
-- `ssh root@<client>` then inspect client-side logs or traffic tools
-
-Do not treat the VPS shell as the normal place to run repo-level `make check-*`
-commands. Those are designed to be launched from the local checkout and use SSH
-to drive the remote machines.
-
-### Docker vs VM vs VPS
-
-| Environment | Trigger from | Typical commands | Notes |
-| --- | --- | --- | --- |
-| local-only | local checkout | `make check` | fastest normal gate |
-| Docker | local checkout | `make -C labs/realistic docker-full` | local containers, no real VPS |
-| Lima VM | local checkout | `make check-browser`, `make perf` | Linux-like local realism |
-| manual SSH VM | local checkout | `make vm-fingerprint-default` | optional, mostly for custom VM setups |
-| real VPS | local checkout | `make check-vps`, `make perf-vps` | closest production signal |
+Lower-level lab atoms: `make -C labs/realistic docker-full`, `external-clients-docker`, `vps-test`, etc. See [make-target-inventory.md](make-target-inventory.md).
 
 ## Compatibility Aliases
 
-These still work, but they are not the preferred front-door names anymore:
+Still work; each prints `Deprecated alias: use make …`.
 
-| Alias | Preferred public command |
+| Alias | Canonical replacement |
 | --- | --- |
-| `make check-all-local` | `make check-browser` for the VM/browser path, or `make check` for the main local gate |
-| `make ci-all` | `make check` |
-| `make ci-vps` | `make check-vps` |
+| `make check` / `make local-total` | `make verify-check-compat` |
+| `make check-browser` | `make verify-lab-lima` |
+| `make check-vps` | `verify-check-compat` + `verify-remote` |
+| `make check-all-local` | `verify-check-compat` + `verify-lab-lima` |
+| `make ci` / `make local-fast` | `make verify-local` |
+| `make ci-all` / `make local` | `make -C labs/realistic ci` + `prod-readiness` |
+| `make ci-vps` / `make vps` | `make verify-remote` |
+| `make local-fuzz` | `make fuzz-smoke` |
+| `make local-fuzz-total` | `make fuzz-long` |
 | `make check-perf-vm` | `make perf` |
-| `make check-perf-vps` | `make perf-vps` |
-| `make check-perf-total` | `make perf-all` |
+| `make perf-vps` / `make check-perf-vps` | `make perf-remote` |
+
+Full mapping: `make help-compat`.
 
 ## Command Families
 
-### Build and quality
+### Build and quality atoms
 
 | Command | Purpose |
 | --- | --- |
-| `make` | Release build |
-| `make dev` | Debug build |
-| `make fmt` | Format source |
-| `make fmt-check` | Check formatting |
-| `make lint` | Run clippy with CI-level denies |
-| `make test` | Run workspace unit and integration tests |
-| `make audit` | Run `cargo audit` when installed |
-| `make deny` | Run `cargo deny` |
+| `make build` / `make dev` | Release / debug build |
+| `make fmt` / `make fmt-check` | rustfmt |
+| `make lint` | clippy with strict denies |
+| `make test` | `cargo test --workspace` |
+| `make audit` / `make deny` | cargo-audit / cargo-deny |
 
-### CI-style shortcuts
+### Production-readiness helpers (`labs/realistic`)
 
 | Command | Purpose |
 | --- | --- |
-| `make ci` | Fast Rust-only quality gate |
-| `make ci-all` | Local realistic lab plus production-readiness helpers |
-| `make ci-prod-readiness` | Production-readiness helpers only |
-| `make ci-vps` | Local + VPS gate |
+| `make -C labs/realistic prod-readiness` | load, soak, fingerprint, dns-chaos, security bundle |
+| `make -C labs/realistic load` | managed local load smoke |
+| `make -C labs/realistic soak` | bounded soak loop |
+| `make -C labs/realistic security` | lab security script |
+| `make -C labs/realistic real-devices` | manual device checklist template |
+| `make security` | root wrapper: audit + deny + lab security |
 
-### Local validation
-
-| Command | Purpose |
-| --- | --- |
-| `make local-fast` | Fast Rust-only local gate |
-| `make local` | Full local gate, excluding fuzz and VPS |
-| `make local-prod` | Production-readiness helpers only |
-| `make local-fuzz` | Quick fuzz smoke |
-| `make local-fuzz-total` | Heavier fuzz pass |
-| `make local-total` | Everything local, including fuzz smoke |
-
-### Browser / fingerprint / VM validation
+### Fuzz
 
 | Command | Purpose |
 | --- | --- |
-| `make check-browser` | Alias for the Lima fingerprint flow |
-| `make lima-stop` | Stop the default Lima instance (`proxy-rs-browser`) |
-| `make check-all-local` | Compatibility alias: local suite plus Lima fingerprint validation |
-| `make check-sequence` | Run `check`, `check-browser`, `check-all-local` in sequence |
-| `make check-sequence-with-vps` | Same as above, then VPS |
-
-### VPS validation
-
-| Command | Purpose |
-| --- | --- |
-| `make vps` | VPS-only SSH/network gate |
+| `make fuzz-smoke` | 100 runs × 6 targets (nightly) |
+| `make fuzz-long` | heavier pass (`FUZZ_RUNS`, default 100k via lab) |
 
 ### Realistic external clients
 
 | Command | Purpose |
 | --- | --- |
-| `make -C labs/realistic external-clients-docker` | Run Xray/sing-box clients against `proxy-rs` server in Docker |
-| `make -C labs/realistic external-clients-vps` | Run Xray/sing-box clients from the client VPS against server VPS inbounds |
-| `make -C labs/realistic external-clients-report` | Print the concise external-client compatibility summary |
-| `make vps-total` | Non-fuzz local gates, then VPS |
-| `make vps-total-with-fuzz` | All local gates including fuzz, then VPS |
-| `make check-vps` | Alias for `vps-total` |
-
-### Performance
-
-| Command | Purpose |
-| --- | --- |
-| `make bench-vm-smoke` | Quick Lima VM benchmark |
-| `make bench-vm-total` | Full Lima VM benchmark |
-| `make bench-vps-smoke` | Quick VPS benchmark |
-| `make bench-vps-total` | Full VPS benchmark |
-| `make perf` | Recommended public entrypoint for the Lima benchmark |
-| `make perf-vps` | Public VPS benchmark alias |
-| `make perf-all` | Run VM perf, then VPS perf |
-| `make check-perf-vm` | Compatibility alias for `perf` |
-| `make check-perf-vps` | Compatibility alias for `perf-vps` |
-| `make check-perf-total` | Compatibility alias for `perf-all` |
+| `make -C labs/realistic external-clients-docker` | Xray/sing-box vs proxy-rs in Docker |
+| `make -C labs/realistic external-clients-vps` | same from client VPS |
+| `make -C labs/realistic external-clients-report` | print summary |
 
 ### Cleanup
 
 | Command | Purpose |
 | --- | --- |
-| `make clean-generated` | Remove generated reports/logs/pcaps/bench outputs |
-| `make clean-pcaps` | Remove only pcap and fingerprint outputs |
-| `make clean-all-generated` | Remove generated outputs and Rust build outputs |
-| `make clean` | `cargo clean` |
+| `make clean-generated` | reports, pcaps, bench outputs |
+| `make clean-pcaps` | fingerprint/pcap outputs only |
+| `make clean-all-generated` | generated + `cargo clean` |
 
 ## Where Detailed Flows Live
 
+- Workflows by change type: [test-workflows.md](test-workflows.md)
 - Full testing tiers: [11-testing.md](11-testing.md)
-- Realistic lab and Docker/VPS flows: [../labs/realistic/README.md](../labs/realistic/README.md)
-- REALITY/Xray interop details: [../tests/interop/README.md](../tests/interop/README.md)
+- Realistic lab: [../labs/realistic/README.md](../labs/realistic/README.md)
+- REALITY/Xray interop: [../tests/interop/README.md](../tests/interop/README.md)

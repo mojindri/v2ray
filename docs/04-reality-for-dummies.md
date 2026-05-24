@@ -189,26 +189,28 @@ The server:
 
 If that succeeds, the client is considered legitimate.
 
-### Step 7: Server replays the `ClientHello`
+### Step 7: Server replays the `ClientHello` for post-auth TLS
 
-This is the part many people miss.
+After REALITY auth succeeds, the server does not hand plaintext bytes directly to
+the protocol handler.
 
-After REALITY auth succeeds, the server does not hand plaintext bytes directly to the protocol handler.
+Instead:
 
-Instead, it replays the consumed `ClientHello` into a local TLS acceptor.
+- `RealityServer::accept_with_key()` returns a stream that **prepends** the original `ClientHello`
+- `complete_tls13_server_handshake()` reads that replay, completes TLS 1.3 as server, and derives application keys
+- `Tls13Stream` encrypts/decrypts application data for the VLESS inbound
 
-In practice:
+This uses the **custom TLS 1.3 server path** in `tls13_server.rs`, not generic
+`rustls` accept. Real Xray/sing-box clients (uTLS) require that path — including
+the correct `CertificateVerify` signature input and REALITY cert HMAC.
 
-- `RealityServer::accept()` returns a stream that prepends the original `ClientHello`
-- `tls_accept()` then sees the exact bytes and finishes TLS 1.3 normally
-
-That happens in [crates/proxy-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/reality.rs).
+Wiring lives in [crates/proxy-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/reality.rs).
 
 ### Step 8: TLS 1.3 completes
 
 Only after TLS finishes does the VLESS inbound see application bytes.
 
-This is why old tests based on `accept_direct()` became stale.
+This is why old tests based on `accept_direct()` or generic `tls_accept()` became stale.
 
 ## The Failure Flow
 
@@ -303,13 +305,16 @@ If you want to study REALITY in code, read in this order:
 4. [crates/proxy-transport/src/reality/parser.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/reality/parser.rs)
    field extraction
 
-5. [crates/proxy-transport/src/reality/tls13.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/reality/tls13.rs)
-   post-ClientHello handshake machinery
+5. [crates/proxy-transport/src/reality/tls13_server.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/reality/tls13_server.rs)
+   post-auth TLS 1.3 server handshake (ServerHello through Finished)
 
 6. [crates/proxy-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/reality.rs)
-   how REALITY is wired to VLESS and local TLS accept
+   how REALITY auth connects to TLS completion and VLESS
 
-7. [tests/interop/README.md](/Users/mojnader/RustroverProjects/v2ray/tests/interop/README.md)
+7. [docs/reality-interop.md](/Users/mojnader/RustroverProjects/v2ray/docs/reality-interop.md)
+   interop notes (auth key, cert HMAC, CertificateVerify)
+
+8. [tests/interop/README.md](/Users/mojnader/RustroverProjects/v2ray/tests/interop/README.md)
    what compatibility is actually being proven
 
 ## Beginner Summary

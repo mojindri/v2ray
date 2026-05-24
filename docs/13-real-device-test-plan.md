@@ -27,4 +27,5 @@ For each row:
 9. Try wrong credentials and confirm rejection.
 10. Review logs for secret leakage.
 
-Use `make ci-real-devices` to create a report template.
+Use `make -C labs/realistic real-devices` to create a report template under
+`labs/realistic/reports/production/`.

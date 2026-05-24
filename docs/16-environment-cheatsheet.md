@@ -1,165 +1,134 @@
 # Environment Cheatsheet
 
-This is the shortest answer to "what do I run locally, in Docker, in a VM, or
-with real VPS machines?"
+Short answer: **what do I run locally, in Docker, in Lima, or on real VPS?**
+
+Canonical commands use the `verify-*` prefix. Legacy `check-*` aliases still work
+(`make help-compat`).
 
 ## Core Rule
 
-Almost everything starts from your local repo checkout.
+Start from your **local repo checkout**. Repo-level `make` commands orchestrate
+Docker, Lima, or VPS over SSH. SSH into a VPS only for debugging.
 
-You normally do **not** SSH into a VPS and start running repo-level `make`
-commands there. The local commands orchestrate Docker, Lima, or VPS work for
-you.
+## 1. Host only (no Docker / Lima / VPS)
 
-## 1. Local Only
-
-Run these from your local checkout. They execute only on your machine.
-
-Use when:
-
-- you want the fastest feedback
-- you are changing Rust code and want to catch regressions quickly
-- you do not need Linux/browser/public-network realism yet
-
-Commands:
+Use when changing Rust code and you want the fastest feedback.
 
 ```sh
-make check
-cargo test --workspace
+make verify-local
+```
+
+Equivalent atoms if you need finer control:
+
+```sh
+cargo test --workspace --all-targets
 cargo test -p integration-tests
 cargo test -p proxy-core --test production_readiness --all-features
-cargo test -p proxy-protocol --test production_readiness --all-features
-cargo test -p proxy-transport --test production_readiness --all-features
 ```
 
 ## 2. Local + Docker
 
-Run these from your local checkout. They execute on your machine and in local
-Docker containers.
-
-Use when:
-
-- you want Xray interop
-- you want deterministic target services
-- you want a realistic local container environment without real VPS machines
-
-Commands:
+Use when you need Xray interop, external Xray/sing-box clients, or containerized targets.
 
 ```sh
+make verify-lab-docker
+# or lower-level:
 make -C labs/realistic docker-full
-make -C labs/realistic docker-up
+make -C labs/realistic external-clients-docker
+make -C labs/realistic external-clients-report
 make -C labs/realistic docker-down
-make -C labs/realistic xray
-make -C labs/realistic negative-auth
-make -C labs/realistic restart-smoke
 ```
 
 ## 3. Local + Lima VM
 
-Run these from your local checkout. They execute partly on your machine and
-partly inside the Lima Ubuntu VM.
-
-Use when:
-
-- you want Linux-like browser/TLS behavior
-- you want isolated browser fingerprint capture
-- you want VM benchmarking without renting VPS machines
-
-Commands:
+Use for Linux browser/TLS fingerprint capture and VM benchmarks.
 
 ```sh
-make check-browser
+make verify-lab-lima
 make perf
-make lima-stop
-make check-all-local
-make check-sequence
+make lab-lima-down    # or: make lima-stop
 ```
 
-Notes:
-
-- `make check-browser` is the main Lima validation entrypoint.
-- `make perf` is the main Lima benchmark entrypoint.
-- `make check-all-local` is a compatibility alias that combines local checks and
-  the Lima browser path.
-- `make lima-stop` stops the default Lima VM instance.
-- Raw equivalent if you want it directly:
+Full lab gate (Docker + Lima):
 
 ```sh
-limactl stop proxy-rs-browser
+make verify-lab
 ```
 
-## 4. Local + Real VPS
+## 4. Local + real VPS
 
-Run these from your local checkout. They use SSH to drive the real VPS machines.
-
-Use when:
-
-- you want the closest production signal
-- you need public-network behavior
-- you want the two-VPS matrix
-- you need Linux-root-only checks like TUN validation
-
-Commands:
+Use for closest production signal (public network, two-VPS matrix, TUN/netem).
 
 ```sh
-SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> SSH_KEY=~/.ssh/id_hetzner make check-vps
-SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> SSH_KEY=~/.ssh/id_hetzner make perf-vps
-SSH_SERVER=<server-ip> SSH_KEY=~/.ssh/id_hetzner make -C labs/realistic vps-server-setup
-SSH_CLIENT=<client-ip> SSH_KEY=~/.ssh/id_hetzner make -C labs/realistic vps-client-setup
-SSH_CLIENT=<client-ip> SSH_KEY=~/.ssh/id_hetzner make -C labs/realistic vps-test
-SSH_SERVER=<server-ip> SSH_KEY=~/.ssh/id_hetzner make -C labs/realistic vps-tun
+SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> SSH_KEY=~/.ssh/id_ed25519 \
+  make verify-remote
 ```
 
-Notes:
+First-time setup:
 
-- `make check-vps` is the main top-level VPS validation entrypoint.
-- `make perf-vps` is the VPS benchmark entrypoint.
-- `vps-server-setup`, `vps-client-setup`, `vps-test`, and `vps-tun` are
-  lower-level realistic-lab commands.
-- Optional overrides: `SSH_USER`, `SSH_PORT`, `SSH_EXTRA_OPTS`.
+```sh
+make remote-deploy    # rsync lab + server/client setup (mutates both VPS)
+```
 
-## 5. Directly On A VPS
+Lower-level atoms:
 
-Do this only for debugging, inspection, or recovery.
+```sh
+make -C labs/realistic vps-preflight
+make -C labs/realistic vps-test
+make -C labs/realistic vps-tun
+make -C labs/realistic external-clients-vps
+make perf-remote      # VPS benchmark
+```
 
-Use when:
+Optional: `SSH_USER`, `SSH_PORT`, `SSH_EXTRA_OPTS`.
 
-- a remote service failed and you need logs
-- you need to inspect generated configs
-- you need to confirm system state on the server or client VPS
+## 5. Directly on a VPS
 
-Typical direct VPS commands:
+Only for debugging — not the normal workflow.
 
 ```sh
 ssh root@<server>
 systemctl status proxy-rs-*
 journalctl -u proxy-rs-* --no-pager | tail -200
-ls /etc/proxy-rs/generated/
-
-ssh root@<client>
-journalctl --no-pager | tail -200
 ```
 
-Do **not** treat the VPS shell as the normal place to run `make check`, `make
-check-vps`, or other repo-level orchestration commands.
+Do **not** run `make verify-*` or legacy `make check-*` from inside a VPS shell.
 
 ## Quick Decision Guide
 
-If you are unsure, use this order:
+1. `make verify-local`
+2. `make verify-lab` (or `verify-lab-docker` only)
+3. `SSH_SERVER=… SSH_CLIENT=… make verify-remote`
 
-1. `make check`
-2. `make -C labs/realistic docker-full`
-3. `make check-browser`
-4. `SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps`
+Broad gate before a large change:
 
-For performance:
+```sh
+make verify-sweep    # skips remote unless SSH_* is set
+```
+
+Pre-release:
+
+```sh
+make verify-release  # slow
+```
+
+Performance:
 
 1. `make perf`
-2. `SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make perf-vps`
+2. `SSH_SERVER=… SSH_CLIENT=… make perf-remote`
+
+## Legacy aliases (still work)
+
+| Old | Prefer |
+| --- | --- |
+| `make check` | `make verify-check-compat` |
+| `make check-browser` | `make verify-lab-lima` |
+| `make check-vps` | `verify-check-compat` + `verify-remote` |
 
 ## Related Docs
 
-- [11-testing.md](11-testing.md)
+- [test-workflows.md](test-workflows.md)
 - [15-make-command-guide.md](15-make-command-guide.md)
+- [make-target-inventory.md](make-target-inventory.md)
+- [11-testing.md](11-testing.md)
 - [../labs/realistic/README.md](../labs/realistic/README.md)
-- [../tests/interop/README.md](../tests/interop/README.md)

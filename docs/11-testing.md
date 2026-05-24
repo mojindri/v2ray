@@ -39,10 +39,13 @@ Use this split:
 | `make -C labs/realistic stress` | local checkout | local machine | no |
 | `cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture` | local checkout | local machine | no |
 | `make -C labs/realistic xray` | local checkout | local machine + Docker | no |
-| `make check-browser` | local checkout | local machine + Lima VM | no |
+| `make verify-local` | local checkout | local machine | no |
+| `make verify-lab-docker` | local checkout | local machine + Docker | no |
+| `make -C labs/realistic external-clients-docker` | local checkout | local machine + Docker | no |
+| `make verify-lab-lima` | local checkout | local machine + Lima VM | no |
 | `make perf` | local checkout | Lima VM | no |
-| `make check-vps` | local checkout | local machine + remote VPS over SSH | yes |
-| `make perf-vps` | local checkout | remote VPS over SSH | yes |
+| `make verify-remote` | local checkout | local machine + remote VPS over SSH | yes |
+| `make perf-remote` | local checkout | remote VPS over SSH | yes |
 | `make -C labs/realistic vps-server-setup` | local checkout | server VPS over SSH | yes |
 | `make -C labs/realistic vps-client-setup` | local checkout | client VPS over SSH | yes |
 | `make -C labs/realistic vps-test` | local checkout | client VPS over SSH | yes |
@@ -51,9 +54,11 @@ Use this split:
 
 Important:
 
-- For normal usage, you invoke commands from your local repo checkout.
-- VPS commands are still launched locally; they SSH into the VPS machines and run there.
-- If you use an SSH key file, pass `SSH_KEY=~/.ssh/id_hetzner` to the VPS commands.
+- For normal usage, invoke commands from your local repo checkout.
+- **Canonical gates:** `verify-local`, `verify-lab`, `verify-remote`, `verify-sweep`, `verify-release` — see [test-workflows.md](test-workflows.md).
+- Legacy `make check`, `make check-browser`, `make check-vps` remain as compatibility aliases.
+- VPS commands are launched locally; they SSH into remote machines.
+- Pass `SSH_KEY=~/.ssh/id_ed25519` (and optionally `SSH_USER` / `SSH_PORT`) for VPS work.
 - SSH directly into a VPS only for debugging, service inspection, or manual recovery.
 
 The external-client Docker lab is the first gate for GUI/app compatibility:

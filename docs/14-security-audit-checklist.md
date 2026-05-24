@@ -30,11 +30,18 @@
 
 ## Tooling
 
-Run:
+Run from the repo root:
 
 ```sh
-make ci-security
-make ci-fuzz-smoke
+make security          # audit + deny (when installed) + lab security script
+make fuzz-smoke        # short nightly fuzz pass on parser targets
+make verify-local      # includes clippy with -D warnings
+```
+
+Lab-only security script (also invoked by `make security`):
+
+```sh
+make -C labs/realistic security
 ```
 
 Install optional tools:
@@ -45,4 +52,10 @@ cargo install cargo-deny
 cargo install cargo-fuzz
 ```
 
-Then run longer fuzz campaigns against every parser target.
+Then run longer fuzz campaigns:
+
+```sh
+make fuzz-long         # FUZZ_RUNS=100000 by default; override as needed
+```
+
+See [12-production-readiness.md](12-production-readiness.md) and [test-workflows.md](test-workflows.md).

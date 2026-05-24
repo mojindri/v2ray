@@ -41,10 +41,14 @@ Third-wave practical docs:
    Plain-English dictionary of project terms.
 12. [11-testing.md](11-testing.md)
    How to run every test tier: unit, integration, Docker, Xray interop, VPS matrix, TUN privileged.
-13. [15-make-command-guide.md](15-make-command-guide.md)
-   Command-oriented map for the top-level Make targets and when to use each one.
-14. [16-environment-cheatsheet.md](16-environment-cheatsheet.md)
+13. [test-workflows.md](test-workflows.md)
+   Which `verify-*` command to run for everyday dev, lab, VPS, and release gates.
+14. [15-make-command-guide.md](15-make-command-guide.md)
+   Command-oriented map for Make targets and when to use each one.
+15. [16-environment-cheatsheet.md](16-environment-cheatsheet.md)
    One-page separation of local, Docker, Lima VM, real VPS, and direct-on-VPS debugging commands.
+16. [make-target-inventory.md](make-target-inventory.md)
+   Full target inventory (canonical, lab, interop, compatibility aliases).
 
 Example-driven learning:
 

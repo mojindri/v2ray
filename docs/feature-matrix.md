@@ -83,8 +83,8 @@ proxy-rs is a Rust-native proxy inspired by V2Ray/Xray. It is not a full V2Ray-c
 
 | Feature | Status | Notes |
 |---|---|---|
-| Fuzz smoke | Supported | `make local-fuzz` |
-| Heavier fuzz | Experimental | `make local-fuzz-total`, not scheduled/enforced |
+| Fuzz smoke | Supported | `make fuzz-smoke` |
+| Heavier fuzz | Experimental | `make fuzz-long` (`FUZZ_RUNS=…`), not scheduled/enforced |
 | cargo-audit | Partial | Supported by helper script, install/enforce still required |
 | cargo-deny | Partial | Supported by helper script, install/enforce still required |
 | Connection limits | Partial | Basic TCP inbound limit support added; deeper global/account limits pending |

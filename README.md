@@ -47,57 +47,57 @@ For exact support levels, see [docs/feature-matrix.md](docs/feature-matrix.md).
 
 ## Fastest Useful Commands
 
-If you only want the right commands, use these:
+Canonical verification (run from your local checkout):
 
 ```sh
-make check
-make check-browser
-SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps
+make verify-local
+make verify-lab
+SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make verify-remote
+make verify-sweep          # broad gate; includes remote when SSH_* is set
 make perf
 ```
 
-What they mean:
-
 | Command | Runs where | Purpose |
 | --- | --- | --- |
-| `make check` | local Rust/macOS checkout | strongest normal local gate |
-| `make check-browser` | Lima Ubuntu VM | isolated browser/TLS fingerprint verification |
-| `make check-vps` | local + two VPS machines | closest-to-production network validation |
-| `make perf` | Lima Ubuntu VM | public performance benchmark entrypoint |
+| `make verify-local` | local machine | host-only Rust gate (fmt, check, clippy, test) |
+| `make verify-lab` | local + Docker + Lima | production-like lab (no VPS) |
+| `make verify-remote` | local orchestrating two VPS | closest production network validation |
+| `make verify-sweep` | mixed | local + lab + security + fuzz-smoke (+ remote if configured) |
+| `make verify-release` | mixed | slow pre-release gate (sweep + perf + soak + long fuzz) |
+| `make perf` | Lima VM | performance benchmark |
 
-For command discovery:
+Discovery:
 
 ```sh
 make help
-make test-help
+make help-compat
 ```
 
-The full Make target map lives in
-[docs/15-make-command-guide.md](docs/15-make-command-guide.md).
+Workflow guide: [docs/test-workflows.md](docs/test-workflows.md). Full target map:
+[docs/15-make-command-guide.md](docs/15-make-command-guide.md) and
+[docs/make-target-inventory.md](docs/make-target-inventory.md).
 
-Compatibility aliases such as `make check-all-local`, `make ci-all`, and
-`make check-perf-vm` still work, but they are no longer the preferred front-door
-commands.
-
-If you want the short legacy aliases:
+**Compatibility aliases** (`make check`, `make check-browser`, `make check-vps`,
+`make ci`, `make ci-all`, …) still work and print a deprecation hint. Prefer
+`verify-*` in new docs and scripts.
 
 ```sh
-make ci
-make ci-all
-SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make ci-vps
+# legacy aliases (still work)
+make check
+make check-browser
+SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps
 ```
 
 ## Test Environments
 
-This repo has three main test tiers.
+Three main tiers:
 
-1. Pure Rust / local: `make check`
-2. Local realistic Linux via Lima: `make check-browser`
-3. Real remote Linux via VPS: `SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make check-vps`
+1. **Host Rust:** `make verify-local`
+2. **Local lab (Docker + Lima):** `make verify-lab`
+3. **Real VPS:** `SSH_SERVER=… SSH_CLIENT=… make verify-remote`
 
-Full testing details, including fuzz, pcap, VM, VPS, and privileged tests, live
-in [docs/11-testing.md](docs/11-testing.md). Full Make target organization is
-in [docs/15-make-command-guide.md](docs/15-make-command-guide.md).
+Full testing details: [docs/11-testing.md](docs/11-testing.md).
+Make organization: [docs/15-make-command-guide.md](docs/15-make-command-guide.md).
 
 Environment rule:
 
