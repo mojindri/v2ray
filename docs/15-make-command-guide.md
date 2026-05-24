@@ -25,6 +25,7 @@ These are the public commands most people should use first:
 | `make check-browser` | Browser/TLS fingerprint validation inside Lima Ubuntu VM |
 | `make check-vps` | Closest production-style validation with two VPS machines |
 | `make perf` | Performance benchmark inside Lima VM |
+| `make lima-stop` | Stop the default Lima VM instance |
 | `make clean-generated` | Remove generated reports/logs/pcaps/bench outputs |
 
 ## Environment Separation
@@ -45,6 +46,7 @@ These are invoked from the repository root on your own machine:
 | `make check-browser` | local checkout | local machine + Lima VM | no |
 | `make check-vps` | local checkout | local machine + remote VPS machines over SSH | yes |
 | `make perf` | local checkout | Lima VM | no |
+| `make lima-stop` | local checkout | local Lima VM control plane | no |
 | `make perf-vps` | local checkout | remote VPS machines over SSH | yes |
 | `make clean-generated` | local checkout | local checkout only | no |
 
@@ -127,6 +129,7 @@ These still work, but they are not the preferred front-door names anymore:
 | Command | Purpose |
 | --- | --- |
 | `make check-browser` | Alias for the Lima fingerprint flow |
+| `make lima-stop` | Stop the default Lima instance (`proxy-rs-browser`) |
 | `make check-all-local` | Compatibility alias: local suite plus Lima fingerprint validation |
 | `make check-sequence` | Run `check`, `check-browser`, `check-all-local` in sequence |
 | `make check-sequence-with-vps` | Same as above, then VPS |

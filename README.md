@@ -110,6 +110,7 @@ If you need a strict command-by-command separation, use:
 
 - [docs/15-make-command-guide.md](docs/15-make-command-guide.md)
 - [docs/11-testing.md](docs/11-testing.md)
+- [docs/16-environment-cheatsheet.md](docs/16-environment-cheatsheet.md)
 
 ## Protocol Interop Notes
 
