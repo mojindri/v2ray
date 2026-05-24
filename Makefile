@@ -369,7 +369,7 @@ lima-browser-baseline:
 lima-fingerprint-total:
 	$(MAKE) -C labs/realistic lima-fingerprint-total
 
-local-total-with-lima: local-total lima-fingerprint-total ## Run local-total, then fully automated Lima browser fingerprint check.
+local-total-with-lima: local-total lima-fingerprint-total ## Run local-total, then fully automated Li   ma browser fingerprint check.
 
 lima-stop: ## Stop the default Lima VM instance. Override with LIMA_INSTANCE=<name>.
 	@INSTANCE="$${LIMA_INSTANCE:-proxy-rs-browser}"; \

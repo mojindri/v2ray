@@ -36,7 +36,7 @@ See also: [test-workflows.md](test-workflows.md), [make-target-inventory.md](mak
 
 | Command | Purpose |
 | --- | --- |
-| `make verify-lab-docker` | Docker stable + Xray + external clients + phase78 |
+| `make verify-lab-docker` | Docker stable + Xray + external clients + advanced-features-smoke |
 | `make verify-lab-lima` | Lima browser TLS fingerprint baseline |
 | `make lab-docker-preflight` / `lab-docker-down` | Docker preflight / teardown |
 | `make lab-lima-preflight` / `lab-lima-down` | Lima preflight / stop VM |

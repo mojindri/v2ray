@@ -15,7 +15,7 @@ Legend — **environment**: `host` | `docker` | `lima` | `vps` | `privileged` | 
 | `verify-local` | `make/verify.mk` | fmt-check, check, clippy, test | host | — | cargo | 2–15 min | — | no | no | **public** |
 | `verify-check-compat` | `make/verify.mk` | verify-local + lab docker + prod-readiness + fuzz-smoke | host,docker,fuzz | — | cargo,docker,nightly | 30–90 min | `labs/realistic/reports/` | yes | no | internal (old `check`) |
 | `verify-lab` | `make/verify.mk` | verify-lab-docker + verify-lab-lima | docker,lima | `LIMA_INSTANCE` | docker,limactl | 20–60 min | `labs/realistic/reports/` | yes | no | **public** |
-| `verify-lab-docker` | `make/verify.mk` | Docker stable + xray + external clients + phase78 + negative-auth | docker | — | docker,cargo | 15–45 min | `labs/realistic/reports/` | yes | no | **public** |
+| `verify-lab-docker` | `make/verify.mk` | Docker stable + xray + external clients + advanced-features-smoke + negative-auth | docker | — | docker,cargo | 15–45 min | `labs/realistic/reports/` | yes | no | **public** |
 | `verify-lab-lima` | `make/verify.mk` | Lima browser baseline + fingerprint verify | lima | `LIMA_INSTANCE` | limactl,brew | 10–30 min | `reports/production/` | yes | no | **public** |
 | `verify-lab-fingerprint` | `make/verify.mk` | alias → verify-lab-lima | lima | same | same | same | same | yes | no | **public** |
 | `verify-remote` | `make/verify.mk` | full VPS gate | vps,privileged,perf | `SSH_SERVER`, `SSH_CLIENT`, `SSH_KEY`, … | ssh | 20–60 min | `labs/realistic/reports/` | no | **yes** | **public** |
@@ -24,7 +24,7 @@ Legend — **environment**: `host` | `docker` | `lima` | `vps` | `privileged` | 
 | `verify-release` | `make/verify.mk` | sweep + perf + soak + fuzz-long | mixed | SSH optional, `FUZZ_RUNS` | mixed | hours | reports | yes | optional | **public** |
 | `lab-docker-preflight` | `make/verify.mk` | `docker info` | docker | — | docker | seconds | — | no | no | internal |
 | `lab-docker-up` | `make/verify.mk` | → `labs/realistic docker-up` | docker | — | docker | 1–5 min | image txt | yes | no | internal |
-| `lab-docker-test` | `make/verify.mk` | stable,xray,external-clients,phase78,negative-auth | docker | — | docker,cargo | 15–40 min | reports | yes | no | internal |
+| `lab-docker-test` | `make/verify.mk` | stable,xray,external-clients,advanced-features-smoke,negative-auth | docker | — | docker,cargo | 15–40 min | reports | yes | no | internal |
 | `lab-docker-down` | `make/verify.mk` | → `docker-down` | docker | — | docker | 1 min | — | yes | no | internal |
 | `lab-lima-preflight` | `make/verify.mk` | checks `limactl` | lima | — | limactl | seconds | — | no | no | internal |
 | `lab-lima-test-fingerprint` | `make/verify.mk` | → `lima-fingerprint-total` | lima | `LIMA_INSTANCE` | limactl | 10–30 min | pcaps, logs | yes | no | internal |
@@ -91,7 +91,7 @@ Legend — **environment**: `host` | `docker` | `lima` | `vps` | `privileged` | 
 | `docker-up` / `docker-down` | docker | — | containers | no | internal |
 | `stable` | host | — | no | no | internal |
 | `xray` | docker | — | containers | no | internal |
-| `phase78` | host | — | no | no | internal |
+| `advanced-features-smoke` | `labs/realistic/Makefile` | ShadowTLS, mKCP, health, DNS/routing smoke | host | — | cargo | ~30s | `advanced-features-smoke.log` | no | no | internal |
 | `negative-auth` | host | — | no | no | internal |
 | `restart-smoke` | docker | — | containers | no | internal |
 | `stress` | host | — | no | no | internal |

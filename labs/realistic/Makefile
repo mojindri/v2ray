@@ -7,7 +7,7 @@ SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build docker-up stable xray phase78 negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
+.PHONY: help build docker-up stable xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
 
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
@@ -29,15 +29,19 @@ xray: ## Run required live Xray REALITY interop
 	cd $(ROOT)/tests/interop && docker compose up -d nginx-fallback xray-server
 	cd $(ROOT) && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture 2>&1 | tee labs/realistic/$(REPORTS)/xray-reality.log
 
-phase78: ## Run Phase 7/8 local realism checks (ShadowTLS v3, mKCP, health/failover, geo/FakeIP guards)
+advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, health/failover, DNS/geo routing guards
 	@mkdir -p $(REPORTS)
-	cd $(ROOT) && cargo test -p integration-tests phase7_vless_over_shadowtls_v3_transfers_data 2>&1 | tee labs/realistic/$(REPORTS)/phase78-shadowtls.log
-	cd $(ROOT) && cargo test -p integration-tests phase8_vless_over_mkcp 2>&1 | tee labs/realistic/$(REPORTS)/phase78-mkcp.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_missing_selector_outbound 2>&1 | tee labs/realistic/$(REPORTS)/phase78-health.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_unsupported_health_check_scheme 2>&1 | tee -a labs/realistic/$(REPORTS)/phase78-health.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_rule_can_target_registered_balancer 2>&1 | tee -a labs/realistic/$(REPORTS)/phase78-health.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing 2>&1 | tee labs/realistic/$(REPORTS)/phase78-geo-fakeip.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup 2>&1 | tee -a labs/realistic/$(REPORTS)/phase78-geo-fakeip.log
+	@echo "=== [advanced-features-smoke] ShadowTLS v3 ===" | tee $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p integration-tests phase7_vless_over_shadowtls_v3_transfers_data 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] mKCP ===" | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p integration-tests phase8_vless_over_mkcp 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] health / failover guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_missing_selector_outbound 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_unsupported_health_check_scheme 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_rule_can_target_registered_balancer 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] DNS / geo / FakeIP guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p proxy-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
 
 negative-auth: ## Run negative-auth scenarios that should be rejected/fallback
 	@mkdir -p $(REPORTS)
@@ -80,7 +84,7 @@ report-summary: ## Build a compact summary from report logs
 	done
 	@echo "Wrote $(REPORTS)/summary.txt"
 
-realistic-all: docker-full phase78 negative-auth restart-smoke stress report-summary ## Run full realistic baseline + Phase 7/8 verification bundle
+realistic-all: docker-full advanced-features-smoke negative-auth restart-smoke stress report-summary ## Full local baseline + advanced-feature smoke tests
 
 docker-full: docker-up stable xray ## Run the full local realistic baseline
 
@@ -221,7 +225,7 @@ vps-tun: ## Run TUN privileged tests on the SERVER VPS (SSH_SERVER must be set, 
 	scp $$SCP_PORT_OPT $$KEY_OPT $$EXTRA_OPTS "$$USER@$${SSH_SERVER}:/root/lab/reports/vps-tun-\*.log" $(REPORTS)/ 2>/dev/null || true
 	@echo "TUN test results copied to $(REPORTS)/"
 
-ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+d1, phase78, stress, negative-auth, restart-smoke
+ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+d1, advanced-features-smoke, stress, negative-auth, restart-smoke
 	@mkdir -p $(REPORTS)
 	@echo "=== [1/10] workspace unit tests ===" | tee $(REPORTS)/ci.log
 	cd $(ROOT) && cargo test --workspace --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
@@ -233,8 +237,8 @@ ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+
 	cd $(ROOT) && cargo test -p proxy-transport --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
 	@echo "=== [4/10] Docker baseline ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) docker-up
-	@echo "=== [5/10] phase 7/8 bundle ===" | tee -a $(REPORTS)/ci.log
-	$(MAKE) phase78
+	@echo "=== [5/10] advanced features smoke ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) advanced-features-smoke
 	@echo "=== [6/10] stress loop ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) stress
 	@echo "=== [7/10] negative-auth ===" | tee -a $(REPORTS)/ci.log

@@ -20,13 +20,9 @@ The mandatory matrix is limited to paths that are wired end-to-end today:
 - Hysteria2
 - Xray REALITY interop
 
-Phase 7/8 features are not mandatory green until they have realistic-lab proof:
-
-- ShadowTLS v3 has local e2e coverage, but external sing-box/shadow-tls interop still needs VPS proof.
-- mKCP multi-peer mode has local e2e coverage, but loss/latency behavior still needs VPS proof.
-- TUN config/device helpers plus packet/NAT primitives exist, but startup is intentionally rejected until the privileged device loop and TCP reassembly are implemented.
-- health/failover realistic failover scenarios
-- geo/FakeIP production routing scenarios
+**Advanced features** (ShadowTLS, mKCP, health/failover, DNS/geo routing) have local smoke
+tests via `make -C labs/realistic advanced-features-smoke` but are not mandatory green yet.
+See the table above and [labs/realistic/README.md](labs/realistic/README.md).
 
 ## Local Docker Baseline
 
@@ -44,18 +40,13 @@ This does three things:
 
 Reports are written under `labs/realistic/reports/`.
 
-Run the current Phase 7/8 proof bundle:
+Run advanced-feature smoke tests (ShadowTLS, mKCP, health/failover, DNS/routing guards):
 
 ```sh
-make -C labs/realistic phase78
+make -C labs/realistic advanced-features-smoke
 ```
 
-This writes:
-
-- `phase78-shadowtls.log`
-- `phase78-mkcp.log`
-- `phase78-health.log`
-- `phase78-geo-fakeip.log`
+Writes `reports/advanced-features-smoke.log`.
 
 Run negative-auth scenarios:
 
