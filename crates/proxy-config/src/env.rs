@@ -32,10 +32,11 @@ use regex::Regex;
 ///
 /// The variable name must start with a letter or underscore and contain
 /// only uppercase letters, digits, and underscores — standard Unix convention.
+///
+/// Panicking on invalid regex is intentional: the pattern is fixed at compile time.
 static ENV_VAR_RE: Lazy<Regex> = Lazy::new(|| {
-    // This pattern matches: ${  followed by  a valid env var name  followed by  }
     Regex::new(r"\$\{([A-Z_][A-Z0-9_]*)\}")
-        .unwrap_or_else(|err| panic!("env var regex is invalid: {err}"))
+        .expect("env var substitution regex is a compile-time invariant")
 });
 
 /// Replace all `${VAR_NAME}` placeholders in `raw` with their environment

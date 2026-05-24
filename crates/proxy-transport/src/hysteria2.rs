@@ -163,9 +163,11 @@ async fn client_h3_auth(
         let _ = driver;
     });
 
-    let mut req_builder = Request::builder()
-        .method(Method::POST)
-        .uri(format!("https://{}{}", proto::AUTH_HOST, proto::AUTH_PATH));
+    let mut req_builder = Request::builder().method(Method::POST).uri(format!(
+        "https://{}{}",
+        proto::AUTH_HOST,
+        proto::AUTH_PATH
+    ));
     req_builder = req_builder.header(http::header::HOST, proto::AUTH_HOST);
     req_builder = req_builder.header(
         HeaderName::from_static("hysteria-auth"),

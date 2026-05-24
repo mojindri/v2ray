@@ -216,7 +216,11 @@ pub struct AppKeys {
 ///
 /// `dhe` is the x25519 shared secret from the TLS key_share exchange.
 /// `transcript_hash` is Hash(ClientHello || ServerHello).
-pub(super) fn derive_handshake_keys(cs: CipherSuite, dhe: &[u8; 32], transcript_hash: &[u8]) -> HsKeys {
+pub(super) fn derive_handshake_keys(
+    cs: CipherSuite,
+    dhe: &[u8; 32],
+    transcript_hash: &[u8],
+) -> HsKeys {
     let hash_len = cs.hash_len();
     let zero = vec![0u8; hash_len];
 
@@ -439,7 +443,9 @@ async fn read_record(tcp: &mut TcpStream) -> Result<([u8; 5], Vec<u8>), ProxyErr
     Ok((header, body))
 }
 
-pub(super) async fn read_record_stream(stream: &mut BoxedStream) -> Result<([u8; 5], Vec<u8>), ProxyError> {
+pub(super) async fn read_record_stream(
+    stream: &mut BoxedStream,
+) -> Result<([u8; 5], Vec<u8>), ProxyError> {
     let mut header = [0u8; 5];
     stream.read_exact(&mut header).await?;
     let body_len = u16::from_be_bytes([header[3], header[4]]) as usize;

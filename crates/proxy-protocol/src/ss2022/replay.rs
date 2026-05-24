@@ -76,6 +76,12 @@ impl SaltReplay {
     pub fn len(&self) -> usize {
         self.inner.len()
     }
+
+    /// Whether the replay filter currently tracks no salts (for testing).
+    #[cfg(test)]
+    pub fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
 }
 
 impl Default for SaltReplay {

@@ -59,10 +59,9 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
     // Set a 30-second idle timeout so stale connections are cleaned up even
     // when the client disappears without sending a proper close.
     let mut transport = TransportConfig::default();
-    let idle_timeout = match Duration::from_secs(30).try_into() {
-        Ok(v) => v,
-        Err(_) => panic!("30s fits in IdleTimeout"),
-    };
+    let idle_timeout = Duration::from_secs(30)
+        .try_into()
+        .expect("constant 30s idle timeout fits in quinn IdleTimeout");
     transport.max_idle_timeout(Some(idle_timeout));
     server_config.transport_config(Arc::new(transport));
 
@@ -94,10 +93,9 @@ pub fn build_hysteria2_server_endpoint(
     let mut server_config = ServerConfig::with_crypto(Arc::new(quic_server_config));
 
     let mut transport = TransportConfig::default();
-    let idle_timeout = match Duration::from_secs(30).try_into() {
-        Ok(v) => v,
-        Err(_) => panic!("30s fits in IdleTimeout"),
-    };
+    let idle_timeout = Duration::from_secs(30)
+        .try_into()
+        .expect("constant 30s idle timeout fits in quinn IdleTimeout");
     transport.max_idle_timeout(Some(idle_timeout));
     transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
     transport.datagram_send_buffer_size(2 * 1024 * 1024);
@@ -152,8 +150,8 @@ pub fn dev_self_signed_for_names(names: &[String]) -> Result<(String, String)> {
     } else {
         names.to_vec()
     };
-    let rcgen::CertifiedKey { cert, signing_key } =
-        rcgen::generate_simple_self_signed(subjects).context("failed to generate self-signed certificate")?;
+    let rcgen::CertifiedKey { cert, signing_key } = rcgen::generate_simple_self_signed(subjects)
+        .context("failed to generate self-signed certificate")?;
     Ok((cert.pem(), signing_key.serialize_pem()))
 }
 

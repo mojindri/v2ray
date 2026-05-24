@@ -47,7 +47,9 @@ pub fn hysteria_to_address(addr: &str) -> Result<Address, ProxyError> {
     }
 }
 
-pub async fn server_read_request<R: AsyncRead + Unpin>(stream: &mut R) -> Result<Address, ProxyError> {
+pub async fn server_read_request<R: AsyncRead + Unpin>(
+    stream: &mut R,
+) -> Result<Address, ProxyError> {
     let req = decode_tcp_request(stream)
         .await
         .map_err(|e| ProxyError::Protocol(format!("bad TCP request: {e}")))?;

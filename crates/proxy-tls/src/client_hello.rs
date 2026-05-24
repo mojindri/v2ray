@@ -374,7 +374,7 @@ mod hard_clienthello_tests {
 
         let cipher_suites_len = parse_u16(record_body, &mut hp)? as usize;
 
-        if cipher_suites_len % 2 != 0 {
+        if !cipher_suites_len.is_multiple_of(2) {
             return Err("cipher_suites length is odd".into());
         }
 
@@ -452,7 +452,7 @@ mod hard_clienthello_tests {
         })
     }
 
-    fn extension<'a>(parsed: &'a ParsedClientHello, ext_type: u16) -> Option<&'a ParsedExtension> {
+    fn extension(parsed: &ParsedClientHello, ext_type: u16) -> Option<&ParsedExtension> {
         parsed.extensions.iter().find(|e| e.ext_type == ext_type)
     }
 
@@ -470,7 +470,7 @@ mod hard_clienthello_tests {
             return Err("supported_groups length mismatch".into());
         }
 
-        if declared_len % 2 != 0 {
+        if !declared_len.is_multiple_of(2) {
             return Err("supported_groups length is odd".into());
         }
 
@@ -513,7 +513,7 @@ mod hard_clienthello_tests {
             return Err("supported_versions length mismatch".into());
         }
 
-        if declared_len % 2 != 0 {
+        if !declared_len.is_multiple_of(2) {
             return Err("supported_versions length is odd".into());
         }
 
@@ -938,10 +938,7 @@ mod hard_clienthello_tests {
 
             let sni_ext = extension(&parsed, 0x0000).expect("missing SNI extension");
             assert!(
-                sni_ext
-                    .data
-                    .windows(sni.as_bytes().len())
-                    .any(|w| w == sni.as_bytes()),
+                sni_ext.data.windows(sni.len()).any(|w| w == sni.as_bytes()),
                 "SNI extension does not contain hostname {sni}"
             );
         }

@@ -23,9 +23,10 @@ use tokio::net::TcpListener;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use proxy_transport::reality::{
-    RealityClient, RealityClientConfig, RealityServer, RealityServerConfig,
+    complete_tls13_server_handshake, RealityClient, RealityClientConfig, RealityServer,
+    RealityServerConfig,
 };
-use proxy_transport::{dev_self_signed, tls_accept};
+use proxy_transport::Tls13Stream;
 
 /// Bind to port 0 and return the assigned port.
 /// This avoids port conflicts between concurrent tests.
@@ -89,21 +90,25 @@ async fn reality_legitimate_client_can_authenticate_and_exchange_data() {
         max_time_diff: 120,
     }));
 
-    let (cert_pem, key_pem) = dev_self_signed().expect("dev TLS cert generation should succeed");
-
     // Spawn the server task: accept one connection, authenticate it, complete
     // the local TLS handshake, then echo data.
     let server_task = tokio::spawn(async move {
         let listener = TcpListener::bind(reality_addr).await.unwrap();
         let (tcp, _) = listener.accept().await.unwrap();
 
-        let stream = server
-            .accept(Box::new(tcp))
+        let accepted = server
+            .accept_with_key(Box::new(tcp))
             .await
             .expect("REALITY authentication should succeed for legitimate client");
-        let mut stream = tls_accept(stream, &cert_pem, &key_pem, &[])
-            .await
-            .expect("TLS 1.3 should complete after REALITY authentication");
+        let mut raw_stream = accepted.stream;
+        let app_keys = complete_tls13_server_handshake(
+            &mut raw_stream,
+            &accepted.auth_key,
+            "www.microsoft.com",
+        )
+        .await
+        .expect("TLS 1.3 should complete after REALITY authentication");
+        let mut stream = Tls13Stream::new_server(raw_stream, app_keys);
 
         // Read the test payload from the client.
         let mut buf = vec![0u8; 64];

@@ -135,10 +135,19 @@ impl InboundHandler for VmessInbound {
         stream.read_exact(&mut connection_nonce).await?;
 
         // 5. Decrypt header length using nonce.
-        let header_len = decrypt_length_field(&user.cmd_key, &auth_id, &connection_nonce, &enc_len)?;
+        let header_len =
+            decrypt_length_field(&user.cmd_key, &auth_id, &connection_nonce, &enc_len)?;
 
         // 6. Decrypt request header.
-        let request = match decode_header(&mut stream, &user.cmd_key, &auth_id, &connection_nonce, header_len).await {
+        let request = match decode_header(
+            &mut stream,
+            &user.cmd_key,
+            &auth_id,
+            &connection_nonce,
+            header_len,
+        )
+        .await
+        {
             Ok(v) => v,
             Err(e) => {
                 warn!(source = %source, error = %e, header_len, "VMess header decode failed");

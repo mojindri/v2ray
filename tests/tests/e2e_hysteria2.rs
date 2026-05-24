@@ -5,6 +5,7 @@ use std::time::Instant;
 
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
+use proxy_common::Address;
 use proxy_transport::hysteria2::auth::{verify_auth_request, AuthError};
 use proxy_transport::hysteria2::proto::{
     auth_response_from_headers, auth_response_to_headers, decode_tcp_request, decode_tcp_response,
@@ -12,7 +13,6 @@ use proxy_transport::hysteria2::proto::{
 };
 use proxy_transport::hysteria2::tcp::{address_to_hysteria, hysteria_to_address};
 use proxy_transport::BrutalCCFactory;
-use proxy_common::Address;
 
 #[test]
 fn auth_headers_accept_valid_password() {

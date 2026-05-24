@@ -23,14 +23,11 @@ mod parser;
 mod server;
 pub(crate) mod tls13;
 
+pub use cert::{tls_cert_for_auth_key, tls_pem_for_auth_key, verify_reality_cert_hmac};
 pub use client::{RealityClient, RealityClientConfig};
 pub use parser::{parse_client_hello, ClientHelloFields};
-pub use cert::{tls_cert_for_auth_key, tls_pem_for_auth_key, verify_reality_cert_hmac};
-pub use rustls_accept::accept_tls13_after_reality;
-pub use tls13::{complete_tls13_server_handshake, Tls13Stream};
-
-mod rustls_accept;
 pub use server::{RealityAccepted, RealityServer, RealityServerConfig};
+pub use tls13::{complete_tls13_server_handshake, Tls13Stream};
 
 /// The HKDF info string used to derive the REALITY auth key.
 ///

@@ -271,14 +271,20 @@ fn vmess_header_encode_decode_domain() {
     let dest = proxy_common::Address::Domain("test.example.com".to_string(), 443);
 
     let (iv, kk, v, connection_nonce, _enc_len, enc_header) =
-        encode_header(&key, &auth, &dest, Security::Aes128Gcm);
+        encode_header(&key, &auth, &dest, Security::Aes128Gcm).unwrap();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let mut cursor = std::io::Cursor::new(enc_header.to_vec());
-        let req = decode_header(&mut cursor, &key, &auth, &connection_nonce, enc_header.len() - 16)
-            .await
-            .unwrap();
+        let req = decode_header(
+            &mut cursor,
+            &key,
+            &auth,
+            &connection_nonce,
+            enc_header.len() - 16,
+        )
+        .await
+        .unwrap();
         assert_eq!(req.iv, iv);
         assert_eq!(req.key, kk);
         assert_eq!(req.v, v);
@@ -299,14 +305,20 @@ fn vmess_header_encode_decode_ipv4() {
     let dest = proxy_common::Address::Ipv4("192.168.1.1".parse().unwrap(), 80);
 
     let (iv, kk, v, connection_nonce, _enc_len, enc_header) =
-        encode_header(&key, &auth, &dest, Security::Aes128Gcm);
+        encode_header(&key, &auth, &dest, Security::Aes128Gcm).unwrap();
 
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let mut cursor = std::io::Cursor::new(enc_header.to_vec());
-        let req = decode_header(&mut cursor, &key, &auth, &connection_nonce, enc_header.len() - 16)
-            .await
-            .unwrap();
+        let req = decode_header(
+            &mut cursor,
+            &key,
+            &auth,
+            &connection_nonce,
+            enc_header.len() - 16,
+        )
+        .await
+        .unwrap();
         assert_eq!(req.dest, dest);
         let _ = (iv, kk, v);
     });

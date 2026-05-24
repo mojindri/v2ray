@@ -42,7 +42,7 @@ fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {
 }
 
 enum BodyCipher {
-    Aes128Gcm(Aes128Gcm),
+    Aes128Gcm(Box<Aes128Gcm>),
     ChaCha20Poly1305(Box<ChaCha20Poly1305>),
     None,
 }
@@ -50,12 +50,12 @@ enum BodyCipher {
 impl BodyCipher {
     fn new(security: Security, key: &[u8; 16]) -> Self {
         match security {
-            Security::Aes128Gcm => Self::Aes128Gcm(Aes128Gcm::new(GenericArray::from_slice(key))),
-            Security::ChaCha20Poly1305 => {
-                Self::ChaCha20Poly1305(Box::new(ChaCha20Poly1305::new(GenericArray::from_slice(
-                    &chacha_key(key),
-                ))))
+            Security::Aes128Gcm => {
+                Self::Aes128Gcm(Box::new(Aes128Gcm::new(GenericArray::from_slice(key))))
             }
+            Security::ChaCha20Poly1305 => Self::ChaCha20Poly1305(Box::new(ChaCha20Poly1305::new(
+                GenericArray::from_slice(&chacha_key(key)),
+            ))),
             Security::None => Self::None,
         }
     }
@@ -70,10 +70,22 @@ impl BodyCipher {
     fn encrypt(&self, nonce: &[u8; 12], data: &[u8]) -> Result<Vec<u8>, ()> {
         match self {
             Self::Aes128Gcm(cipher) => cipher
-                .encrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .encrypt(
+                    GenericArray::from_slice(nonce),
+                    Payload {
+                        msg: data,
+                        aad: &[],
+                    },
+                )
                 .map_err(|_| ()),
             Self::ChaCha20Poly1305(cipher) => cipher
-                .encrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .encrypt(
+                    GenericArray::from_slice(nonce),
+                    Payload {
+                        msg: data,
+                        aad: &[],
+                    },
+                )
                 .map_err(|_| ()),
             Self::None => Ok(data.to_vec()),
         }
@@ -82,10 +94,22 @@ impl BodyCipher {
     fn decrypt(&self, nonce: &[u8; 12], data: &[u8]) -> Result<Vec<u8>, ()> {
         match self {
             Self::Aes128Gcm(cipher) => cipher
-                .decrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .decrypt(
+                    GenericArray::from_slice(nonce),
+                    Payload {
+                        msg: data,
+                        aad: &[],
+                    },
+                )
                 .map_err(|_| ()),
             Self::ChaCha20Poly1305(cipher) => cipher
-                .decrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .decrypt(
+                    GenericArray::from_slice(nonce),
+                    Payload {
+                        msg: data,
+                        aad: &[],
+                    },
+                )
                 .map_err(|_| ()),
             Self::None => Ok(data.to_vec()),
         }
@@ -270,12 +294,14 @@ impl VmessStream {
         Some(Ok(Bytes::from(plaintext)))
     }
 
-    fn encrypt_chunk(&mut self, data: &[u8]) -> Vec<u8> {
+    fn encrypt_chunk(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
         let nonce_arr = chunk_nonce(self.write_counter, &self.write_iv);
-        let data_ct = self
-            .write_cipher
-            .encrypt(&nonce_arr, data)
-            .expect("VMess body encrypt must not fail");
+        let data_ct = self.write_cipher.encrypt(&nonce_arr, data).map_err(|_| {
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                "VMess: body chunk encrypt failed",
+            )
+        })?;
         self.write_counter = self.write_counter.wrapping_add(1);
 
         let padding_len = self.next_write_padding_len();
@@ -288,7 +314,7 @@ impl VmessStream {
             out.resize(start + padding_len, 0);
             rand::thread_rng().fill_bytes(&mut out[start..]);
         }
-        out
+        Ok(out)
     }
 }
 
@@ -349,7 +375,10 @@ impl AsyncWrite for VmessStream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let chunk = &buf[..buf.len().min(MAX_CHUNK_SIZE)];
-        let encrypted = self.encrypt_chunk(chunk);
+        let encrypted = match self.encrypt_chunk(chunk) {
+            Ok(v) => v,
+            Err(e) => return Poll::Ready(Err(e)),
+        };
         self.write_buf.extend_from_slice(&encrypted);
         Poll::Ready(Ok(chunk.len()))
     }

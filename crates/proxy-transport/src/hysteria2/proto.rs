@@ -90,10 +90,7 @@ pub fn auth_response_to_headers(headers: &mut HeaderMap, resp: &AuthResponse) {
         header_name(HEADER_CC_RX),
         HeaderValue::from_str(&cc).expect("cc-rx header"),
     );
-    headers.insert(
-        header_name(HEADER_PADDING),
-        HeaderValue::from_static(""),
-    );
+    headers.insert(header_name(HEADER_PADDING), HeaderValue::from_static(""));
 }
 
 /// Parse auth response headers from an HTTP/3 response.
@@ -128,15 +125,12 @@ pub fn is_auth_request(method: &str, path: &str, _authority: Option<&str>) -> bo
 // ── TCP proxy (QUIC streams) ──────────────────────────────────────────────────
 
 /// Encode a TCP proxy request (includes `0x401` frame type).
-pub async fn encode_tcp_request<W: AsyncWrite + Unpin>(
-    w: &mut W,
-    addr: &str,
-) -> io::Result<()> {
+pub async fn encode_tcp_request<W: AsyncWrite + Unpin>(w: &mut W, addr: &str) -> io::Result<()> {
     let mut buf = Vec::new();
-    write_varint(&mut buf, FRAME_TYPE_TCP_REQUEST);
-    write_varint(&mut buf, addr.len() as u64);
+    write_varint(&mut buf, FRAME_TYPE_TCP_REQUEST)?;
+    write_varint(&mut buf, addr.len() as u64)?;
     buf.extend_from_slice(addr.as_bytes());
-    write_varint(&mut buf, 0);
+    write_varint(&mut buf, 0)?;
     w.write_all(&buf).await
 }
 
@@ -170,9 +164,9 @@ pub async fn encode_tcp_response<W: AsyncWrite + Unpin>(
     let msg_bytes = resp.message.as_bytes();
     let mut buf = Vec::with_capacity(16 + msg_bytes.len());
     buf.push(status);
-    write_varint(&mut buf, msg_bytes.len() as u64);
+    write_varint(&mut buf, msg_bytes.len() as u64)?;
     buf.extend_from_slice(msg_bytes);
-    write_varint(&mut buf, 0);
+    write_varint(&mut buf, 0)?;
     w.write_all(&buf).await
 }
 
@@ -230,10 +224,7 @@ mod tests {
     #[test]
     fn auth_headers_roundtrip() {
         let mut req_headers = HeaderMap::new();
-        req_headers.insert(
-            header_name(HEADER_AUTH),
-            HeaderValue::from_static("secret"),
-        );
+        req_headers.insert(header_name(HEADER_AUTH), HeaderValue::from_static("secret"));
         req_headers.insert(
             header_name(HEADER_CC_RX),
             HeaderValue::from_static("6250000"),

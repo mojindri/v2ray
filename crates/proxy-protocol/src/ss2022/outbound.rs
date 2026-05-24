@@ -13,11 +13,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use async_trait::async_trait;
 use aes_gcm::{
     aead::{generic_array::GenericArray, Aead},
     Aes256Gcm, KeyInit,
 };
+use async_trait::async_trait;
 use bytes::BytesMut;
 use rand::RngCore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -65,7 +65,9 @@ impl OutboundHandler for Ss2022Outbound {
         debug!(server = %self.server, dest = %dest, "SS-2022 outbound connecting");
         let tcp = TcpStream::connect(self.server).await?;
         tcp.set_nodelay(true)?;
-        Ok(Box::new(open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?))
+        Ok(Box::new(
+            open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
+        ))
     }
 }
 
@@ -97,7 +99,9 @@ impl OutboundHandler for Ss2022ChunkedOutbound {
         debug!(server = %self.server, dest = %dest, "SS-2022 chunked outbound connecting");
         let tcp = TcpStream::connect(self.server).await?;
         tcp.set_nodelay(true)?;
-        Ok(Box::new(open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?))
+        Ok(Box::new(
+            open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
+        ))
     }
 }
 
@@ -138,7 +142,10 @@ pub async fn open_ss2022_stream(
         .encrypt(GenericArray::from_slice(&make_nonce(0)), fixed.as_slice())
         .map_err(|_| ProxyError::Protocol("SS-2022: fixed header encrypt failed".into()))?;
     let variable_ct = req_cipher
-        .encrypt(GenericArray::from_slice(&make_nonce(1)), variable.as_slice())
+        .encrypt(
+            GenericArray::from_slice(&make_nonce(1)),
+            variable.as_slice(),
+        )
         .map_err(|_| ProxyError::Protocol("SS-2022: variable header encrypt failed".into()))?;
     raw.write_all(&fixed_ct).await?;
     raw.write_all(&variable_ct).await?;
@@ -162,9 +169,11 @@ pub async fn open_ss2022_stream(
         .map_err(|_| ProxyError::Protocol("SS-2022: response header decrypt failed".into()))?;
 
     if resp_hdr.len() != 43 || resp_hdr[0] != TYPE_SERVER {
-        return Err(ProxyError::Protocol("SS-2022: invalid response header type".into()));
+        return Err(ProxyError::Protocol(
+            "SS-2022: invalid response header type".into(),
+        ));
     }
-    let resp_ts = u64::from_be_bytes(resp_hdr[1..9].try_into().unwrap());
+    let resp_ts = super::u64_from_be8(&resp_hdr[1..9])?;
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()

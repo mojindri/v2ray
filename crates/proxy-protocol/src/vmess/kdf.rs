@@ -45,8 +45,8 @@ const HMAC_BLOCK_SIZE: usize = 64;
 
 fn kdf_hash(paths: &[&[u8]], msg: &[u8]) -> [u8; 32] {
     if paths.is_empty() {
-        let mut mac = HmacSha256::new_from_slice(VMESS_AEAD_KDF_SALT)
-            .expect("HMAC accepts any key length");
+        let mut mac =
+            HmacSha256::new_from_slice(VMESS_AEAD_KDF_SALT).expect("HMAC accepts any key length");
         mac.update(msg);
         let digest = mac.finalize().into_bytes();
         let mut out = [0u8; 32];

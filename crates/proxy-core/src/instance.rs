@@ -302,12 +302,12 @@ impl Instance {
                     Arc::clone(&handler),
                     dispatcher_for_handler,
                 )
-                    .with_context(|| {
-                        format!(
-                            "building REALITY connection handler for inbound '{}'",
-                            in_cfg.tag
-                        )
-                    })?
+                .with_context(|| {
+                    format!(
+                        "building REALITY connection handler for inbound '{}'",
+                        in_cfg.tag
+                    )
+                })?
             } else if uses_tls(&in_cfg.stream_settings)
                 || uses_shadowtls(&in_cfg.stream_settings)
                 || uses_ws(&in_cfg.stream_settings)
