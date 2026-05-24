@@ -367,7 +367,8 @@ fn build_hysteria2_client_config(
             .with_root_certificates(roots)
             .with_no_client_auth()
     };
-    tls_config.alpn_protocols = vec![b"h3".to_vec()];
+    // Hysteria2 requires the "hysteria" ALPN token; sing-box enforces this.
+    tls_config.alpn_protocols = vec![b"hysteria".to_vec()];
 
     let quic_config = QuicClientConfig::try_from(tls_config).context("build QuicClientConfig")?;
     let mut config = quinn::ClientConfig::new(Arc::new(quic_config));
