@@ -13,6 +13,7 @@ proxy-app             = { path = "../proxy-app" }
 proxy-transport       = { path = "../proxy-transport" }
 proxy-protocol        = { path = "../proxy-protocol" }
 
+dashmap.workspace    = true
 tokio.workspace       = true
 async-trait.workspace = true
 arc-swap.workspace    = true

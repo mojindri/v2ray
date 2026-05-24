@@ -27,14 +27,16 @@
 //! `Instance` rebuilds the handlers for changed inbounds/outbounds and
 //! replaces them without stopping the unchanged ones.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context as _, Result};
+use dashmap::DashMap;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{debug, error, info};
 
 use proxy_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use proxy_app::dns::{DnsModule, DnsModuleConfig};
@@ -59,18 +61,22 @@ use crate::reality::{
     build_reality_client, build_reality_server, uses_reality, RealityConnectionHandler,
     RealityVlessOutbound,
 };
+use crate::reload::ReloadState;
 use crate::ss2022::{build_ss2022_inbound, build_ss2022_outbound};
 use crate::trojan::{build_trojan_inbound, build_trojan_outbound};
 use crate::vmess::{build_vmess_inbound, build_vmess_outbound};
+
 use crate::ws_tls::{build_conn_handler, uses_grpc, uses_shadowtls, uses_tls, uses_ws};
 
-/// The running proxy instance.
+/// Running proxy instance plus reload handles for live config updates.
 pub struct Instance {
     /// Background task handles. Kept alive as long as `Instance` is alive.
     tasks: Vec<JoinHandle<()>>,
     /// If a TUN runtime is active, sending `true` here triggers graceful
     /// shutdown (which runs `cleanup_routes` before the task exits).
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    /// Hot-reload state shared with the config watcher.
+    pub reload: ReloadState,
 }
 
 impl fmt::Debug for Instance {
@@ -199,14 +205,21 @@ impl Instance {
             .map(|o| o.tag.clone())
             .unwrap_or_else(|| "direct".into());
 
+        let outbound_tags: HashSet<String> = outbound_map.keys().cloned().collect();
+
         let rules = if let Some(routing) = &config.routing {
-            build_rules(&routing.rules, &outbound_map)?
+            build_rules(&routing.rules, &outbound_tags)?
         } else {
             vec![]
         };
 
         let (geoip, geosite) = load_geo_data(config.routing.as_ref());
         let router = LiveRouter::new(rules, default_tag, geoip, geosite);
+        let reload = ReloadState {
+            router: Arc::clone(&router),
+            vless_registries: Arc::new(DashMap::new()),
+        };
+        let vless_registries = Arc::clone(&reload.vless_registries);
 
         // ── Step 3: Create dispatcher ────────────────────────────────────────
         let dns = build_dns_module(config.dns.as_ref()).await?;
@@ -235,7 +248,7 @@ impl Instance {
 
             let handler: Arc<dyn InboundHandler> = match in_cfg.protocol {
                 Protocol::Socks => Socks5Inbound::new(&in_cfg.tag),
-                Protocol::Vless => build_vless_inbound(in_cfg)
+                Protocol::Vless => build_vless_inbound(in_cfg, &vless_registries)
                     .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?,
                 Protocol::Trojan => build_trojan_inbound(in_cfg)
                     .with_context(|| format!("building Trojan inbound '{}'", in_cfg.tag))?,
@@ -254,10 +267,15 @@ impl Instance {
 
             let dispatcher_for_handler = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
 
+            let handshake_timeout = handshake_timeout_for(in_cfg, &config.limits);
+
             if uses_kcp(&in_cfg.stream_settings) {
-                let conn_handler = Arc::new(InboundConnectionHandler {
-                    inbound: Arc::clone(&handler),
-                    dispatcher: dispatcher_for_handler,
+                let conn_handler = Arc::new(HandshakeTimeoutHandler {
+                    inner: Arc::new(InboundConnectionHandler {
+                        inbound: Arc::clone(&handler),
+                        dispatcher: dispatcher_for_handler,
+                    }),
+                    timeout: handshake_timeout,
                 });
                 let cfg = build_mkcp_server_config(addr, &in_cfg.stream_settings)
                     .with_context(|| format!("building mKCP inbound '{}'", in_cfg.tag))?;
@@ -285,47 +303,52 @@ impl Instance {
             }
 
             // Choose the connection handler stack based on stream settings.
-            let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
-            {
-                // REALITY: unwrap REALITY TLS camouflage first.
-                let reality = build_reality_server(in_cfg)
-                    .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                let cover_sni = in_cfg
-                    .stream_settings
-                    .as_ref()
-                    .and_then(|s| s.reality_settings.as_ref())
-                    .map(|r| r.server_name.as_str())
-                    .unwrap_or("localhost");
-                RealityConnectionHandler::new(
-                    reality,
-                    cover_sni,
-                    Arc::clone(&handler),
-                    dispatcher_for_handler,
-                )
-                .with_context(|| {
-                    format!(
-                        "building REALITY connection handler for inbound '{}'",
-                        in_cfg.tag
+            let conn_handler: Arc<dyn ConnectionHandler> = {
+                let inner: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings) {
+                    // REALITY: unwrap REALITY TLS camouflage first.
+                    let reality = build_reality_server(in_cfg)
+                        .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
+                    let cover_sni = in_cfg
+                        .stream_settings
+                        .as_ref()
+                        .and_then(|s| s.reality_settings.as_ref())
+                        .map(|r| r.server_name.as_str())
+                        .unwrap_or("localhost");
+                    RealityConnectionHandler::new(
+                        reality,
+                        cover_sni,
+                        Arc::clone(&handler),
+                        dispatcher_for_handler,
                     )
-                })?
-            } else if uses_tls(&in_cfg.stream_settings)
-                || uses_shadowtls(&in_cfg.stream_settings)
-                || uses_ws(&in_cfg.stream_settings)
-                || uses_grpc(&in_cfg.stream_settings)
-            {
-                // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
-                build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
                     .with_context(|| {
                         format!(
-                            "building TLS/WS connection handler for inbound '{}'",
+                            "building REALITY connection handler for inbound '{}'",
                             in_cfg.tag
                         )
                     })?
-            } else {
-                // Plain TCP: no transport wrapping.
-                Arc::new(InboundConnectionHandler {
-                    inbound: Arc::clone(&handler),
-                    dispatcher: dispatcher_for_handler,
+                } else if uses_tls(&in_cfg.stream_settings)
+                    || uses_shadowtls(&in_cfg.stream_settings)
+                    || uses_ws(&in_cfg.stream_settings)
+                    || uses_grpc(&in_cfg.stream_settings)
+                {
+                    // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
+                    build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
+                        .with_context(|| {
+                            format!(
+                                "building TLS/WS connection handler for inbound '{}'",
+                                in_cfg.tag
+                            )
+                        })?
+                } else {
+                    // Plain TCP: no transport wrapping.
+                    Arc::new(InboundConnectionHandler {
+                        inbound: Arc::clone(&handler),
+                        dispatcher: dispatcher_for_handler,
+                    })
+                };
+                Arc::new(HandshakeTimeoutHandler {
+                    inner,
+                    timeout: handshake_timeout,
                 })
             };
 
@@ -360,7 +383,11 @@ impl Instance {
             tasks.push(handle);
         }
 
-        Ok(Self { tasks, shutdown_tx })
+        Ok(Self {
+            tasks,
+            shutdown_tx,
+            reload,
+        })
     }
 
     /// Wait for all inbound listeners to exit.
@@ -503,7 +530,7 @@ fn build_mkcp_server_config(
     })
 }
 
-fn load_geo_data(
+pub(crate) fn load_geo_data(
     routing: Option<&proxy_config::schema::RoutingConfig>,
 ) -> (
     HashMap<String, proxy_app::geo::GeoIpMatcher>,
@@ -550,6 +577,46 @@ async fn build_dns_module(
 struct InboundConnectionHandler {
     inbound: Arc<dyn InboundHandler>,
     dispatcher: Arc<dyn Dispatcher>,
+}
+
+/// Optional wall-clock limit for inbound handshake phases (REALITY/TLS/VLESS header).
+struct HandshakeTimeoutHandler {
+    inner: Arc<dyn ConnectionHandler>,
+    timeout: Option<Duration>,
+}
+
+#[async_trait::async_trait]
+impl ConnectionHandler for HandshakeTimeoutHandler {
+    async fn handle_connection(
+        &self,
+        stream: BoxedStream,
+        source: SocketAddr,
+    ) -> Result<(), ProxyError> {
+        if let Some(timeout) = self.timeout {
+            match tokio::time::timeout(timeout, self.inner.handle_connection(stream, source)).await
+            {
+                Ok(result) => result,
+                Err(_) => {
+                    debug!(?source, ?timeout, "inbound handshake timed out");
+                    Err(ProxyError::Timeout)
+                }
+            }
+        } else {
+            self.inner.handle_connection(stream, source).await
+        }
+    }
+}
+
+fn handshake_timeout_for(
+    in_cfg: &proxy_config::schema::InboundConfig,
+    global: &proxy_config::schema::LimitsConfig,
+) -> Option<Duration> {
+    let secs = in_cfg
+        .limits
+        .as_ref()
+        .and_then(|limits| limits.max_handshake_seconds)
+        .or(global.max_handshake_seconds)?;
+    Some(Duration::from_secs(secs))
 }
 
 #[async_trait::async_trait]
@@ -614,9 +681,27 @@ fn build_vless_outbound(
 /// Build a VLESS inbound handler from config.
 fn build_vless_inbound(
     cfg: &proxy_config::schema::InboundConfig,
+    registries: &Arc<DashMap<String, Arc<VlessUserRegistry>>>,
 ) -> Result<Arc<dyn InboundHandler>> {
-    let registry = VlessUserRegistry::new();
+    #[allow(clippy::unwrap_or_default)]
+    let registry = registries
+        .entry(cfg.tag.clone())
+        .or_insert_with(VlessUserRegistry::new)
+        .clone();
+    populate_vless_registry(&registry, cfg)?;
 
+    let fallback = cfg.settings["fallback"]["dest"]
+        .as_str()
+        .and_then(|s| s.parse::<SocketAddr>().ok());
+
+    Ok(VlessInbound::new(&cfg.tag, registry, fallback))
+}
+
+pub(crate) fn populate_vless_registry(
+    registry: &VlessUserRegistry,
+    cfg: &proxy_config::schema::InboundConfig,
+) -> Result<()> {
+    registry.clear();
     if let Some(clients) = cfg.settings["clients"].as_array() {
         for client in clients {
             let id_str = client["id"]
@@ -628,29 +713,24 @@ fn build_vless_inbound(
             registry.add_user(VlessUser { email, uuid, flow });
         }
     }
-
-    let fallback = cfg.settings["fallback"]["dest"]
-        .as_str()
-        .and_then(|s| s.parse::<SocketAddr>().ok());
-
-    Ok(VlessInbound::new(&cfg.tag, registry, fallback))
+    Ok(())
 }
 
 /// Parse a UUID string like "a3482e88-686a-4a58-8126-99c9df64b7bf" into 16 bytes.
-fn parse_uuid(s: &str) -> Result<[u8; 16]> {
+pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
     let uuid = uuid::Uuid::parse_str(s).with_context(|| format!("invalid UUID '{s}'"))?;
     Ok(*uuid.as_bytes())
 }
 
 /// Build compiled routing rules from config rules.
-fn build_rules(
+pub(crate) fn build_rules(
     rules: &[proxy_config::schema::RoutingRule],
-    outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
+    outbound_tags: &HashSet<String>,
 ) -> Result<Vec<CompiledRule>> {
     rules
         .iter()
         .map(|r| {
-            if !outbounds.contains_key(&r.outbound_tag) {
+            if !outbound_tags.contains(&r.outbound_tag) {
                 anyhow::bail!(
                     "routing rule references missing outboundTag '{}'",
                     r.outbound_tag
@@ -709,7 +789,7 @@ fn build_rules(
             let port_ranges = parse_port_ranges(r.port.as_deref().unwrap_or(""))?;
 
             Ok(proxy_app::router::CompiledRule {
-                outbound_tag: r.outbound_tag.clone(),
+                outbound_tag: Arc::from(r.outbound_tag.as_str()),
                 domain_matcher,
                 geosite_codes,
                 ip_matcher,

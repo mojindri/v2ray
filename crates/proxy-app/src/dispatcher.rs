@@ -121,9 +121,12 @@ impl Dispatcher for DefaultDispatcher {
         debug!(outbound = %route.outbound_tag, "route selected");
 
         // Step 2: Find the outbound handler.
-        let outbound = self.outbounds.get(&route.outbound_tag).ok_or_else(|| {
-            ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
-        })?;
+        let outbound = self
+            .outbounds
+            .get(route.outbound_tag.as_ref())
+            .ok_or_else(|| {
+                ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
+            })?;
 
         // Step 3: Open a connection to the destination via the outbound.
         let start = Instant::now();
@@ -211,7 +214,7 @@ mod tests {
     impl Router for StaticRouter {
         fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
             Ok(Route {
-                outbound_tag: "unused".into(),
+                outbound_tag: Arc::from("unused"),
             })
         }
     }

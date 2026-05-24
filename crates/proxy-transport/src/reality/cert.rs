@@ -3,9 +3,9 @@
 //! Xray/sing-box clients verify `Signature == HMAC-SHA512(auth_key, ed25519_public_key)`
 //! instead of a normal PKIX chain.
 
-use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, OnceLock};
 
+use dashmap::DashMap;
 use ed25519_dalek::pkcs8::EncodePrivateKey;
 use ed25519_dalek::SigningKey;
 use hmac::{Hmac, KeyInit, Mac};
@@ -25,10 +25,9 @@ struct CertTemplate {
     signature_range: std::ops::Range<usize>,
 }
 
-fn cert_cache() -> &'static Mutex<HashMap<String, CertTemplate>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, CertTemplate>>> =
-        std::sync::OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(HashMap::new()))
+fn cert_cache() -> &'static DashMap<String, Arc<CertTemplate>> {
+    static CACHE: OnceLock<DashMap<String, Arc<CertTemplate>>> = OnceLock::new();
+    CACHE.get_or_init(DashMap::new)
 }
 
 fn cache_key(sni: &str, mlkem: bool) -> String {
@@ -213,17 +212,13 @@ fn go_reality_signature_range(der: &[u8]) -> Result<std::ops::Range<usize>, Prox
 
 fn get_template(sni: &str, mlkem_client: bool) -> Result<CertTemplate, ProxyError> {
     let key = cache_key(sni, mlkem_client);
-    let mut cache = cert_cache()
-        .lock()
-        .map_err(|_| ProxyError::Tls("REALITY cert cache lock poisoned".into()))?;
-
-    if let Some(t) = cache.get(&key) {
+    if let Some(template) = cert_cache().get(&key) {
         return Ok(CertTemplate {
-            key_pem: t.key_pem.clone(),
-            signing_key: t.signing_key.clone(),
-            verifying_key: t.verifying_key,
-            cert_der: t.cert_der.clone(),
-            signature_range: t.signature_range.clone(),
+            key_pem: template.key_pem.clone(),
+            signing_key: template.signing_key.clone(),
+            verifying_key: template.verifying_key,
+            cert_der: template.cert_der.clone(),
+            signature_range: template.signature_range.clone(),
         });
     }
 
@@ -252,15 +247,19 @@ fn get_template(sni: &str, mlkem_client: bool) -> Result<CertTemplate, ProxyErro
     let cert_der = cert.der().to_vec();
     let signature_range = go_reality_signature_range(&cert_der)?;
 
-    let template = CertTemplate {
+    let template = Arc::new(CertTemplate {
         key_pem: key_pair.serialize_pem(),
         signing_key: signing_key.clone(),
         verifying_key,
         cert_der,
         signature_range,
-    };
-    cache.insert(key, template.clone());
-    Ok(template)
+    });
+    Ok(cert_cache()
+        .entry(key)
+        .or_insert_with(|| Arc::clone(&template))
+        .value()
+        .as_ref()
+        .clone())
 }
 
 fn der_to_pem(label: &str, der: &[u8]) -> Result<String, ProxyError> {

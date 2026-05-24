@@ -45,7 +45,7 @@ pub struct VlessUser {
 /// Wrapped in `Arc` so it can be shared across Tokio tasks.
 pub struct VlessUserRegistry {
     /// Map from normalised UUID bytes to user info.
-    users: DashMap<[u8; 16], VlessUser>,
+    users: DashMap<[u8; 16], Arc<VlessUser>>,
 }
 
 impl VlessUserRegistry {
@@ -61,7 +61,7 @@ impl VlessUserRegistry {
     /// If a user with the same UUID already exists, it is replaced.
     pub fn add_user(&self, user: VlessUser) {
         let key = normalise_uuid(user.uuid);
-        self.users.insert(key, user);
+        self.users.insert(key, Arc::new(user));
     }
 
     /// Look up a user by UUID.
@@ -71,9 +71,9 @@ impl VlessUserRegistry {
     /// The lookup normalises the UUID before comparing, so users registered
     /// with a UUIDv5 can be matched by a client sending a UUIDv4 with the
     /// same content bytes (Xray-compatible behaviour).
-    pub fn validate(&self, uuid: &[u8; 16]) -> Option<VlessUser> {
+    pub fn validate(&self, uuid: &[u8; 16]) -> Option<Arc<VlessUser>> {
         let key = normalise_uuid(*uuid);
-        self.users.get(&key).map(|r| r.value().clone())
+        self.users.get(&key).map(|r| Arc::clone(r.value()))
     }
 
     /// Remove all users from the registry.

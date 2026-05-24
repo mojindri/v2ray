@@ -39,7 +39,7 @@ use crate::geo::{GeoIpMatcher, GeoSiteMatcher};
 #[derive(Debug, Clone)]
 pub struct Route {
     /// The tag of the outbound to use for this connection.
-    pub outbound_tag: String,
+    pub outbound_tag: Arc<str>,
 }
 
 /// Context passed to the router for each connection.
@@ -81,14 +81,14 @@ impl LiveRouter {
     /// if geo data is not available.
     pub fn new(
         rules: Vec<CompiledRule>,
-        default_tag: String,
+        default_tag: impl Into<Arc<str>>,
         geoip: HashMap<String, GeoIpMatcher>,
         geosite: HashMap<String, GeoSiteMatcher>,
     ) -> Arc<Self> {
         Arc::new(Self {
             inner: ArcSwap::from_pointee(RouterInner {
                 rules,
-                default_tag,
+                default_tag: default_tag.into(),
                 geoip,
                 geosite,
             }),
@@ -102,13 +102,13 @@ impl LiveRouter {
     pub fn swap(
         &self,
         rules: Vec<CompiledRule>,
-        default_tag: String,
+        default_tag: impl Into<Arc<str>>,
         geoip: HashMap<String, GeoIpMatcher>,
         geosite: HashMap<String, GeoSiteMatcher>,
     ) {
         self.inner.store(Arc::new(RouterInner {
             rules,
-            default_tag,
+            default_tag: default_tag.into(),
             geoip,
             geosite,
         }));
@@ -124,14 +124,14 @@ impl Router for LiveRouter {
         for rule in &inner.rules {
             if rule.matches_with_geo(ctx, &inner.geoip, &inner.geosite) {
                 return Ok(Route {
-                    outbound_tag: rule.outbound_tag.clone(),
+                    outbound_tag: Arc::clone(&rule.outbound_tag),
                 });
             }
         }
 
         // No rule matched — use the default outbound.
         Ok(Route {
-            outbound_tag: inner.default_tag.clone(),
+            outbound_tag: Arc::clone(&inner.default_tag),
         })
     }
 }
@@ -141,7 +141,7 @@ struct RouterInner {
     /// Rules evaluated in order. First match wins.
     rules: Vec<CompiledRule>,
     /// Fallback outbound tag when no rule matches.
-    default_tag: String,
+    default_tag: Arc<str>,
     /// GeoIP data indexed by uppercase country code.
     geoip: HashMap<String, GeoIpMatcher>,
     /// GeoSite data indexed by uppercase group name.
@@ -156,7 +156,7 @@ struct RouterInner {
 /// is fast even with many rules.
 pub struct CompiledRule {
     /// The outbound tag to use when this rule matches.
-    pub outbound_tag: String,
+    pub outbound_tag: Arc<str>,
 
     /// Domain matcher, if this rule matches by domain.
     pub domain_matcher: Option<DomainMatcher>,

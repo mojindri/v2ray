@@ -19,9 +19,11 @@ mod hysteria2;
 pub mod instance;
 mod outbound_transport;
 mod reality;
+mod reload;
 mod ss2022;
 mod trojan;
 mod vmess;
 mod ws_tls;
 
 pub use instance::Instance;
+pub use reload::ReloadState;

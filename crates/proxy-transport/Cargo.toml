@@ -47,6 +47,7 @@ thiserror.workspace         = true
 tracing.workspace           = true
 anyhow.workspace            = true
 arc-swap.workspace          = true
+dashmap.workspace           = true
 notify.workspace            = true
 x25519-dalek.workspace      = true
 ed25519-dalek.workspace     = true

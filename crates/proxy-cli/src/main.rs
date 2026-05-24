@@ -210,6 +210,22 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
         .await
         .context("building proxy instance from config")?;
 
+    {
+        let reload = instance.reload.clone();
+        let mut reload_rx = manager.subscribe();
+        tokio::spawn(async move {
+            loop {
+                if reload_rx.changed().await.is_err() {
+                    break;
+                }
+                let config = reload_rx.borrow_and_update().clone();
+                if let Err(e) = reload.apply(&config) {
+                    error!(error = %e, "config reload apply failed — keeping prior routing/users");
+                }
+            }
+        });
+    }
+
     info!("blackwire started — waiting for connections");
 
     // Step 5: Wait for a shutdown signal or for all listeners to exit.

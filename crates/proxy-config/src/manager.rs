@@ -28,7 +28,7 @@ use std::time::Duration;
 
 use arc_swap::ArcSwap;
 use notify::{RecommendedWatcher, RecursiveMode, Watcher};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 use tracing::{error, info};
 
 use crate::env::substitute;
@@ -43,6 +43,9 @@ pub struct ConfigManager {
 
     /// Path to the config file on disk.
     path: PathBuf,
+
+    /// Notifies subscribers when a validated config has been loaded or reloaded.
+    reload_tx: watch::Sender<Arc<Config>>,
 }
 
 impl ConfigManager {
@@ -55,10 +58,13 @@ impl ConfigManager {
     pub async fn load(path: impl AsRef<Path>) -> anyhow::Result<Arc<Self>> {
         let path = path.as_ref().to_path_buf();
         let config = Self::read_and_validate(&path).await?;
+        let config = Arc::new(config);
+        let (reload_tx, _) = watch::channel(Arc::clone(&config));
 
         Ok(Arc::new(Self {
-            current: ArcSwap::from_pointee(config),
+            current: ArcSwap::from(config),
             path,
+            reload_tx,
         }))
     }
 
@@ -68,6 +74,14 @@ impl ConfigManager {
     /// keeps the config alive even if a reload happens immediately after.
     pub fn get(&self) -> Arc<Config> {
         self.current.load_full()
+    }
+
+    /// Subscribe to validated config reload notifications.
+    ///
+    /// The receiver's current value is the config active at subscription time.
+    /// Call `changed().await` and then `borrow_and_update()` after each reload.
+    pub fn subscribe(&self) -> watch::Receiver<Arc<Config>> {
+        self.reload_tx.subscribe()
     }
 
     /// Start watching the config file for changes.
@@ -118,7 +132,9 @@ impl ConfigManager {
 
                     match Self::read_and_validate(&self.path).await {
                         Ok(new_cfg) => {
-                            self.current.store(Arc::new(new_cfg));
+                            let new_cfg = Arc::new(new_cfg);
+                            self.current.store(Arc::clone(&new_cfg));
+                            let _ = self.reload_tx.send(new_cfg);
                             info!(path = %self.path.display(), "config reloaded successfully");
                         }
                         Err(e) => {
