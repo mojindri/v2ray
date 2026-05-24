@@ -62,7 +62,7 @@ pub async fn complete_tls13_server_handshake(
         .map_err(|_| ProxyError::Protocol("TLS DHE secret length mismatch".into()))?;
 
     let transcript_hash_after_sh = cs.hash(&transcript);
-    let hs_keys = derive_handshake_keys(cs, &tls_dhe, &transcript_hash_after_sh);
+    let hs_keys = derive_handshake_keys(cs, &tls_dhe, &transcript_hash_after_sh)?;
 
     // uTLS / BoringSSL peers often expect a legacy CCS before TLS 1.3 encrypted flights.
     stream
@@ -83,13 +83,13 @@ pub async fn complete_tls13_server_handshake(
     write_encrypted_hs(stream, cs, &hs_keys, &mut srv_seq, &cv_msg).await?;
 
     let finished_hash = cs.hash(&transcript);
-    let server_finished_data = cs.hmac(&hs_keys.server_finished_key, &finished_hash);
+    let server_finished_data = cs.hmac(&hs_keys.server_finished_key, &finished_hash)?;
     let finished_msg = build_finished(server_finished_data);
     transcript.extend_from_slice(&finished_msg);
     write_encrypted_hs(stream, cs, &hs_keys, &mut srv_seq, &finished_msg).await?;
 
     let app_transcript_hash = cs.hash(&transcript);
-    let app_keys = derive_app_keys(cs, &hs_keys.master_secret, &app_transcript_hash);
+    let app_keys = derive_app_keys(cs, &hs_keys.master_secret, &app_transcript_hash)?;
 
     read_client_finished(stream, cs, &hs_keys, &app_transcript_hash).await?;
 
@@ -150,7 +150,8 @@ async fn read_client_finished(
                     if hs_type == HS_FINISHED {
                         let body_start = 4;
                         let verify_data = &msg_bytes[body_start..];
-                        let expected = cs.hmac(&hs_keys.client_finished_key, app_transcript_hash);
+                        let expected =
+                            cs.hmac(&hs_keys.client_finished_key, app_transcript_hash)?;
                         if verify_data != expected.as_slice() {
                             return Err(ProxyError::Protocol(
                                 "client Finished HMAC mismatch".into(),
@@ -352,7 +353,7 @@ mod tests {
 
         let dhe = [1u8; 32];
         let th = [2u8; 32];
-        let hs = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th);
+        let hs = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th).unwrap();
         let ee = build_encrypted_extensions();
         let record = encrypt_app_record(
             CipherSuite::Aes128GcmSha256,
@@ -419,8 +420,8 @@ mod tests {
         transcript.extend_from_slice(&sh_body);
         let th = CipherSuite::Aes128GcmSha256.hash(&transcript);
         let dhe: [u8; 32] = dhe_c.try_into().unwrap();
-        let client_keys = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th);
-        let server_keys = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th);
+        let client_keys = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th).unwrap();
+        let server_keys = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th).unwrap();
         assert_eq!(client_keys.server_key, server_keys.server_key);
         assert_eq!(client_keys.client_key, server_keys.client_key);
     }

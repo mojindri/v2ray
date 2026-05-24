@@ -196,6 +196,7 @@ mod platform {
             let mut fds = [0; 2];
             // O_CLOEXEC prevents these internal pipe descriptors from leaking
             // into child processes if the proxy ever spawns one.
+            // SAFETY: `fds` is a valid two-element array; pipe2 writes both ends on success.
             let rc = unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) };
             if rc == -1 {
                 return Err(io::Error::last_os_error());
@@ -211,6 +212,7 @@ mod platform {
         fn drop(&mut self) {
             // Close both pipe ends when the relay direction exits. Ignoring
             // close errors is normal in Drop; there is no useful recovery path.
+            // SAFETY: we own these fds and must close them exactly once.
             unsafe {
                 libc::close(self.read_fd);
                 libc::close(self.write_fd);
