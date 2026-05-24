@@ -27,7 +27,7 @@ build: ## Build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
 
 build-linux-bin: build ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
 	@mkdir -p $(dir $(LINUX_BIN))
-	@cid=$$(docker create blackwire:latest); \
+	@cid=$$(docker create --platform $(DOCKER_PLATFORM) blackwire:latest); \
 	 docker cp "$$cid:/usr/local/bin/blackwire" "$(LINUX_BIN)"; \
 	 docker rm "$$cid" >/dev/null
 	@file "$(LINUX_BIN)"
