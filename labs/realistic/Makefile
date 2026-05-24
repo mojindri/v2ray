@@ -7,7 +7,10 @@ SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build docker-up stable xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
+.PHONY: help build docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
+	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
+	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
+	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
 
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
@@ -24,10 +27,25 @@ stable: ## Run the stable Rust integration matrix
 	@mkdir -p $(REPORTS)
 	cd $(ROOT) && cargo test -p integration-tests 2>&1 | tee labs/realistic/$(REPORTS)/stable-matrix.log
 
-xray: ## Run required live Xray REALITY interop
+interop-server-docker: build ## Server-compat: Xray/sing-box clients -> our server (Docker)
+	@mkdir -p $(REPORTS)/external-clients
+	@bash external-clients/scripts/run-docker-matrix.sh $(REPORTS)/external-clients configs/matrix.env
+	@bash external-clients/scripts/report.sh
+
+interop-client-reality: ## Client-compat: our Rust REALITY client -> live Xray-core (d1)
 	@mkdir -p $(REPORTS)
 	cd $(ROOT)/tests/interop && docker compose up -d nginx-fallback xray-server
-	cd $(ROOT) && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture 2>&1 | tee labs/realistic/$(REPORTS)/xray-reality.log
+	cd $(ROOT) && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture 2>&1 | tee labs/realistic/$(REPORTS)/interop-client-reality.log
+
+interop-docker: ## Both interop legs: server-compat + client-compat (Docker)
+	@echo "==> [interop-docker 1/2] server-compat (Xray/sing-box -> our server)"
+	$(MAKE) interop-server-docker
+	@echo "==> [interop-docker 2/2] client-compat (our Rust client -> Xray server)"
+	$(MAKE) interop-client-reality
+
+xray: ## Deprecated: use make interop-client-reality
+	@echo "Deprecated alias: use make interop-client-reality"
+	$(MAKE) interop-client-reality
 
 advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, health/failover, DNS/geo routing guards
 	@mkdir -p $(REPORTS)
@@ -86,7 +104,7 @@ report-summary: ## Build a compact summary from report logs
 
 realistic-all: docker-full advanced-features-smoke negative-auth restart-smoke stress report-summary ## Full local baseline + advanced-feature smoke tests
 
-docker-full: docker-up stable xray ## Run the full local realistic baseline
+docker-full: docker-up stable interop-docker ## Run stable matrix + full Docker interop (server + client legs)
 
 docker-down: ## Stop lab and interop containers
 	-docker compose -f docker-compose.yml down -v
@@ -111,11 +129,16 @@ vps-configs: ## Expand JSON templates locally using configs/matrix.env (requires
 	done
 	@echo "Expanded configs written to $(REPORTS)/generated-configs/"
 
-external-clients-docker: build ## Run Xray/sing-box clients against blackwire server in Docker
+external-clients-docker: build ## Atom: run external-client matrix only (prefer interop-server-docker)
 	@mkdir -p $(REPORTS)/external-clients
 	@bash external-clients/scripts/run-docker-matrix.sh $(REPORTS)/external-clients configs/matrix.env
 
-external-clients-vps: ## Run Xray/sing-box clients from CLIENT VPS against SERVER VPS blackwire inbounds
+interop-server-vps: ## Server-compat: Xray/sing-box clients -> our server (VPS)
+	@mkdir -p $(REPORTS)/external-clients-vps
+	@bash external-clients/scripts/run-vps-matrix.sh $(REPORTS)/external-clients-vps configs/matrix.env
+	@bash external-clients/scripts/report.sh
+
+external-clients-vps: ## Atom: run external-client matrix on VPS only (prefer interop-server-vps)
 	@mkdir -p $(REPORTS)/external-clients-vps
 	@bash external-clients/scripts/run-vps-matrix.sh $(REPORTS)/external-clients-vps configs/matrix.env
 
@@ -245,10 +268,10 @@ ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+
 	$(MAKE) negative-auth
 	@echo "=== [8/10] restart-smoke ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) restart-smoke
-	@echo "=== [9/10] Xray d0 self-interop ===" | tee -a $(REPORTS)/ci.log
+	@echo "=== [9/10] interop d0 self-consistency ===" | tee -a $(REPORTS)/ci.log
 	cd $(ROOT) && cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
-	@echo "=== [10/10] Xray d1 live interop ===" | tee -a $(REPORTS)/ci.log
-	$(MAKE) xray
+	@echo "=== [10/10] interop-docker (server + client legs) ===" | tee -a $(REPORTS)/ci.log
+	$(MAKE) interop-docker
 	$(MAKE) docker-down
 	$(MAKE) report-summary
 	@echo "" | tee -a $(REPORTS)/ci.log

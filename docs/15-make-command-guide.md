@@ -76,7 +76,8 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make verify-remo
 | Lima VM | `make verify-lab-lima` | browser TLS fingerprint |
 | Real VPS | `make verify-remote` | protocol matrix, TUN, netem |
 
-Lower-level lab atoms: `make -C labs/realistic docker-full`, `external-clients-docker`, `vps-test`, etc. See [make-target-inventory.md](make-target-inventory.md).
+Lower-level lab atoms: `make -C labs/realistic docker-full`, `interop-docker`,
+`interop-server-docker`, `vps-test`, etc. See [make-target-inventory.md](make-target-inventory.md).
 
 ## Compatibility Aliases
 
@@ -133,8 +134,11 @@ Full mapping: `make help-compat`.
 
 | Command | Purpose |
 | --- | --- |
-| `make -C labs/realistic external-clients-docker` | Run the scenarios listed in `external-clients/scenarios.env` in Docker |
-| `make -C labs/realistic external-clients-vps` | Run the same configured scenarios from the client VPS |
+| `make -C labs/realistic interop-docker` | Both interop legs (server + client) in Docker |
+| `make -C labs/realistic interop-server-docker` | Server-compat: Xray/sing-box → our server |
+| `make -C labs/realistic interop-client-reality` | Client-compat: our Rust client → Xray server |
+| `make -C labs/realistic interop-server-vps` | Server-compat on two VPS hosts |
+| `make -C labs/realistic external-clients-docker` | Atom: matrix only (prefer interop-server-docker) |
 | `make -C labs/realistic external-clients-report` | print summary |
 
 ### Cleanup

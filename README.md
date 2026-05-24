@@ -48,21 +48,25 @@ make verify-lab    # verify-lab-docker + verify-lab-lima
 
 ### What runs inside `verify-lab-docker`
 
-You normally do **not** need to run sub-steps separately:
+Interop is one block with **two legs** (you normally run `interop-docker`, not each leg):
 
-| Step (internal) | Client tested |
+| Leg | Target (debug only) | Direction | What it proves |
+| --- | --- | --- | --- |
+| **server-compat** | `interop-server-docker` | Xray/sing-box **client → your server** | Real apps can connect; scenarios from `external-clients/scenarios.env` |
+| **client-compat** | `interop-client-reality` | **Your Rust client → Xray server** | REALITY/TLS client implementation matches live Xray-core (d1) |
+
+Other internal steps:
+
+| Step | Purpose |
 | --- | --- |
 | `stable` | In-process Rust integration matrix |
-| `xray` | **Xray-core** REALITY d1 (live binary in Docker) |
-| `external-clients-docker` | The scenarios currently listed in `external-clients/scenarios.env` |
+| `interop-docker` | Both interop legs above |
 | `advanced-features-smoke` | ShadowTLS, mKCP, health, DNS guards |
 | `negative-auth` | Wrong creds rejected / REALITY fallback |
 
-Sub-steps exist for debugging only, e.g.
-`make -C labs/realistic xray` or `make -C labs/realistic external-clients-docker`.
+On VPS, `verify-remote` runs **`interop-server-vps`** (server-compat only — same scenarios over real network).
 
-On VPS, `verify-remote` also runs `external-clients-vps` for the same configured
-scenario set.
+Legacy aliases: `make xray` → `interop-client-reality`; `external-clients-docker` still works as an atom.
 
 Details: [tests/interop/README.md](tests/interop/README.md),
 [labs/realistic/external-clients/README.md](labs/realistic/external-clients/README.md).

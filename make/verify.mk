@@ -64,11 +64,8 @@ lab-docker-up:
 lab-docker-test: lab-docker-up
 	@echo "==> [lab-docker-test] stable integration matrix"
 	$(MAKE) -C $(LAB_DIR) stable
-	@echo "==> [lab-docker-test] Xray REALITY interop (d1)"
-	$(MAKE) -C $(LAB_DIR) xray
-	@echo "==> [lab-docker-test] external Xray/sing-box clients"
-	$(MAKE) -C $(LAB_DIR) external-clients-docker
-	$(MAKE) -C $(LAB_DIR) external-clients-report
+	@echo "==> [lab-docker-test] interop-docker (server-compat + client-compat)"
+	$(MAKE) -C $(LAB_DIR) interop-docker
 	@echo "==> [lab-docker-test] advanced features + negative-auth smoke"
 	$(MAKE) -C $(LAB_DIR) advanced-features-smoke
 	$(MAKE) -C $(LAB_DIR) negative-auth
@@ -131,11 +128,10 @@ remote-test-protocols:
 	$(MAKE) -C $(LAB_DIR) vps-test
 
 remote-test-fingerprint:
-	@echo "==> [remote-test-fingerprint] Xray/sing-box external clients (VPS)"
+	@echo "==> [remote-test-fingerprint] interop-server-vps (Xray/sing-box external clients)"
 	@test -n "$${SSH_SERVER:-}" || (echo "ERROR: SSH_SERVER required"; exit 1)
 	@test -n "$${SSH_CLIENT:-}" || (echo "ERROR: SSH_CLIENT required"; exit 1)
-	$(MAKE) -C $(LAB_DIR) external-clients-vps
-	$(MAKE) -C $(LAB_DIR) external-clients-report
+	$(MAKE) -C $(LAB_DIR) interop-server-vps
 
 remote-test-fallback:
 	@echo "==> [remote-test-fallback] TUN privileged tests on SERVER VPS (sudo)"

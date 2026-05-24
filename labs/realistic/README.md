@@ -84,21 +84,22 @@ Clean up:
 make -C labs/realistic docker-down
 ```
 
-## External Client Compatibility
+## External client compatibility (interop server-compat)
 
-The external-client lab checks the scenarios currently configured under
-`external-clients/scenarios.env` against a `blackwire` server inbound. This is
-different from `vps-test`, which checks `blackwire` client to `blackwire` server.
+The external-client lab is the **server-compat** leg of interop: scenarios in
+`external-clients/scenarios.env` run against a `blackwire` server inbound. This
+is different from `vps-test`, which checks `blackwire` client → `blackwire` server.
 
 ```sh
-make -C labs/realistic external-clients-docker
-make -C labs/realistic external-clients-report
+make -C labs/realistic interop-server-docker
+# or both interop legs:
+make -C labs/realistic interop-docker
 ```
 
-After Docker passes, promote the same external-client check to the two-VPS lab:
+Promote to VPS:
 
 ```sh
-SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_hetzner make -C labs/realistic external-clients-vps
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make -C labs/realistic interop-server-vps
 ```
 
 Generated configs and Hiddify import artifacts are written under

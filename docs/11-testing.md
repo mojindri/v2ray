@@ -11,13 +11,14 @@ This document is the single reference for running every test tier in this projec
 | 1. Unit tests | Per-crate logic | ~5s | Rust toolchain |
 | 2. Integration tests | End-to-end protocol matrix | ~30s | Rust toolchain |
 | 3. Production readiness | Config validation, guard checks | ~10s | Rust toolchain |
-| 4. Docker baseline | Full matrix + Xray REALITY interop | ~3 min | Docker |
+| 4. Docker baseline | Stable matrix + interop-docker (server + client legs) | ~5 min | Docker |
 | 5. Advanced features smoke | ShadowTLS, mKCP, health, geo/FakeIP guards | ~30s | Rust toolchain |
 | 6. Stress loop | Flakiness detection on high-signal tests | ~2 min | Rust toolchain |
-| 7. Xray d0 self-interop | REALITY token + TLS self-consistency | ~5s | Rust toolchain |
-| 8. Xray d1 live interop | REALITY against real xray-core binary | ~30s | Docker |
-| 9. VPS matrix | All protocols over real public network | ~5 min | Two Ubuntu 24.04 VPS |
-| 10. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
+| 7. Interop d0 self-consistency | REALITY token + TLS self-consistency (Rust only) | ~5s | Rust toolchain |
+| 8. Interop server-compat | Xray/sing-box clients → our server | ~5 min | Docker |
+| 9. Interop client-compat | Our Rust client → Xray REALITY server (d1) | ~30s | Docker |
+| 10. VPS matrix | All protocols over real public network | ~5 min | Two Ubuntu 24.04 VPS |
+| 11. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
 
 ## Where You Run Things
 
@@ -34,14 +35,9 @@ Use this split:
 | `cargo test -p integration-tests` | local checkout | local machine | no |
 | production-readiness tests | local checkout | local machine | no |
 | `make -C labs/realistic docker-full` | local checkout | local machine + Docker | no |
-| `make -C labs/realistic external-clients-docker` | local checkout | local machine + Docker | no |
-| `make -C labs/realistic advanced-features-smoke` | local checkout | local machine | no |
-| `make -C labs/realistic stress` | local checkout | local machine | no |
-| `cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture` | local checkout | local machine | no |
-| `make -C labs/realistic xray` | local checkout | local machine + Docker | no |
-| `make verify-local` | local checkout | local machine | no |
-| `make verify-lab-docker` | local checkout | local machine + Docker | no |
-| `make -C labs/realistic external-clients-docker` | local checkout | local machine + Docker | no |
+| `make -C labs/realistic interop-docker` | local checkout | local machine + Docker | no |
+| `make -C labs/realistic interop-server-docker` | local checkout | local machine + Docker | no |
+| `make -C labs/realistic interop-client-reality` | local checkout | local machine + Docker | no |
 | `make verify-lab-lima` | local checkout | local machine + Lima VM | no |
 | `make perf` | local checkout | Lima VM | no |
 | `make verify-remote` | local checkout | local machine + remote VPS over SSH | yes |
@@ -49,7 +45,7 @@ Use this split:
 | `make -C labs/realistic vps-server-setup` | local checkout | server VPS over SSH | yes |
 | `make -C labs/realistic vps-client-setup` | local checkout | client VPS over SSH | yes |
 | `make -C labs/realistic vps-test` | local checkout | client VPS over SSH | yes |
-| `make -C labs/realistic external-clients-vps` | local checkout | both VPS machines over SSH | yes |
+| `make -C labs/realistic interop-server-vps` | local checkout | both VPS machines over SSH | yes |
 | `make -C labs/realistic vps-tun` | local checkout | server VPS over SSH | yes |
 
 Important:
@@ -201,25 +197,28 @@ What it proves:
 
 ---
 
-## Tier 8 — Xray d1 live interop
+## Tier 7 — Interop server-compat
 
-Tests our REALITY client against a real `xray-core` binary running in Docker. This is the actual compatibility gate.
+Xray/sing-box **clients** connect to **your server** (scenarios in `external-clients/scenarios.env`).
 
 ```sh
-# Start Xray and nginx fallback
-cd tests/interop && docker compose up -d nginx-fallback xray-server && cd ../..
-
-# Run the live tests
-cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture
-
-# Tear down
-cd tests/interop && docker compose down -v
+make -C labs/realistic interop-server-docker
 ```
 
-Or via the Makefile shortcut:
+Or both interop legs together:
 
 ```sh
-make -C labs/realistic xray
+make -C labs/realistic interop-docker
+```
+
+---
+
+## Tier 8 — Interop client-compat (REALITY d1)
+
+Your Rust REALITY **client** connects to a live **Xray-core server** in Docker.
+
+```sh
+make -C labs/realistic interop-client-reality
 ```
 
 What it proves:
@@ -228,6 +227,8 @@ What it proves:
 - TLS 1.3 handshake completes the way Xray expects (including `secp256r1` / `x25519` dual offer).
 - Wrong short IDs and wrong SNI go to fallback, not error.
 - Bare active-probe ClientHello does not trigger a TCP reset.
+
+Legacy alias: `make -C labs/realistic xray`.
 
 See [tests/interop/README.md](../tests/interop/README.md) for the full protocol notes.
 
@@ -436,12 +437,13 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 \
 | Tier | What a green run means |
 |------|----------------------|
 | 1–3 | Code is internally consistent and config validation works |
-| 4 | Stable protocol matrix passes in a repeatable Docker environment |
+| 4 | Stable matrix + full Docker interop (server + client legs) |
 | 5 | Advanced features (ShadowTLS, mKCP, health, DNS/routing) pass smoke tests |
 | 6 | No timing-sensitive flakiness in the data plane |
-| 7 | REALITY implementation is self-consistent |
-| 8 | REALITY interoperates with real xray-core |
-| 9 | All protocols work over a real public network with real TLS certs |
-| 10 | TUN device, iptables routing, and UDP NAT work on real Linux |
+| 7 | REALITY implementation is self-consistent (d0) |
+| 8 | Xray/sing-box clients can use our server (configured scenarios) |
+| 9 | Our REALITY client interoperates with live xray-core (d1) |
+| 10 | All protocols work over a real public network with real TLS certs |
+| 11 | TUN device, iptables routing, and UDP NAT work on real Linux |
 
-Tiers 1–8 are the mandatory green gate before any merge to main. Tiers 9–10 are required before a protocol or subsystem is marked production-ready.
+Tiers 1–9 are the mandatory green gate before any merge to main. Tiers 10–11 are required before a protocol or subsystem is marked production-ready.
