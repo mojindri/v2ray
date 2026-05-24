@@ -15,7 +15,7 @@
 .PHONY: all build dev test check check-browser check-vps perf perf-vps perf-all \
 	fmt fmt-check lint audit deny update-geoip fuzz-build fuzz-smoke \
 	ci ci-all ci-prod-readiness ci-vps clean clean-generated clean-all-generated \
-	help help-internal test-help quick-help help-simple
+	help help-internal test-help quick-help help-simple lima-stop
 
 # Default target: build in release mode.
 all: build
@@ -111,6 +111,7 @@ help:
 	@echo "  make check-browser  - browser/TLS fingerprint validation in Lima Ubuntu VM"
 	@echo "  make check-vps      - closest production-style validation on two VPS machines"
 	@echo "  make perf           - performance benchmark in Lima VM"
+	@echo "  make lima-stop      - stop the default Lima VM instance"
 	@echo "  make clean-generated - remove generated reports/logs/pcaps/bench outputs"
 	@echo ""
 	@echo "Useful basics:"
@@ -259,6 +260,7 @@ test-help: ## Show compact command help.
 	@echo "  make check-browser      - isolated Lima browser/fingerprint validation"
 	@echo "  make check-vps          - local gates plus VPS SSH/network validation"
 	@echo "  make perf               - full Lima VM performance benchmark"
+	@echo "  make lima-stop          - stop the default Lima VM instance"
 	@echo ""
 	@echo "Compatibility aliases still available:"
 	@echo "  make check-all-local    - local suite plus Lima browser/fingerprint validation"
@@ -442,7 +444,7 @@ vm-print-defaults: ## Print VM defaults loaded from .env.vm and environment.
 
 
 
-.PHONY: lima-browser-baseline lima-fingerprint-total local-total-with-lima
+.PHONY: lima-browser-baseline lima-fingerprint-total local-total-with-lima lima-stop
 
 lima-browser-baseline:
 	$(MAKE) -C labs/realistic lima-browser-baseline
@@ -451,3 +453,12 @@ lima-fingerprint-total:
 	$(MAKE) -C labs/realistic lima-fingerprint-total
 
 local-total-with-lima: local-total lima-fingerprint-total ## Run local-total, then fully automated Lima browser fingerprint check.
+
+lima-stop: ## Stop the default Lima VM instance. Override with LIMA_INSTANCE=<name>.
+	@INSTANCE="$${LIMA_INSTANCE:-proxy-rs-browser}"; \
+	if ! command -v limactl >/dev/null 2>&1; then \
+		echo "ERROR: limactl not found."; \
+		exit 1; \
+	fi; \
+	echo "Stopping Lima VM: $$INSTANCE"; \
+	limactl stop "$$INSTANCE"

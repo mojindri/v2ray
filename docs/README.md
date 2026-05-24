@@ -43,6 +43,8 @@ Third-wave practical docs:
    How to run every test tier: unit, integration, Docker, Xray interop, VPS matrix, TUN privileged.
 13. [15-make-command-guide.md](15-make-command-guide.md)
    Command-oriented map for the top-level Make targets and when to use each one.
+14. [16-environment-cheatsheet.md](16-environment-cheatsheet.md)
+   One-page separation of local, Docker, Lima VM, real VPS, and direct-on-VPS debugging commands.
 
 Example-driven learning:
 
