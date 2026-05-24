@@ -24,6 +24,7 @@
 use std::sync::Arc;
 
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::version::TLS13;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
@@ -108,6 +109,25 @@ pub async fn tls_accept(
     Ok(Box::new(tls_stream))
 }
 
+/// TLS 1.3 server handshake for REALITY (ed25519 temporary certificate).
+pub async fn tls_accept_tls13(
+    stream: BoxedStream,
+    cert_pem: &str,
+    key_pem: &str,
+    alpn: &[&str],
+) -> Result<BoxedStream, ProxyError> {
+    crate::quic::ensure_crypto_provider();
+    let config = build_tls13_server_config(cert_pem, key_pem, alpn)?;
+    let acceptor = TlsAcceptor::from(Arc::new(config));
+
+    let tls_stream = acceptor
+        .accept(stream)
+        .await
+        .map_err(|e| ProxyError::Tls(format!("TLS accept failed: {e}")))?;
+
+    Ok(Box::new(tls_stream))
+}
+
 /// Build a rustls `ServerConfig` from PEM strings.
 ///
 /// This is `pub` so that the `instance.rs` wiring can pre-build the config
@@ -124,6 +144,23 @@ pub fn build_server_config(
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| ProxyError::Tls(format!("TLS server config error: {e}")))?;
+
+    config.alpn_protocols = alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
+    Ok(config)
+}
+
+fn build_tls13_server_config(
+    cert_pem: &str,
+    key_pem: &str,
+    alpn: &[&str],
+) -> Result<ServerConfig, ProxyError> {
+    let certs = parse_certs(cert_pem)?;
+    let key = parse_private_key(key_pem)?;
+
+    let mut config = ServerConfig::builder_with_protocol_versions(&[&TLS13])
+        .with_no_client_auth()
+        .with_single_cert(certs, key)
+        .map_err(|e| ProxyError::Tls(format!("TLS 1.3 server config error: {e}")))?;
 
     config.alpn_protocols = alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
     Ok(config)

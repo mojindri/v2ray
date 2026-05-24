@@ -111,6 +111,11 @@ fn parse_sni(ext_data: &[u8]) -> String {
     String::from_utf8_lossy(&ext_data[5..5 + name_len]).into_owned()
 }
 
+/// TLS named group: X25519 (0x001d = 29).
+const GROUP_X25519: u16 = 29;
+/// TLS named group: X25519MLKEM768 (draft). Chrome / sing-box may offer this first.
+const GROUP_X25519_MLKEM768: u16 = 0x11ec;
+
 fn parse_x25519_key_share(ext_data: &[u8]) -> Option<[u8; 32]> {
     // key_share body: client_shares_len(2) + [group(2) + key_len(2) + key_bytes]*.
     if ext_data.len() < 2 {
@@ -119,6 +124,7 @@ fn parse_x25519_key_share(ext_data: &[u8]) -> Option<[u8; 32]> {
 
     let shares_len = u16::from_be_bytes([ext_data[0], ext_data[1]]) as usize;
     let mut pos = 2;
+    let mut fallback: Option<[u8; 32]> = None;
     while pos + 4 <= 2 + shares_len && pos + 4 <= ext_data.len() {
         let group = u16::from_be_bytes([ext_data[pos], ext_data[pos + 1]]);
         let key_len = u16::from_be_bytes([ext_data[pos + 2], ext_data[pos + 3]]) as usize;
@@ -127,15 +133,21 @@ fn parse_x25519_key_share(ext_data: &[u8]) -> Option<[u8; 32]> {
         if pos + key_len > ext_data.len() {
             break;
         }
-        if group == 29 && key_len == 32 {
+        if group == GROUP_X25519 && key_len == 32 {
             let mut key = [0u8; 32];
             key.copy_from_slice(&ext_data[pos..pos + 32]);
             return Some(key);
         }
+        // Xray extracts the trailing 32 bytes from the hybrid MLKEM768 share.
+        if group == GROUP_X25519_MLKEM768 && key_len >= 32 {
+            let mut key = [0u8; 32];
+            key.copy_from_slice(&ext_data[pos + key_len - 32..pos + key_len]);
+            fallback = Some(key);
+        }
         pos += key_len;
     }
 
-    None
+    fallback
 }
 
 #[cfg(test)]

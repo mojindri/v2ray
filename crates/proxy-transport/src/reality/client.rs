@@ -2,7 +2,7 @@ use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use aes_gcm::aead::{Aead, KeyInit, Payload};
-use aes_gcm::{Aes128Gcm, Key, Nonce};
+use aes_gcm::{Aes256Gcm, Key, Nonce};
 use anyhow::Result;
 use hkdf::Hkdf;
 use p256::ecdh::EphemeralSecret as P256EphemeralSecret;
@@ -19,7 +19,7 @@ use proxy_tls::ClientHelloBuilder;
 
 use super::{
     tls13::{complete_tls13_handshake, Tls13Stream},
-    REALITY_HKDF_INFO, REALITY_TOKEN_VERSION, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY,
+    REALITY_HKDF_INFO, REALITY_TOKEN_PLAINTEXT_LEN, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY,
 };
 
 /// REALITY client configuration read from the outbound config.
@@ -179,15 +179,14 @@ fn encrypt_reality_token(
         .unwrap_or_default()
         .as_secs() as u32;
 
-    let mut plaintext = [0u8; 16];
-    plaintext[0] = REALITY_TOKEN_VERSION;
-    plaintext[2..6].copy_from_slice(&ts.to_be_bytes());
-
-    // The short ID field is fixed at 8 bytes. Shorter IDs are zero-padded.
+    // Layout matches Xray-core / sing-box (xtls/reality): 4-byte client version,
+    // 4-byte big-endian Unix timestamp, 8-byte short ID (zero-padded).
+    let mut plaintext = [0u8; REALITY_TOKEN_PLAINTEXT_LEN];
+    plaintext[4..8].copy_from_slice(&ts.to_be_bytes());
     let sid_len = short_id.len().min(8);
-    plaintext[6..6 + sid_len].copy_from_slice(&short_id[..sid_len]);
+    plaintext[8..8 + sid_len].copy_from_slice(&short_id[..sid_len]);
 
-    let cipher = Aes128Gcm::new(Key::<Aes128Gcm>::from_slice(&auth_key[..16]));
+    let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(auth_key));
     let nonce = Nonce::from_slice(&random[20..32]);
     let output = cipher
         .encrypt(

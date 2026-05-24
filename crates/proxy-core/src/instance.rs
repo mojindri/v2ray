@@ -290,7 +290,18 @@ impl Instance {
                 // REALITY: unwrap REALITY TLS camouflage first.
                 let reality = build_reality_server(in_cfg)
                     .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                RealityConnectionHandler::new(reality, Arc::clone(&handler), dispatcher_for_handler)
+                let cover_sni = in_cfg
+                    .stream_settings
+                    .as_ref()
+                    .and_then(|s| s.reality_settings.as_ref())
+                    .map(|r| r.server_name.as_str())
+                    .unwrap_or("localhost");
+                RealityConnectionHandler::new(
+                    reality,
+                    cover_sni,
+                    Arc::clone(&handler),
+                    dispatcher_for_handler,
+                )
                     .with_context(|| {
                         format!(
                             "building REALITY connection handler for inbound '{}'",
