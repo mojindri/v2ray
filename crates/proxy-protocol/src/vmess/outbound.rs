@@ -22,8 +22,7 @@ use proxy_app::features::OutboundHandler;
 use proxy_common::{Address, BoxedStream, ProxyError};
 
 use super::auth::{cmd_key, generate_auth_id};
-use super::codec::{encode_header, Security};
-use super::kdf::kdf;
+use super::codec::{encode_header, read_response_header, response_body_iv, response_body_key, Security};
 use super::stream::VmessStream;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -89,7 +88,7 @@ pub async fn connect_vmess_on_stream(
     let auth_id = generate_auth_id(cmd_key_bytes);
 
     // Build the encrypted header.
-    let (iv, key, _v, connection_nonce, encrypted_len, header_ct) =
+    let (iv, key, v, connection_nonce, encrypted_len, header_ct) =
         encode_header(cmd_key_bytes, &auth_id, dest, Security::Aes128Gcm);
 
     // Wire: auth_id(16) || enc_len(18) || connection_nonce(8) || header_ciphertext
@@ -99,46 +98,28 @@ pub async fn connect_vmess_on_stream(
     stream.write_all(&header_ct).await?;
     stream.flush().await?;
 
-    // Wrap in AEAD chunk framing.
-    let wrapped: BoxedStream = Box::new(VmessStream::new(stream, &key, &iv));
+    let resp_key = response_body_key(&key);
+    let resp_iv = response_body_iv(&iv);
+    read_response_header(&mut stream, v, &resp_key, &resp_iv).await?;
+
+    // Wrap in VMess body framing.
+    let wrapped: BoxedStream = Box::new(VmessStream::new_bidir(
+        stream,
+        &resp_key,
+        &resp_iv,
+        &key,
+        &iv,
+        Security::Aes128Gcm,
+        0,
+    ));
 
     let _ = uuid; // uuid is only used to derive cmd_key
     Ok(wrapped)
 }
 
-/// Encrypt the 2-byte header length field.
-fn encrypt_length_field(
-    cmd_key: &[u8; 16],
-    auth_id: &[u8; 16],
-    len: u16,
-) -> Result<Vec<u8>, ProxyError> {
-    use super::codec::{PATH_HDR_IV, PATH_HDR_KEY};
-    use aes_gcm::{
-        aead::{generic_array::GenericArray, Aead, Payload},
-        Aes128Gcm, KeyInit,
-    };
-
-    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id]);
-    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id]);
-
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
-    let nonce = GenericArray::from_slice(&enc_nonce);
-
-    cipher
-        .encrypt(
-            nonce,
-            Payload {
-                msg: &len.to_be_bytes(),
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: length field encryption failed".into()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::super::auth::cmd_key;
-    use super::*;
 
     fn test_uuid() -> [u8; 16] {
         *uuid::Uuid::parse_str("a3482e88-686a-4a58-8126-99c9df64b7bf")
@@ -147,19 +128,9 @@ mod tests {
     }
 
     #[test]
-    fn encrypt_decrypt_length_field_roundtrip() {
+    fn command_key_is_derived_from_uuid() {
         let uuid = test_uuid();
         let key = cmd_key(&uuid);
-        let auth_id = super::super::auth::generate_auth_id(&key);
-        let len: u16 = 0x0180;
-
-        let enc = encrypt_length_field(&key, &auth_id, len).unwrap();
-        assert_eq!(enc.len(), 18); // 2 + 16 GCM tag
-
-        // Decrypt via inbound helper.
-        use super::super::inbound::decrypt_length_field;
-        let decrypted =
-            decrypt_length_field(&key, &auth_id, enc.as_slice().try_into().unwrap()).unwrap();
-        assert_eq!(decrypted, len as usize);
+        assert_ne!(key, uuid);
     }
 }

@@ -1,11 +1,12 @@
-//! VMess data channel stream — AEAD-encrypted chunked framing.
+//! VMess data channel stream — VMess chunked body framing.
 //!
 //! Chunk wire format (each direction independently):
 //! ```text
-//! enc_length(18) | enc_data(data_len + 16)
+//! size(2) | encrypted_or_plain_payload(size)
 //! ```
-//! Per-chunk nonce: `counter_be_u16(2) || iv[2..12](10)` — 12 bytes total.
-//! Counter increments once per field (length uses N, data uses N+1).
+//! Size is either plain big-endian or SHAKE-masked when ChunkMasking is set.
+//! AEAD payload nonces use `counter_be_u16 || iv[2..12]` and increment once
+//! per payload, matching Xray's VMess body reader/writer.
 
 use std::io;
 use std::pin::Pin;
@@ -16,17 +17,108 @@ use aes_gcm::{
     Aes128Gcm, KeyInit,
 };
 use bytes::{Bytes, BytesMut};
+use chacha20poly1305::ChaCha20Poly1305;
+use md5::{Digest as Md5Digest, Md5};
+use rand::RngCore;
+use sha3_010::{
+    digest::{ExtendableOutput, Update, XofReader},
+    Shake128,
+};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use proxy_common::BoxedStream;
 
+use super::codec::Security;
+
 const MAX_CHUNK_SIZE: usize = 16 * 1024;
+pub const REQUEST_OPTION_CHUNK_MASKING: u8 = 0x04;
+pub const REQUEST_OPTION_GLOBAL_PADDING: u8 = 0x08;
 
 fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {
     let mut nonce = [0u8; 12];
     nonce[0..2].copy_from_slice(&counter.to_be_bytes());
     nonce[2..12].copy_from_slice(&iv[2..12]);
     nonce
+}
+
+enum BodyCipher {
+    Aes128Gcm(Aes128Gcm),
+    ChaCha20Poly1305(Box<ChaCha20Poly1305>),
+    None,
+}
+
+impl BodyCipher {
+    fn new(security: Security, key: &[u8; 16]) -> Self {
+        match security {
+            Security::Aes128Gcm => Self::Aes128Gcm(Aes128Gcm::new(GenericArray::from_slice(key))),
+            Security::ChaCha20Poly1305 => {
+                Self::ChaCha20Poly1305(Box::new(ChaCha20Poly1305::new(GenericArray::from_slice(
+                    &chacha_key(key),
+                ))))
+            }
+            Security::None => Self::None,
+        }
+    }
+
+    fn overhead(&self) -> usize {
+        match self {
+            Self::Aes128Gcm(_) | Self::ChaCha20Poly1305(_) => 16,
+            Self::None => 0,
+        }
+    }
+
+    fn encrypt(&self, nonce: &[u8; 12], data: &[u8]) -> Result<Vec<u8>, ()> {
+        match self {
+            Self::Aes128Gcm(cipher) => cipher
+                .encrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .map_err(|_| ()),
+            Self::ChaCha20Poly1305(cipher) => cipher
+                .encrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .map_err(|_| ()),
+            Self::None => Ok(data.to_vec()),
+        }
+    }
+
+    fn decrypt(&self, nonce: &[u8; 12], data: &[u8]) -> Result<Vec<u8>, ()> {
+        match self {
+            Self::Aes128Gcm(cipher) => cipher
+                .decrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .map_err(|_| ()),
+            Self::ChaCha20Poly1305(cipher) => cipher
+                .decrypt(GenericArray::from_slice(nonce), Payload { msg: data, aad: &[] })
+                .map_err(|_| ()),
+            Self::None => Ok(data.to_vec()),
+        }
+    }
+}
+
+fn chacha_key(key: &[u8; 16]) -> [u8; 32] {
+    let first = Md5::digest(key);
+    let second = Md5::digest(first);
+    let mut out = [0u8; 32];
+    out[..16].copy_from_slice(&first);
+    out[16..].copy_from_slice(&second);
+    out
+}
+
+struct SizeMask {
+    reader: Box<dyn XofReader + Send + Sync>,
+}
+
+impl SizeMask {
+    fn new(iv: &[u8; 16]) -> Self {
+        let mut shake = Shake128::default();
+        shake.update(iv);
+        Self {
+            reader: Box::new(shake.finalize_xof()),
+        }
+    }
+
+    fn next(&mut self) -> u16 {
+        let mut buf = [0u8; 2];
+        self.reader.read(&mut buf);
+        u16::from_be_bytes(buf)
+    }
 }
 
 /// VMess AEAD chunk stream with independent read and write ciphers.
@@ -36,22 +128,26 @@ fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {
 pub struct VmessStream {
     inner: BoxedStream,
 
-    read_cipher: Aes128Gcm,
+    read_cipher: BodyCipher,
     read_iv: [u8; 16],
     read_counter: u16,
+    read_size_mask: Option<SizeMask>,
+    read_global_padding: bool,
     read_buf: BytesMut,
     read_raw_buf: BytesMut,
 
-    write_cipher: Aes128Gcm,
+    write_cipher: BodyCipher,
     write_iv: [u8; 16],
     write_counter: u16,
+    write_size_mask: Option<SizeMask>,
+    write_global_padding: bool,
     write_buf: BytesMut,
 }
 
 impl VmessStream {
     /// Same key/iv for both directions (internal proxy-rs use).
     pub fn new(inner: BoxedStream, key: &[u8; 16], iv: &[u8; 16]) -> Self {
-        Self::new_bidir(inner, key, iv, key, iv)
+        Self::new_bidir(inner, key, iv, key, iv, Security::Aes128Gcm, 0)
     }
 
     /// Separate keys for each direction.
@@ -64,60 +160,103 @@ impl VmessStream {
         read_iv: &[u8; 16],
         write_key: &[u8; 16],
         write_iv: &[u8; 16],
+        security: Security,
+        options: u8,
     ) -> Self {
+        let chunk_masking = options & REQUEST_OPTION_CHUNK_MASKING != 0;
         Self {
             inner,
-            read_cipher: Aes128Gcm::new(GenericArray::from_slice(read_key)),
+            read_cipher: BodyCipher::new(security, read_key),
             read_iv: *read_iv,
             read_counter: 0,
+            read_size_mask: chunk_masking.then(|| SizeMask::new(read_iv)),
+            read_global_padding: options & REQUEST_OPTION_GLOBAL_PADDING != 0,
             read_buf: BytesMut::new(),
             read_raw_buf: BytesMut::new(),
-            write_cipher: Aes128Gcm::new(GenericArray::from_slice(write_key)),
+            write_cipher: BodyCipher::new(security, write_key),
             write_iv: *write_iv,
             write_counter: 0,
+            write_size_mask: chunk_masking.then(|| SizeMask::new(write_iv)),
+            write_global_padding: options & REQUEST_OPTION_GLOBAL_PADDING != 0,
             write_buf: BytesMut::new(),
         }
     }
 
+    fn next_read_padding_len(&mut self) -> usize {
+        if !self.read_global_padding {
+            return 0;
+        }
+        self.read_size_mask
+            .as_mut()
+            .map(|mask| (mask.next() % 64) as usize)
+            .unwrap_or(0)
+    }
+
+    fn next_write_padding_len(&mut self) -> usize {
+        if !self.write_global_padding {
+            return 0;
+        }
+        self.write_size_mask
+            .as_mut()
+            .map(|mask| (mask.next() % 64) as usize)
+            .unwrap_or(0)
+    }
+
+    fn decode_size(&mut self, bytes: [u8; 2]) -> usize {
+        let encoded = u16::from_be_bytes(bytes);
+        let decoded = match &mut self.read_size_mask {
+            Some(mask) => encoded ^ mask.next(),
+            None => encoded,
+        };
+        decoded as usize
+    }
+
+    fn encode_size(&mut self, size: usize) -> [u8; 2] {
+        let mut encoded = size as u16;
+        if let Some(mask) = &mut self.write_size_mask {
+            encoded ^= mask.next();
+        }
+        encoded.to_be_bytes()
+    }
+
     fn try_decrypt_chunk(&mut self, src: &mut BytesMut) -> Option<Result<Bytes, io::Error>> {
-        if src.len() < 18 {
+        if src.len() < 2 {
             return None;
         }
 
-        let nonce_arr = chunk_nonce(self.read_counter, &self.read_iv);
-        let nonce = GenericArray::from_slice(&nonce_arr);
+        let encoded_size = [src[0], src[1]];
+        let padding_len = self.next_read_padding_len();
+        let size = self.decode_size(encoded_size);
+        let overhead = self.read_cipher.overhead();
 
-        let len_pt = self.read_cipher.decrypt(nonce, src[..18].as_ref()).ok()?;
-        if len_pt.len() < 2 {
-            return None;
-        }
-        let data_len = u16::from_be_bytes([len_pt[0], len_pt[1]]) as usize;
-
-        if data_len == 0 {
-            let _ = src.split_to(18);
-            self.read_counter = self.read_counter.wrapping_add(1);
+        if size == overhead + padding_len {
+            let _ = src.split_to(2);
+            if padding_len > 0 && src.len() >= padding_len {
+                let _ = src.split_to(padding_len);
+            }
             return Some(Ok(Bytes::new()));
         }
 
-        let total = 18 + data_len + 16;
+        if size < overhead + padding_len {
+            return Some(Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "VMess: body chunk size smaller than authentication tag",
+            )));
+        }
+
+        let total = 2 + size;
         if src.len() < total {
             return None;
         }
 
-        let _ = src.split_to(18);
-        self.read_counter = self.read_counter.wrapping_add(1);
+        let _ = src.split_to(2);
+        let data_ct = src.split_to(size - padding_len);
+        if padding_len > 0 {
+            let _ = src.split_to(padding_len);
+        }
+        let data_nonce = chunk_nonce(self.read_counter, &self.read_iv);
 
-        let data_ct = src.split_to(data_len + 16);
-        let data_nonce_arr = chunk_nonce(self.read_counter, &self.read_iv);
-        let data_nonce = GenericArray::from_slice(&data_nonce_arr);
-
-        let plaintext = match self.read_cipher.decrypt(
-            data_nonce,
-            Payload {
-                msg: &data_ct,
-                aad: &[],
-            },
-        ) {
+        let plaintext = match self.read_cipher.decrypt(&data_nonce, &data_ct) {
             Ok(pt) => pt,
             Err(_) => {
                 return Some(Err(io::Error::new(
@@ -133,26 +272,22 @@ impl VmessStream {
 
     fn encrypt_chunk(&mut self, data: &[u8]) -> Vec<u8> {
         let nonce_arr = chunk_nonce(self.write_counter, &self.write_iv);
-        let nonce = GenericArray::from_slice(&nonce_arr);
-
-        let data_len = data.len() as u16;
-        let len_ct = self
-            .write_cipher
-            .encrypt(nonce, data_len.to_be_bytes().as_slice())
-            .expect("AES-128-GCM encrypt must not fail");
-        self.write_counter = self.write_counter.wrapping_add(1);
-
-        let data_nonce_arr = chunk_nonce(self.write_counter, &self.write_iv);
-        let data_nonce = GenericArray::from_slice(&data_nonce_arr);
         let data_ct = self
             .write_cipher
-            .encrypt(data_nonce, data)
-            .expect("AES-128-GCM encrypt must not fail");
+            .encrypt(&nonce_arr, data)
+            .expect("VMess body encrypt must not fail");
         self.write_counter = self.write_counter.wrapping_add(1);
 
-        let mut out = Vec::with_capacity(len_ct.len() + data_ct.len());
-        out.extend_from_slice(&len_ct);
+        let padding_len = self.next_write_padding_len();
+        let size = self.encode_size(data_ct.len() + padding_len);
+        let mut out = Vec::with_capacity(size.len() + data_ct.len() + padding_len);
+        out.extend_from_slice(&size);
         out.extend_from_slice(&data_ct);
+        if padding_len > 0 {
+            let start = out.len();
+            out.resize(start + padding_len, 0);
+            rand::thread_rng().fill_bytes(&mut out[start..]);
+        }
         out
     }
 }
@@ -276,15 +411,29 @@ mod tests {
 
         // Client writes with req_key, reads with resp_key
         let handle = tokio::spawn(async move {
-            let mut client =
-                VmessStream::new_bidir(Box::new(client_half), &resp_key, &resp_iv, &req_key, &req_iv);
+            let mut client = VmessStream::new_bidir(
+                Box::new(client_half),
+                &resp_key,
+                &resp_iv,
+                &req_key,
+                &req_iv,
+                Security::Aes128Gcm,
+                0,
+            );
             client.write_all(payload).await.unwrap();
             client.flush().await.unwrap();
         });
 
         // Server reads with req_key
-        let mut server =
-            VmessStream::new_bidir(Box::new(server_half), &req_key, &req_iv, &resp_key, &resp_iv);
+        let mut server = VmessStream::new_bidir(
+            Box::new(server_half),
+            &req_key,
+            &req_iv,
+            &resp_key,
+            &resp_iv,
+            Security::Aes128Gcm,
+            0,
+        );
         let mut out = vec![0u8; payload.len()];
         server.read_exact(&mut out).await.unwrap();
         handle.await.unwrap();

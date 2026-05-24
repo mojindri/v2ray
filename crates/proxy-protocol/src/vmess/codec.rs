@@ -67,6 +67,7 @@ pub enum Security {
     #[default]
     Aes128Gcm = 0x03,
     ChaCha20Poly1305 = 0x04,
+    None = 0x05,
 }
 
 impl TryFrom<u8> for Security {
@@ -76,6 +77,7 @@ impl TryFrom<u8> for Security {
         match v {
             0x03 => Ok(Self::Aes128Gcm),
             0x04 => Ok(Self::ChaCha20Poly1305),
+            0x05 => Ok(Self::None),
             other => Err(ProxyError::Protocol(format!(
                 "VMess: unknown security byte {other:#x}"
             ))),
@@ -97,6 +99,7 @@ pub struct VmessRequest {
     pub iv: [u8; 16],
     pub key: [u8; 16],
     pub v: u8,
+    pub options: u8,
     pub security: Security,
     pub dest: Address,
 }
@@ -245,11 +248,12 @@ pub async fn send_response_header<W: AsyncWrite + Unpin>(
     writer: &mut W,
     v: u8,
     resp_body_key: &[u8; 16],
+    resp_body_iv: &[u8; 16],
 ) -> Result<(), ProxyError> {
-    let plaintext = [v, 0u8]; // v || command=0
+    let plaintext = [v, 0u8, 0u8, 0u8];
 
     let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
-    let len_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_LEN_IV]);
+    let len_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_LEN_IV]);
 
     let enc_len = {
         let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
@@ -265,7 +269,7 @@ pub async fn send_response_header<W: AsyncWrite + Unpin>(
     };
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
-    let hdr_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_HDR_IV]);
+    let hdr_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_HDR_IV]);
 
     let enc_hdr = {
         let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
@@ -289,9 +293,10 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     reader: &mut R,
     expected_v: u8,
     resp_body_key: &[u8; 16],
+    resp_body_iv: &[u8; 16],
 ) -> Result<(), ProxyError> {
     let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
-    let len_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_LEN_IV]);
+    let len_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_LEN_IV]);
 
     let mut enc_len = [0u8; 18];
     reader.read_exact(&mut enc_len).await?;
@@ -305,7 +310,7 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     let payload_len = u16::from_be_bytes([len_pt[0], len_pt[1]]) as usize;
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
-    let hdr_nonce: [u8; 12] = kdf(resp_body_key, &[PATH_RESP_HDR_IV]);
+    let hdr_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_HDR_IV]);
 
     let mut enc_hdr = vec![0u8; payload_len + 16];
     reader.read_exact(&mut enc_hdr).await?;
@@ -395,7 +400,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         .try_into()
         .map_err(|_| ProxyError::Protocol("VMess: truncated key".into()))?;
     let v = data[33];
-    let _options = data[34];
+    let options = data[34];
     let pad_sec = data[35];
     let pad_len = (pad_sec >> 4) as usize;
     let security = Security::try_from(pad_sec & 0x0F)?;
@@ -466,7 +471,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         return Err(ProxyError::Protocol("VMess: header checksum mismatch".into()));
     }
 
-    Ok(VmessRequest { iv, key, v, security, dest })
+    Ok(VmessRequest { iv, key, v, options, security, dest })
 }
 
 fn fnv32a(data: &[u8]) -> u32 {
@@ -514,12 +519,12 @@ mod tests {
 
         let enc_len_arr: [u8; 18] = enc_len.try_into().unwrap();
         let header_len = decrypt_length_field(&cmd_key, &auth_id, &connection_nonce, &enc_len_arr).unwrap();
-        assert_eq!(header_len, enc_header.len());
+        assert_eq!(header_len + 16, enc_header.len());
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let mut cursor = std::io::Cursor::new(enc_header.clone());
-            let req = decode_header(&mut cursor, &cmd_key, &auth_id, &connection_nonce, enc_header.len())
+            let req = decode_header(&mut cursor, &cmd_key, &auth_id, &connection_nonce, header_len)
                 .await
                 .unwrap();
             assert_eq!(req.dest, dest);
