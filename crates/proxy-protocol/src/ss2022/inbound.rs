@@ -24,11 +24,6 @@ use async_trait::async_trait;
 use tokio::io::AsyncReadExt;
 use tracing::{debug, warn};
 
-use aes_gcm::{
-    aead::{generic_array::GenericArray, Aead},
-    Aes256Gcm, KeyInit,
-};
-
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
@@ -97,143 +92,78 @@ impl InboundHandler for Ss2022Inbound {
             return Err(ProxyError::AuthFailed);
         }
 
-        // Step 3: Derive session subkey.
+        // Step 3: Derive session subkey and wrap stream in AEAD chunk framing.
+        // All bytes after the salt (including the request header) are sent as
+        // AEAD-encrypted chunks. The first chunk is the request header.
         let subkey = derive_subkey(&self.psk, &salt);
+        let mut aead = Ss2022Stream::new_with_nonce(stream, &subkey, 0);
 
-        // Step 4: Decrypt the AEAD header.
-        // Header is encrypted as a single AEAD blob.
-        // Max header size: 1(type) + 8(ts) + 1(atyp) + 1(len)+255(domain) + 2(port) + 2(pad_len) + 255(padding)
-        // We read up to 512 bytes to cover all cases.
-        let header_ct = read_header_ciphertext(&mut stream).await?;
-        let cipher = Aes256Gcm::new(GenericArray::from_slice(&subkey));
-        // Nonce 0 for the header.
-        let nonce = GenericArray::from_slice(&[0u8; 12]);
-        let header_pt = cipher
-            .decrypt(nonce, header_ct.as_slice())
-            .map_err(|_| ProxyError::AuthFailed)?;
+        // Step 4: Read request header from the AEAD stream.
+        // Header format: type(1) | timestamp(8 BE) | pad_len(2 BE) | padding | atyp | addr | port(2 BE)
+        let type_byte = aead.read_u8().await?;
+        if type_byte != TYPE_TCP {
+            return Err(ProxyError::Protocol(format!(
+                "SS-2022: unsupported type {type_byte:#x}"
+            )));
+        }
 
-        // Step 5 & 6: Parse header plaintext.
-        let (dest, _payload_start) = parse_header(&header_pt, source)?;
+        let ts = aead.read_u64().await?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        if ts.abs_diff(now) > MAX_TIME_DIFF {
+            warn!(source = %source, ts = ts, now = now, "SS-2022: timestamp drift too large");
+            return Err(ProxyError::AuthFailed);
+        }
+
+        // Step 5: Skip padding.
+        let pad_len = aead.read_u16().await? as usize;
+        if pad_len > 0 {
+            let mut discard = vec![0u8; pad_len];
+            aead.read_exact(&mut discard).await?;
+        }
+
+        // Step 6: Read SOCKS5 address.
+        let atyp = aead.read_u8().await?;
+        let dest = match atyp {
+            ATYP_IPV4 => {
+                let mut buf = [0u8; 6]; // 4 ip + 2 port
+                aead.read_exact(&mut buf).await?;
+                let ip = std::net::Ipv4Addr::from([buf[0], buf[1], buf[2], buf[3]]);
+                let port = u16::from_be_bytes([buf[4], buf[5]]);
+                Address::Ipv4(ip, port)
+            }
+            ATYP_IPV6 => {
+                let mut buf = [0u8; 18]; // 16 ip + 2 port
+                aead.read_exact(&mut buf).await?;
+                let mut ip_bytes = [0u8; 16];
+                ip_bytes.copy_from_slice(&buf[..16]);
+                let ip = std::net::Ipv6Addr::from(ip_bytes);
+                let port = u16::from_be_bytes([buf[16], buf[17]]);
+                Address::Ipv6(ip, port)
+            }
+            ATYP_DOMAIN => {
+                let dlen = aead.read_u8().await? as usize;
+                let mut dbuf = vec![0u8; dlen + 2]; // domain + 2 port
+                aead.read_exact(&mut dbuf).await?;
+                let name = String::from_utf8(dbuf[..dlen].to_vec())
+                    .map_err(|_| ProxyError::Protocol("SS-2022: invalid domain UTF-8".into()))?;
+                let port = u16::from_be_bytes([dbuf[dlen], dbuf[dlen + 1]]);
+                Address::Domain(name, port)
+            }
+            other => {
+                return Err(ProxyError::Protocol(format!(
+                    "SS-2022: unknown ATYP {other:#x} from {source}"
+                )));
+            }
+        };
 
         debug!(source = %source, dest = %dest, "SS-2022 inbound authenticated");
 
-        // Step 7: Wrap stream in AEAD chunk framing and dispatch.
-        let data_stream: BoxedStream = Box::new(Ss2022Stream::new(stream, &subkey));
+        // Use the same AEAD stream for data relay (nonce counter already advanced past header).
         let ctx = Context::new(&self.tag, source);
-        dispatcher.dispatch(ctx, dest, data_stream).await
+        dispatcher.dispatch(ctx, dest, Box::new(aead)).await
     }
 }
 
-/// Read the variable-length encrypted header.
-///
-/// The header is sent as:
-///   header_len (2 bytes BE) + ciphertext (header_len bytes + 16 tag)
-async fn read_header_ciphertext(stream: &mut BoxedStream) -> Result<Vec<u8>, ProxyError> {
-    let len = stream.read_u16().await? as usize;
-    if len == 0 || len > 512 {
-        return Err(ProxyError::Protocol(
-            "SS-2022: invalid header length".into(),
-        ));
-    }
-    let mut ct = vec![0u8; len + 16];
-    stream.read_exact(&mut ct).await?;
-    Ok(ct)
-}
-
-/// Parse the decrypted header bytes and extract the destination address.
-///
-/// Returns `(dest, bytes_consumed)`.
-fn parse_header(data: &[u8], source: SocketAddr) -> Result<(Address, usize), ProxyError> {
-    let mut pos = 0;
-
-    // Type byte (must be 0x00 for TCP).
-    if data.is_empty() {
-        return Err(ProxyError::Protocol("SS-2022: header too short".into()));
-    }
-    let conn_type = data[pos];
-    pos += 1;
-    if conn_type != TYPE_TCP {
-        return Err(ProxyError::Protocol(format!(
-            "SS-2022: unsupported type {conn_type:#x}"
-        )));
-    }
-
-    // Timestamp (8 bytes, big-endian Unix seconds).
-    if data.len() < pos + 8 {
-        return Err(ProxyError::Protocol("SS-2022: truncated timestamp".into()));
-    }
-    let ts_bytes: [u8; 8] = data[pos..pos + 8]
-        .try_into()
-        .map_err(|_| ProxyError::Protocol("SS-2022: invalid timestamp bytes".into()))?;
-    let ts = u64::from_be_bytes(ts_bytes);
-    pos += 8;
-
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_secs();
-    let diff = ts.abs_diff(now);
-    if diff > MAX_TIME_DIFF {
-        warn!(source = %source, ts = ts, now = now, "SS-2022: timestamp drift too large");
-        return Err(ProxyError::AuthFailed);
-    }
-
-    // ATYP + address + port.
-    if data.len() <= pos {
-        return Err(ProxyError::Protocol("SS-2022: missing atyp".into()));
-    }
-    let atyp = data[pos];
-    pos += 1;
-
-    let dest = match atyp {
-        ATYP_IPV4 => {
-            if data.len() < pos + 6 {
-                return Err(ProxyError::Protocol("SS-2022: truncated IPv4".into()));
-            }
-            let ip =
-                std::net::Ipv4Addr::from([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
-            let port = u16::from_be_bytes([data[pos + 4], data[pos + 5]]);
-            pos += 6;
-            Address::Ipv4(ip, port)
-        }
-        ATYP_IPV6 => {
-            if data.len() < pos + 18 {
-                return Err(ProxyError::Protocol("SS-2022: truncated IPv6".into()));
-            }
-            let mut buf = [0u8; 16];
-            buf.copy_from_slice(&data[pos..pos + 16]);
-            let ip = std::net::Ipv6Addr::from(buf);
-            let port = u16::from_be_bytes([data[pos + 16], data[pos + 17]]);
-            pos += 18;
-            Address::Ipv6(ip, port)
-        }
-        ATYP_DOMAIN => {
-            if data.len() <= pos {
-                return Err(ProxyError::Protocol("SS-2022: missing domain len".into()));
-            }
-            let dlen = data[pos] as usize;
-            pos += 1;
-            if data.len() < pos + dlen + 2 {
-                return Err(ProxyError::Protocol("SS-2022: truncated domain".into()));
-            }
-            let domain = String::from_utf8(data[pos..pos + dlen].to_vec())
-                .map_err(|_| ProxyError::Protocol("SS-2022: invalid domain UTF-8".into()))?;
-            let port = u16::from_be_bytes([data[pos + dlen], data[pos + dlen + 1]]);
-            pos += dlen + 2;
-            Address::Domain(domain, port)
-        }
-        other => {
-            return Err(ProxyError::Protocol(format!(
-                "SS-2022: unknown ATYP {other:#x}"
-            )));
-        }
-    };
-
-    // Skip padding_len (2 bytes) + padding.
-    if data.len() >= pos + 2 {
-        let pad_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        pos += 2 + pad_len;
-    }
-
-    Ok((dest, pos))
-}

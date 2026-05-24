@@ -2,19 +2,34 @@
 //!
 //! This implements the "Gun" gRPC transport used by xray/v2ray for CDN bypass.
 //! It tunnels arbitrary byte streams inside a single bidirectional gRPC stream,
-//! using HTTP/2 framing with length-prefixed "protobuf" messages.
+//! using HTTP/2 framing with length-prefixed protobuf messages.
 //!
-//! # Wire format
+//! # Wire format (two layers)
 //!
-//! Each application-level message is wrapped in a 5-byte gRPC frame:
+//! ## Layer 1 — gRPC frame (5-byte header)
 //!
 //! ```text
 //! ┌─────────────────────────────────────────────────────────┐
 //! │ Compressed flag (1 byte)  — always 0x00 (uncompressed)  │
 //! │ Message length (4 bytes, big-endian)                     │
-//! │ Message payload (length bytes)                           │
+//! │ Message payload (length bytes)  ← layer 2 lives here    │
 //! └─────────────────────────────────────────────────────────┘
 //! ```
+//!
+//! ## Layer 2 — protobuf Hunk message
+//!
+//! The message payload is a serialised `message Hunk { bytes data = 1; }`:
+//!
+//! ```text
+//! ┌────────────────────────────────────────────────────────────┐
+//! │ Field tag  (1 byte)  — 0x0A  (field 1, wire type 2)        │
+//! │ Data length (varint) — protobuf varint encoding of len(data)│
+//! │ Data        (N bytes) — the raw tunnelled bytes             │
+//! └────────────────────────────────────────────────────────────┘
+//! ```
+//!
+//! `GrpcStream` handles both layers transparently: reads unwrap Hunk then
+//! the gRPC frame, writes add the Hunk wrapper then the gRPC frame.
 //!
 //! # HTTP/2 endpoint
 //!
@@ -53,6 +68,79 @@ pub fn encode_grpc_frame(payload: &[u8]) -> Bytes {
     buf.put_u32(payload.len() as u32);
     buf.put_slice(payload);
     buf.freeze()
+}
+
+// ── protobuf Hunk encode / decode ─────────────────────────────────────────────
+
+/// Encode `data` as a protobuf `Hunk { bytes data = 1; }` message.
+///
+/// Wire encoding: field-tag 0x0A (field 1, wire type 2) + varint(len) + data.
+fn encode_hunk(data: &[u8]) -> Bytes {
+    let mut buf = BytesMut::with_capacity(1 + 4 + data.len());
+    buf.put_u8(0x0A); // field 1, wire type 2
+    put_varint(data.len() as u64, &mut buf);
+    buf.put_slice(data);
+    buf.freeze()
+}
+
+/// Decode a protobuf `Hunk { bytes data = 1; }` message, returning the inner bytes.
+///
+/// Returns an error if the tag is missing or wrong, or if the length prefix
+/// extends beyond the supplied slice.
+fn decode_hunk(payload: &[u8]) -> Result<Bytes, ProxyError> {
+    if payload.is_empty() {
+        return Ok(Bytes::new());
+    }
+    if payload[0] != 0x0A {
+        return Err(ProxyError::Protocol(format!(
+            "gRPC Gun: expected Hunk field tag 0x0A, got {:#x}",
+            payload[0]
+        )));
+    }
+    let (data_len, varint_len) = get_varint(&payload[1..]).ok_or_else(|| {
+        ProxyError::Protocol("gRPC Gun: truncated or oversized Hunk varint".into())
+    })?;
+    let offset = 1 + varint_len;
+    let end = offset + data_len;
+    if payload.len() < end {
+        return Err(ProxyError::Protocol(
+            "gRPC Gun: Hunk data extends past message boundary".into(),
+        ));
+    }
+    Ok(Bytes::copy_from_slice(&payload[offset..end]))
+}
+
+/// Append a protobuf varint encoding of `val` to `buf`.
+fn put_varint(mut val: u64, buf: &mut BytesMut) {
+    loop {
+        let byte = (val & 0x7F) as u8;
+        val >>= 7;
+        if val == 0 {
+            buf.put_u8(byte);
+            return;
+        }
+        buf.put_u8(byte | 0x80);
+    }
+}
+
+/// Decode a protobuf varint from `buf`.
+///
+/// Returns `Some((value, bytes_consumed))` or `None` if the slice is empty,
+/// truncated, or the value overflows 64 bits.
+fn get_varint(buf: &[u8]) -> Option<(usize, usize)> {
+    let mut val: u64 = 0;
+    let mut shift = 0u32;
+    for (i, &byte) in buf.iter().enumerate() {
+        if shift >= 64 {
+            return None; // overflow
+        }
+        val |= ((byte & 0x7F) as u64) << shift;
+        if byte & 0x80 == 0 {
+            return Some((val as usize, i + 1));
+        }
+        shift += 7;
+    }
+    None // truncated
 }
 
 /// Decode the next gRPC frame from a buffer.
@@ -159,7 +247,29 @@ impl AsyncRead for GrpcStream {
                     if payload.is_empty() {
                         return Poll::Ready(Ok(())); // end of stream
                     }
-                    self.read_buf.extend_from_slice(&payload);
+                    // Unwrap the protobuf Hunk message to get the raw tunnelled bytes.
+                    match decode_hunk(&payload) {
+                        Ok(data) => {
+                            tracing::trace!(
+                                payload_len = payload.len(),
+                                data_len = data.len(),
+                                first_bytes = %hex::encode(&data[..data.len().min(20)]),
+                                "gRPC: decoded Hunk"
+                            );
+                            self.read_buf.extend_from_slice(&data);
+                        }
+                        Err(e) => {
+                            tracing::warn!(
+                                payload_len = payload.len(),
+                                first_byte = format!("{:#04x}", payload.first().copied().unwrap_or(0)),
+                                "gRPC: Hunk decode failed: {e}"
+                            );
+                            return Poll::Ready(Err(io::Error::new(
+                                io::ErrorKind::InvalidData,
+                                e.to_string(),
+                            )));
+                        }
+                    }
                     continue;
                 }
                 Ok(None) => {} // need more data
@@ -195,8 +305,10 @@ impl AsyncWrite for GrpcStream {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         if self.flush_frame.is_none() && !self.write_buf.is_empty() {
-            let payload = self.write_buf.split().freeze();
-            self.flush_frame = Some(encode_grpc_frame(&payload));
+            let raw = self.write_buf.split().freeze();
+            // Wrap the raw bytes in a protobuf Hunk message before gRPC framing.
+            let hunk = encode_hunk(&raw);
+            self.flush_frame = Some(encode_grpc_frame(&hunk));
             self.flush_frame_pos = 0;
         }
 
@@ -350,6 +462,7 @@ pub async fn grpc_accept(
         .map_err(|e| ProxyError::Transport(format!("gRPC accept error: {e}")))?;
 
     let path = request.uri().path().to_string();
+    tracing::warn!(path = %path, expected = %expected_path, "gRPC: incoming request");
     if path != expected_path {
         return Err(ProxyError::Protocol(format!(
             "gRPC: unexpected path '{path}' (expected '{expected_path}')"

@@ -59,13 +59,34 @@ pub use subkey::derive_subkey;
 pub struct Ss2022Config {
     /// Cipher method — only "2022-blake3-aes-256-gcm" is currently supported.
     pub method: String,
-    /// Server password (raw UTF-8). PSK = blake3::hash(password).
+    /// Server password: either a base64-encoded 32-byte key (xray/sing-box compatible)
+    /// or an arbitrary UTF-8 string (PSK derived via blake3 hash for internal use).
     pub password: String,
 }
 
-/// Derive the 32-byte PSK from a raw password string.
+/// Derive the 32-byte PSK from a password string.
 ///
-/// PSK = blake3::hash(password.as_bytes())
+/// If `password` is a valid standard or URL-safe base64 string that decodes to
+/// exactly 32 bytes, those bytes are used directly as the PSK — this matches the
+/// behavior of xray-core and sing-box for `2022-blake3-aes-256-gcm`.
+///
+/// Otherwise the PSK falls back to `blake3::hash(password.as_bytes())`, which
+/// allows arbitrary UTF-8 strings to work for purely internal use cases.
 pub fn password_to_psk(password: &str) -> [u8; 32] {
+    use base64::Engine as _;
+    let engines = [
+        base64::engine::general_purpose::STANDARD,
+        base64::engine::general_purpose::URL_SAFE,
+        base64::engine::general_purpose::URL_SAFE_NO_PAD,
+    ];
+    for engine in &engines {
+        if let Ok(bytes) = engine.decode(password) {
+            if bytes.len() == 32 {
+                let mut key = [0u8; 32];
+                key.copy_from_slice(&bytes);
+                return key;
+            }
+        }
+    }
     blake3::hash(password.as_bytes()).into()
 }

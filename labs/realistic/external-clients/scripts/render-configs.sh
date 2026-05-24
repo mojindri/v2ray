@@ -56,7 +56,9 @@ done
     export VLESS_UUID="00000000-0000-4000-8000-000000000001"
     export VMESS_UUID="00000000-0000-4000-8000-000000000002"
     export TROJAN_PASSWORD="wrong-${TROJAN_PASSWORD}"
-    export SS2022_PASSWORD="wrong-${SS2022_PASSWORD}"
+    # Use a valid base64 32-byte key that differs from the real key — xray/sing-box
+    # reject non-base64 strings at startup, which would mask server-side rejection.
+    export SS2022_PASSWORD="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     export HYSTERIA2_PASSWORD="wrong-${HYSTERIA2_PASSWORD}"
     export REALITY_SHORT_ID="0000000000000000"
     for tpl in "$LAB_DIR/configs/xray"/*.json.tmpl; do

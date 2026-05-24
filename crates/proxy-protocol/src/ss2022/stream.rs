@@ -37,10 +37,10 @@ const MAX_CHUNK_SIZE: usize = 16 * 1024;
 
 // ── Nonce helper ──────────────────────────────────────────────────────────────
 
-/// Build a 12-byte nonce from a 64-bit counter (big-endian, zero-padded).
+/// Build a 12-byte nonce from a 64-bit counter (little-endian, SIP022 spec).
 fn make_nonce(counter: u64) -> [u8; 12] {
     let mut n = [0u8; 12];
-    n[4..].copy_from_slice(&counter.to_be_bytes());
+    n[..8].copy_from_slice(&counter.to_le_bytes());
     n
 }
 
@@ -65,22 +65,25 @@ pub struct Ss2022Stream {
 }
 
 impl Ss2022Stream {
-    /// Create a new `Ss2022Stream` wrapping `inner`.
+    /// Create a new `Ss2022Stream` wrapping `inner`, with nonce counters starting at `start_nonce`.
     ///
-    /// # Arguments
-    /// * `inner`   — the underlying plain stream
-    /// * `subkey`  — 32-byte AES-256-GCM session subkey
-    pub fn new(inner: BoxedStream, subkey: &[u8; 32]) -> Self {
+    /// For SIP022 compatibility, pass `start_nonce = 2` (handshake consumes nonces 0 and 1).
+    pub fn new_with_nonce(inner: BoxedStream, subkey: &[u8; 32], start_nonce: u64) -> Self {
         let cipher = Aes256Gcm::new(GenericArray::from_slice(subkey));
         Self {
             inner,
             cipher,
-            read_counter: 0,
+            read_counter: start_nonce,
             read_buf: BytesMut::new(),
             read_raw: BytesMut::new(),
-            write_counter: 0,
+            write_counter: start_nonce,
             write_buf: BytesMut::new(),
         }
+    }
+
+    /// Create a new `Ss2022Stream` wrapping `inner`, nonces starting at 0.
+    pub fn new(inner: BoxedStream, subkey: &[u8; 32]) -> Self {
+        Self::new_with_nonce(inner, subkey, 0)
     }
 
     /// Try to decrypt the next chunk from `src`.
