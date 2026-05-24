@@ -12,15 +12,19 @@ Status labels:
 
 ## Product scope
 
-proxy-rs is a Rust-native proxy inspired by V2Ray/Xray. It is not a full V2Ray-core or full Xray-core reimplementation.
+**proxy-rs** is a Rust-native server that targets **wire compatibility** with
+Xray-core and sing-box clients on supported protocol/transport combinations.
+Validation runs against those upstream clients in local Docker labs and on real
+VPS hosts — not mock peers alone.
 
 | Area | Status | Notes |
 |---|---|---|
-| Native config schema | Supported | Own JSON schema |
+| Xray / sing-box **wire interop** (server) | Supported | External-client matrix for REALITY, VLESS, Trojan, SS2022, etc. |
+| Native config schema | Supported | Own JSON schema — not Xray JSON paste-compatible |
 | V2Ray JSON config compatibility | Unsupported | Not a goal |
-| Xray JSON config compatibility | Partial | Wire interop exists for supported protocols, but config schema is not Xray-compatible |
+| Xray JSON config compatibility | Partial | Interop is wire-level; config must be translated to native schema |
 | Client mode | Supported | Supported protocols only |
-| Server mode | Supported | Supported protocols only |
+| Server mode | Supported | Primary focus — compatible with standard Xray/sing-box clients |
 
 ## Protocols
 

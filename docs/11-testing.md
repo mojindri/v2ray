@@ -12,7 +12,7 @@ This document is the single reference for running every test tier in this projec
 | 2. Integration tests | End-to-end protocol matrix | ~30s | Rust toolchain |
 | 3. Production readiness | Config validation, guard checks | ~10s | Rust toolchain |
 | 4. Docker baseline | Full matrix + Xray REALITY interop | ~3 min | Docker |
-| 5. Phase 7/8 bundle | ShadowTLS, mKCP, health, geo/FakeIP | ~30s | Rust toolchain |
+| 5. Advanced features smoke | ShadowTLS, mKCP, health, geo/FakeIP guards | ~30s | Rust toolchain |
 | 6. Stress loop | Flakiness detection on high-signal tests | ~2 min | Rust toolchain |
 | 7. Xray d0 self-interop | REALITY token + TLS self-consistency | ~5s | Rust toolchain |
 | 8. Xray d1 live interop | REALITY against real xray-core binary | ~30s | Docker |
@@ -35,7 +35,7 @@ Use this split:
 | production-readiness tests | local checkout | local machine | no |
 | `make -C labs/realistic docker-full` | local checkout | local machine + Docker | no |
 | `make -C labs/realistic external-clients-docker` | local checkout | local machine + Docker | no |
-| `make -C labs/realistic phase78` | local checkout | local machine | no |
+| `make -C labs/realistic advanced-features-smoke` | local checkout | local machine | no |
 | `make -C labs/realistic stress` | local checkout | local machine | no |
 | `cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture` | local checkout | local machine | no |
 | `make -C labs/realistic xray` | local checkout | local machine + Docker | no |
@@ -157,20 +157,16 @@ make -C labs/realistic docker-down
 
 ---
 
-## Tier 5 — Phase 7/8 bundle
+## Tier 5 — Advanced features smoke
 
-Local validation for the Phase 7/8 features: ShadowTLS v3, mKCP multi-peer, health/failover config guards, geo/FakeIP startup guards.
+Local smoke tests for ShadowTLS v3, mKCP, health/failover config guards, and
+DNS/geo/FakeIP startup guards.
 
 ```sh
-make -C labs/realistic phase78
+make -C labs/realistic advanced-features-smoke
 ```
 
-Writes four report files:
-
-- `reports/phase78-shadowtls.log`
-- `reports/phase78-mkcp.log`
-- `reports/phase78-health.log`
-- `reports/phase78-geo-fakeip.log`
+Writes `labs/realistic/reports/advanced-features-smoke.log`.
 
 ---
 
@@ -414,7 +410,7 @@ Local full baseline including Docker:
 make -C labs/realistic realistic-all
 ```
 
-This runs in order: `docker-full` → `phase78` → `negative-auth` → `restart-smoke` → `stress` → `report-summary`.
+This runs in order: `docker-full` → `advanced-features-smoke` → `negative-auth` → `restart-smoke` → `stress` → `report-summary`.
 
 Full report summary after any run:
 
@@ -438,7 +434,7 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 \
 |------|----------------------|
 | 1–3 | Code is internally consistent and config validation works |
 | 4 | Stable protocol matrix passes in a repeatable Docker environment |
-| 5 | Phase 7/8 features are wired and startup guards work |
+| 5 | Advanced features (ShadowTLS, mKCP, health, DNS/routing) pass smoke tests |
 | 6 | No timing-sensitive flakiness in the data plane |
 | 7 | REALITY implementation is self-consistent |
 | 8 | REALITY interoperates with real xray-core |

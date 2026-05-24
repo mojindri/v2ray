@@ -69,8 +69,8 @@ lab-docker-test: lab-docker-up
 	@echo "==> [lab-docker-test] external Xray/sing-box clients"
 	$(MAKE) -C $(LAB_DIR) external-clients-docker
 	$(MAKE) -C $(LAB_DIR) external-clients-report
-	@echo "==> [lab-docker-test] phase 7/8 + negative-auth smoke"
-	$(MAKE) -C $(LAB_DIR) phase78
+	@echo "==> [lab-docker-test] advanced features + negative-auth smoke"
+	$(MAKE) -C $(LAB_DIR) advanced-features-smoke
 	$(MAKE) -C $(LAB_DIR) negative-auth
 
 lab-docker-down:

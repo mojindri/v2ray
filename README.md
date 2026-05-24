@@ -1,15 +1,21 @@
-# v2ray
+# proxy-rs
 
-Rust-native proxy project inspired by V2Ray/Xray.
+Rust-native proxy **server** aimed at **wire compatibility** with the Xray and
+sing-box client ecosystem.
 
 This repository is organized around two goals:
 
-- implement a practical protocol/runtime matrix in Rust
-- verify behavior with local tests, Xray interop, and realistic Linux environments
+- implement a practical protocol/transport matrix as an Xray/sing-box-compatible server
+- prove compatibility with **real upstream clients** — Xray-core and sing-box in
+  Docker labs, Lima fingerprint checks, and two-VPS production-style runs
 
-It is not a drop-in V2Ray-core or Xray-core reimplementation, and it does not
-claim JSON config compatibility with either project. For the exact scope, see
-[docs/feature-matrix.md](docs/feature-matrix.md).
+Supported paths are validated against original clients, not only in-process Rust
+tests. External-client gates include Xray/sing-box REALITY, Trojan, SS2022, and
+related matrix scenarios under `labs/realistic/`.
+
+The project uses its **own JSON config schema** (not a byte-for-byte Xray config
+drop-in). Wire behavior and client interop are the compatibility contract. For
+per-protocol status, see [docs/feature-matrix.md](docs/feature-matrix.md).
 
 ## Start Here
 
@@ -22,28 +28,40 @@ If you are new to the repo, read in this order:
 
 The full beginner-oriented doc index is at [docs/README.md](docs/README.md).
 
+## Interop validation
+
+Compatibility is enforced against **real clients**:
+
+| Client | How it is tested |
+| --- | --- |
+| **Xray-core** | Docker lab (`make verify-lab-docker`), live REALITY d1 interop |
+| **sing-box** | Docker + VPS external-client matrix (`external-clients-docker` / `-vps`) |
+| **Browsers / TLS peers** | Lima VM fingerprint baseline (`verify-lab-lima`) |
+
+Details: [tests/interop/README.md](tests/interop/README.md),
+[labs/realistic/external-clients/README.md](labs/realistic/external-clients/README.md).
+
 ## Current Status
 
-Stable validation focus today:
+**Production-tested server paths** (Xray/sing-box interop + lab gates):
 
-- VLESS over TCP
-- VLESS over REALITY
-- VLESS over WebSocket
+- VLESS over TCP, REALITY, WebSocket
 - VMess over gRPC
 - Trojan over TLS
 - Shadowsocks 2022
 - Hysteria2
-- required Xray REALITY interop
 
-Phase 7/8 status:
+**Advanced features — implemented, not fully proven in production-like labs:**
 
-- health/failover: wired for runtime testing
-- geo/FakeIP routing: wired for runtime testing
-- ShadowTLS: local marker-mode coverage, still needs broader interop hardening
-- mKCP: local multi-peer coverage, still needs hostile-network validation
-- TUN: not production-ready until real packet runtime coverage exists
+| Feature | What works today | What is still missing |
+| --- | --- | --- |
+| **Health checks + outbound failover** | Config, startup, basic runtime wiring | Real multi-outbound failure scenarios under load |
+| **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
+| **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
+| **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
+| **TUN mode** | Linux helpers, config parsing, unit tests | Full OS packet capture loop — **do not use in production yet** |
 
-For exact support levels, see [docs/feature-matrix.md](docs/feature-matrix.md).
+See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
 
 ## Fastest Useful Commands
 
