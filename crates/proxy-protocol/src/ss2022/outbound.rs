@@ -18,8 +18,9 @@ use aes_gcm::{
     aead::{generic_array::GenericArray, Aead},
     Aes256Gcm, KeyInit,
 };
+use bytes::BytesMut;
 use rand::RngCore;
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::debug;
 
@@ -100,23 +101,28 @@ impl OutboundHandler for Ss2022ChunkedOutbound {
     }
 }
 
-/// Open an SS-2022 session on `raw`: send salt + request header, return the AEAD stream.
+const MAX_TIME_DIFF: u64 = 30;
+const TYPE_SERVER: u8 = 0x01;
+
+/// Open an SS-2022 session on `raw`: send request headers, read response
+/// header (SIP022), and return a bidirectional AEAD stream ready for relay.
 ///
-/// The returned `Ss2022Stream` has nonces already past the header (starts at nonce=2),
-/// ready for transparent data relay.
+/// Wire flow:
+///   client→server: req_salt(32) | enc_fixed_hdr(27) | enc_var_hdr(N+16) → flush
+///   server→client: resp_salt(32) | enc_resp_hdr(59) | enc_initial(len+16)
+///   data:  both sides use regular length-prefixed chunks, nonces starting at 2.
 pub async fn open_ss2022_stream(
     mut raw: BoxedStream,
     psk: &[u8; 32],
     dest: &Address,
 ) -> Result<Ss2022Stream, ProxyError> {
-    // 1. Generate and send salt (plaintext).
-    let mut salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut salt);
-    raw.write_all(&salt).await?;
+    // ── 1. Send request ───────────────────────────────────────────────────────
+    let mut req_salt = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut req_salt);
+    raw.write_all(&req_salt).await?;
 
-    // 2. Derive subkey and write the two SIP022 standalone request header chunks.
-    let subkey = derive_subkey(psk, &salt);
-    let cipher = Aes256Gcm::new(GenericArray::from_slice(&subkey));
+    let req_subkey = derive_subkey(psk, &req_salt);
+    let req_cipher = Aes256Gcm::new(GenericArray::from_slice(&req_subkey));
     let variable = build_request_variable_header(dest);
 
     let mut fixed = [0u8; 11];
@@ -128,17 +134,66 @@ pub async fn open_ss2022_stream(
     fixed[1..9].copy_from_slice(&ts.to_be_bytes());
     fixed[9..11].copy_from_slice(&(variable.len() as u16).to_be_bytes());
 
-    let fixed_ct = cipher
+    let fixed_ct = req_cipher
         .encrypt(GenericArray::from_slice(&make_nonce(0)), fixed.as_slice())
         .map_err(|_| ProxyError::Protocol("SS-2022: fixed header encrypt failed".into()))?;
-    let variable_ct = cipher
+    let variable_ct = req_cipher
         .encrypt(GenericArray::from_slice(&make_nonce(1)), variable.as_slice())
         .map_err(|_| ProxyError::Protocol("SS-2022: variable header encrypt failed".into()))?;
     raw.write_all(&fixed_ct).await?;
     raw.write_all(&variable_ct).await?;
     raw.flush().await?;
 
-    Ok(Ss2022Stream::new_with_nonce(raw, &subkey, 2))
+    // ── 2. Read server response header ────────────────────────────────────────
+    // resp_salt (32) | enc_resp_header (43+16=59) | enc_initial_payload (len+16)
+    let mut resp_salt = [0u8; 32];
+    raw.read_exact(&mut resp_salt).await?;
+
+    let resp_subkey = derive_subkey(psk, &resp_salt);
+    let resp_cipher = Aes256Gcm::new(GenericArray::from_slice(&resp_subkey));
+
+    let mut resp_hdr_ct = [0u8; 43 + 16];
+    raw.read_exact(&mut resp_hdr_ct).await?;
+    let resp_hdr = resp_cipher
+        .decrypt(
+            GenericArray::from_slice(&make_nonce(0)),
+            resp_hdr_ct.as_ref(),
+        )
+        .map_err(|_| ProxyError::Protocol("SS-2022: response header decrypt failed".into()))?;
+
+    if resp_hdr.len() != 43 || resp_hdr[0] != TYPE_SERVER {
+        return Err(ProxyError::Protocol("SS-2022: invalid response header type".into()));
+    }
+    let resp_ts = u64::from_be_bytes(resp_hdr[1..9].try_into().unwrap());
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+    if resp_ts.abs_diff(now) > MAX_TIME_DIFF {
+        return Err(ProxyError::AuthFailed);
+    }
+
+    // Bytes 41-43: initial payload length (may be 0).
+    let initial_len = u16::from_be_bytes([resp_hdr[41], resp_hdr[42]]) as usize;
+    let mut initial_ct = vec![0u8; initial_len + 16];
+    raw.read_exact(&mut initial_ct).await?;
+    let initial_pt = resp_cipher
+        .decrypt(
+            GenericArray::from_slice(&make_nonce(1)),
+            initial_ct.as_slice(),
+        )
+        .map_err(|_| ProxyError::Protocol("SS-2022: initial payload decrypt failed".into()))?;
+
+    // ── 3. Return bidirectional data stream (nonces start at 2 both sides) ───
+    Ok(Ss2022Stream::new_bidir(
+        raw,
+        &resp_subkey,
+        2,
+        &req_subkey,
+        2,
+        BytesMut::from(initial_pt.as_slice()),
+        None,
+    ))
 }
 
 /// Build the SIP022 request variable header plaintext.

@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use dashmap::DashMap;
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 
 use proxy_app::context::Context;
@@ -152,8 +152,9 @@ impl InboundHandler for VmessInbound {
         let resp_key = response_body_key(&request.key);
         let resp_iv = response_body_iv(&request.iv);
 
-        // 8. Wrap in bidirectional VMess body stream.
+        // 8. Send response header and flush so the client unblocks immediately.
         send_response_header(&mut stream, request.v, &resp_key, &resp_iv).await?;
+        stream.flush().await?;
 
         let vmess_stream = match request.security {
             Security::Aes128Gcm | Security::ChaCha20Poly1305 | Security::None => {

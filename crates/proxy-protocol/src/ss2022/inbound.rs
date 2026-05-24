@@ -102,15 +102,45 @@ impl InboundHandler for Ss2022Inbound {
         stream.write_all(&resp_salt).await?;
         let resp_subkey = derive_subkey(&self.psk, &resp_salt);
 
-        let response_header = build_response_fixed_header(&req_salt);
+        // Send response fixed header eagerly (initial_payload_len=0) so the
+        // client can finish its handshake before the echo data arrives.
+        // Nonce=0: encrypted 43-byte header; nonce=1: encrypted empty payload.
+        let resp_cipher = aes_gcm::Aes256Gcm::new(
+            aes_gcm::aead::generic_array::GenericArray::from_slice(&resp_subkey),
+        );
+        let hdr_ct = {
+            use aes_gcm::aead::Aead;
+            let hdr = build_response_fixed_header(&req_salt);
+            resp_cipher
+                .encrypt(
+                    aes_gcm::aead::generic_array::GenericArray::from_slice(&make_nonce(0)),
+                    hdr.as_slice(),
+                )
+                .map_err(|_| ProxyError::Protocol("SS-2022: resp header encrypt failed".into()))?
+        };
+        let empty_ct = {
+            use aes_gcm::aead::Aead;
+            resp_cipher
+                .encrypt(
+                    aes_gcm::aead::generic_array::GenericArray::from_slice(&make_nonce(1)),
+                    &[][..],
+                )
+                .map_err(|_| ProxyError::Protocol("SS-2022: empty initial payload encrypt failed".into()))?
+        };
+        stream.write_all(&hdr_ct).await?;
+        stream.write_all(&empty_ct).await?;
+        stream.flush().await?;
+
+        // Data relay: write uses resp_subkey starting at nonce=2 (0 and 1 were
+        // consumed above), read uses req_subkey starting at nonce=2.
         let vm = Ss2022Stream::new_bidir(
             stream,
             &req_subkey,
             2,
             &resp_subkey,
-            0,
+            2,
             BytesMut::from(initial_payload.as_slice()),
-            Some(response_header),
+            None,
         );
 
         let ctx = Context::new(&self.tag, source);
@@ -130,7 +160,7 @@ fn build_response_fixed_header(req_salt: &[u8; 32]) -> [u8; 43] {
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
     out[1..9].copy_from_slice(&ts.to_be_bytes());
     out[9..41].copy_from_slice(req_salt);
-    // out[41..43] is filled with first payload length by Ss2022Stream on first write.
+    // bytes 41-43: initial_payload_length = 0 (already zeroed)
     out
 }
 
