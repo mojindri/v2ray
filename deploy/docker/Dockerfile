@@ -6,8 +6,8 @@
 # The final image is ~10 MB (distroless/cc) instead of ~1 GB (full Rust image).
 # This minimises the attack surface and download time.
 #
-# Build:
-#   docker build -t blackwire:latest .
+# Build (linux/amd64 for Hetzner x86_64 VPS; on Apple Silicon pass --platform explicitly):
+#   docker build --platform linux/amd64 -t blackwire:latest .
 #
 # Run:
 #   docker run -v /path/to/config.json:/etc/blackwire/config.json \

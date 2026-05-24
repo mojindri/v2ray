@@ -2,12 +2,15 @@ SHELL := /bin/bash
 
 ROOT := ../..
 REPORTS := reports
+# Hetzner VPS are x86_64; on Apple Silicon default docker build is arm64 — force linux/amd64.
+DOCKER_PLATFORM ?= linux/amd64
+LINUX_BIN := $(ROOT)/target/linux-amd64/blackwire
 SSH_USER ?= root
 SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
+.PHONY: help build build-linux-bin docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
 	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
@@ -15,10 +18,21 @@ SSH_EXTRA_OPTS ?=
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
 
-build: ## Build the blackwire Docker image used by the lab
+build: ## Build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
 	@mkdir -p $(REPORTS)
-	@docker build -q -f $(ROOT)/deploy/docker/Dockerfile -t blackwire:latest $(ROOT) > $(REPORTS)/docker-build-image.txt
-	@echo "Built blackwire:latest"
+	docker build --platform $(DOCKER_PLATFORM) \
+		-f $(ROOT)/deploy/docker/Dockerfile \
+		-t blackwire:latest $(ROOT) | tee $(REPORTS)/docker-build-image.txt
+	@echo "Built blackwire:latest ($(DOCKER_PLATFORM))"
+
+build-linux-bin: build ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
+	@mkdir -p $(dir $(LINUX_BIN))
+	@cid=$$(docker create blackwire:latest); \
+	 docker cp "$$cid:/usr/local/bin/blackwire" "$(LINUX_BIN)"; \
+	 docker rm "$$cid" >/dev/null
+	@file "$(LINUX_BIN)"
+	@echo "Wrote $(LINUX_BIN)"
+	@echo "  scp -i id_hetzner $(LINUX_BIN) root@<SERVER>:/usr/local/bin/blackwire"
 
 docker-up: build ## Start deterministic target services
 	docker compose -f docker-compose.yml up -d target-http target-echo
