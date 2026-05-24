@@ -261,7 +261,8 @@ impl AsyncRead for GrpcStream {
                         Err(e) => {
                             tracing::warn!(
                                 payload_len = payload.len(),
-                                first_byte = format!("{:#04x}", payload.first().copied().unwrap_or(0)),
+                                first_byte =
+                                    format!("{:#04x}", payload.first().copied().unwrap_or(0)),
                                 "gRPC: Hunk decode failed: {e}"
                             );
                             return Poll::Ready(Err(io::Error::new(

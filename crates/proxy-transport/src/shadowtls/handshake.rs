@@ -343,8 +343,8 @@ mod tests {
 
         let sr = extract_server_random(&payload).unwrap();
         assert_eq!(sr.len(), 32);
-        for i in 0..32usize {
-            assert_eq!(sr[i], i as u8);
+        for (i, byte) in sr.iter().copied().enumerate().take(32) {
+            assert_eq!(byte, i as u8);
         }
     }
 

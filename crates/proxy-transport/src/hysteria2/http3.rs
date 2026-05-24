@@ -12,9 +12,7 @@ use quinn::Connection;
 use tracing::warn;
 
 use super::auth::AuthError;
-use super::proto::{
-    auth_response_to_headers, is_auth_request, AuthResponse, STATUS_AUTH_OK,
-};
+use super::proto::{auth_response_to_headers, is_auth_request, AuthResponse, STATUS_AUTH_OK};
 use super::tcp;
 use super::Hysteria2ServerConfig;
 

@@ -104,18 +104,25 @@ pub struct VmessRequest {
     pub dest: Address,
 }
 
+pub type EncodedHeader = ([u8; 16], [u8; 16], u8, [u8; 8], Vec<u8>, Vec<u8>);
+
 // ── Response key/IV derivation ────────────────────────────────────────────────
 
 /// Derive the response body key from the request body key.
 pub fn response_body_key(request_key: &[u8; 16]) -> [u8; 16] {
     let hash = Sha256::digest(request_key);
-    hash[..16].try_into().expect("sha256 is 32 bytes")
+    // SHA-256 output is always 32 bytes; truncation to 16 cannot fail.
+    hash[..16]
+        .try_into()
+        .expect("SHA-256 digest is always 32 bytes")
 }
 
 /// Derive the response body IV from the request body IV.
 pub fn response_body_iv(request_iv: &[u8; 16]) -> [u8; 16] {
     let hash = Sha256::digest(request_iv);
-    hash[..16].try_into().expect("sha256 is 32 bytes")
+    hash[..16]
+        .try_into()
+        .expect("SHA-256 digest is always 32 bytes")
 }
 
 // ── Encoder ───────────────────────────────────────────────────────────────────
@@ -128,7 +135,7 @@ pub fn encode_header(
     auth_id: &[u8; 16],
     dest: &Address,
     security: Security,
-) -> ([u8; 16], [u8; 16], u8, [u8; 8], Vec<u8>, Vec<u8>) {
+) -> Result<EncodedHeader, ProxyError> {
     let mut rng = rand::thread_rng();
 
     let mut iv = [0u8; 16];
@@ -157,7 +164,7 @@ pub fn encode_header(
                 aad: auth_id,
             },
         )
-        .expect("AES-128-GCM encryption must not fail");
+        .map_err(|_| ProxyError::Protocol("VMess: header ciphertext encrypt failed".into()))?;
 
     // Encrypt header length with connection_nonce in KDF.
     let len_key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, &connection_nonce]);
@@ -174,9 +181,9 @@ pub fn encode_header(
                 aad: auth_id,
             },
         )
-        .expect("AES-128-GCM encryption must not fail");
+        .map_err(|_| ProxyError::Protocol("VMess: header length encrypt failed".into()))?;
 
-    (iv, key, v_byte, connection_nonce, enc_len, enc_header)
+    Ok((iv, key, v_byte, connection_nonce, enc_len, enc_header))
 }
 
 // ── Decoder helpers ───────────────────────────────────────────────────────────
@@ -274,10 +281,7 @@ pub async fn send_response_header<W: AsyncWrite + Unpin>(
     let enc_hdr = {
         let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
         cipher
-            .encrypt(
-                GenericArray::from_slice(&hdr_nonce),
-                plaintext.as_ref(),
-            )
+            .encrypt(GenericArray::from_slice(&hdr_nonce), plaintext.as_ref())
             .map_err(|_| ProxyError::Protocol("VMess: resp header encrypt failed".into()))?
     };
 
@@ -425,7 +429,8 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
             if pos + 4 > data.len() {
                 return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
             }
-            let ip = std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
+            let ip =
+                std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
             pos += 4;
             Address::Ipv4(ip, port)
         }
@@ -466,12 +471,31 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         return Err(ProxyError::Protocol("VMess: truncated checksum".into()));
     }
     let expected = fnv32a(&data[..pos]);
-    let received = u32::from_be_bytes(data[pos..pos + 4].try_into().unwrap());
+    let received = read_u32_be(data, pos)?;
     if expected != received {
-        return Err(ProxyError::Protocol("VMess: header checksum mismatch".into()));
+        return Err(ProxyError::Protocol(
+            "VMess: header checksum mismatch".into(),
+        ));
     }
 
-    Ok(VmessRequest { iv, key, v, options, security, dest })
+    Ok(VmessRequest {
+        iv,
+        key,
+        v,
+        options,
+        security,
+        dest,
+    })
+}
+
+fn read_u32_be(data: &[u8], pos: usize) -> Result<u32, ProxyError> {
+    if pos + 4 > data.len() {
+        return Err(ProxyError::Protocol("VMess: truncated u32 field".into()));
+    }
+    let bytes: [u8; 4] = data[pos..pos + 4]
+        .try_into()
+        .map_err(|_| ProxyError::Protocol("VMess: truncated u32 field".into()))?;
+    Ok(u32::from_be_bytes(bytes))
 }
 
 fn fnv32a(data: &[u8]) -> u32 {
@@ -515,18 +539,25 @@ mod tests {
         let dest = Address::Domain("test.example.com".to_string(), 443);
 
         let (_iv, _key, _v, connection_nonce, enc_len, enc_header) =
-            encode_header(&cmd_key, &auth_id, &dest, Security::Aes128Gcm);
+            encode_header(&cmd_key, &auth_id, &dest, Security::Aes128Gcm).unwrap();
 
         let enc_len_arr: [u8; 18] = enc_len.try_into().unwrap();
-        let header_len = decrypt_length_field(&cmd_key, &auth_id, &connection_nonce, &enc_len_arr).unwrap();
+        let header_len =
+            decrypt_length_field(&cmd_key, &auth_id, &connection_nonce, &enc_len_arr).unwrap();
         assert_eq!(header_len + 16, enc_header.len());
 
         let rt = tokio::runtime::Runtime::new().unwrap();
         rt.block_on(async {
             let mut cursor = std::io::Cursor::new(enc_header.clone());
-            let req = decode_header(&mut cursor, &cmd_key, &auth_id, &connection_nonce, header_len)
-                .await
-                .unwrap();
+            let req = decode_header(
+                &mut cursor,
+                &cmd_key,
+                &auth_id,
+                &connection_nonce,
+                header_len,
+            )
+            .await
+            .unwrap();
             assert_eq!(req.dest, dest);
         });
     }

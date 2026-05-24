@@ -71,7 +71,15 @@ impl Ss2022Stream {
     ///
     /// For SIP022 compatibility, pass `start_nonce = 2` (handshake consumes nonces 0 and 1).
     pub fn new_with_nonce(inner: BoxedStream, subkey: &[u8; 32], start_nonce: u64) -> Self {
-        Self::new_bidir(inner, subkey, start_nonce, subkey, start_nonce, BytesMut::new(), None)
+        Self::new_bidir(
+            inner,
+            subkey,
+            start_nonce,
+            subkey,
+            start_nonce,
+            BytesMut::new(),
+            None,
+        )
     }
 
     /// Create a new `Ss2022Stream` wrapping `inner`, nonces starting at 0.
@@ -172,28 +180,41 @@ impl Ss2022Stream {
     }
 
     /// Encrypt `data` and return the wire bytes (length ciphertext + data ciphertext).
-    fn encrypt_chunk(&mut self, data: &[u8]) -> Vec<u8> {
+    fn encrypt_chunk(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
         if let Some(mut fixed_header) = self.response_header.take() {
             fixed_header[41..43].copy_from_slice(&(data.len() as u16).to_be_bytes());
 
             let header_nonce = make_nonce(self.write_counter);
             let header_ct = self
                 .write_cipher
-                .encrypt(GenericArray::from_slice(&header_nonce), fixed_header.as_slice())
-                .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+                .encrypt(
+                    GenericArray::from_slice(&header_nonce),
+                    fixed_header.as_slice(),
+                )
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "SS-2022: response header encrypt failed",
+                    )
+                })?;
             self.write_counter += 1;
 
             let data_nonce = make_nonce(self.write_counter);
             let data_ct = self
                 .write_cipher
                 .encrypt(GenericArray::from_slice(&data_nonce), data)
-                .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+                .map_err(|_| {
+                    io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "SS-2022: response payload encrypt failed",
+                    )
+                })?;
             self.write_counter += 1;
 
             let mut out = Vec::with_capacity(header_ct.len() + data_ct.len());
             out.extend_from_slice(&header_ct);
             out.extend_from_slice(&data_ct);
-            return out;
+            return Ok(out);
         }
 
         let len_nonce = make_nonce(self.write_counter);
@@ -204,20 +225,30 @@ impl Ss2022Stream {
                 GenericArray::from_slice(&len_nonce),
                 data_len.to_be_bytes().as_slice(),
             )
-            .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "SS-2022: chunk length encrypt failed",
+                )
+            })?;
         self.write_counter += 1;
 
         let data_nonce = make_nonce(self.write_counter);
         let data_ct = self
             .write_cipher
             .encrypt(GenericArray::from_slice(&data_nonce), data)
-            .unwrap_or_else(|_| panic!("AES-256-GCM encrypt must not fail"));
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "SS-2022: chunk payload encrypt failed",
+                )
+            })?;
         self.write_counter += 1;
 
         let mut out = Vec::with_capacity(len_ct.len() + data_ct.len());
         out.extend_from_slice(&len_ct);
         out.extend_from_slice(&data_ct);
-        out
+        Ok(out)
     }
 }
 
@@ -278,7 +309,10 @@ impl AsyncWrite for Ss2022Stream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let chunk = &buf[..buf.len().min(MAX_CHUNK_SIZE)];
-        let encrypted = self.encrypt_chunk(chunk);
+        let encrypted = match self.encrypt_chunk(chunk) {
+            Ok(v) => v,
+            Err(e) => return Poll::Ready(Err(e)),
+        };
         self.write_buf.extend_from_slice(&encrypted);
         Poll::Ready(Ok(chunk.len()))
     }

@@ -56,10 +56,10 @@ impl RealityServer {
         }
     }
 
-    /// Accept a connection and replay the ClientHello for a later TLS stack.
+    /// Accept a connection and replay the ClientHello for post-auth TLS.
     ///
-    /// This is the production shape: rustls must see the exact bytes we already
-    /// parsed, so the returned `PrependedStream` gives those bytes back first.
+    /// The returned [`PrependedStream`] replays the exact ClientHello bytes for
+    /// [`complete_tls13_server_handshake`](crate::reality::complete_tls13_server_handshake).
     pub async fn accept(&self, stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
         Ok(self.accept_with_key(stream).await?.stream)
     }
@@ -130,11 +130,6 @@ impl RealityServer {
         };
 
         debug!("REALITY authentication succeeded");
-        if std::env::var_os("REALITY_DEBUG_HELLO").is_some() {
-            use base64::Engine;
-            let b64 = base64::engine::general_purpose::STANDARD.encode(&handshake_body);
-            warn!(hello_b64 = %b64, "REALITY client hello capture");
-        }
         let stream = match replay_mode {
             ReplayMode::PrependClientHello => {
                 let replay = join_record(record_header, &handshake_body);
@@ -151,61 +146,59 @@ impl RealityServer {
         fields: &ClientHelloFields,
         handshake_body: &[u8],
     ) -> Result<[u8; 32]> {
-        let mut peer_pubs = reality_auth_peer_public_keys(handshake_body);
-        if peer_pubs.is_empty() {
-            peer_pubs.push(fields.x25519_key_share);
-        }
-
+        let peer_keys = reality_auth_peer_public_keys_or_fallback(fields, handshake_body);
+        let zeroed_aad = xray_zeroed_session_id_aad(handshake_body)?;
         let wire_aad = handshake_body.to_vec();
-        let zeroed_aad = make_reality_aad_zeroed_session_id(handshake_body)?;
 
-        for peer_pub in peer_pubs {
-            let shared_secret = self
-                .private_key
-                .diffie_hellman(&PublicKey::from(peer_pub));
-            let hk = Hkdf::<Sha256>::new(Some(&fields.random[..20]), shared_secret.as_bytes());
-            let mut auth_key = [0u8; 32];
-            if hk.expand(REALITY_HKDF_INFO, &mut auth_key).is_err() {
-                continue;
-            }
+        for (peer_idx, peer_pub) in peer_keys.iter().enumerate() {
+            let peer_kind = peer_key_kind(peer_idx);
+            let auth_key =
+                match derive_reality_auth_key(&self.private_key, peer_pub, &fields.random) {
+                    Ok(key) => key,
+                    Err(_) => continue,
+                };
 
-            // Xray/sing-box seal with hello.Raw where session_id is still zeroed (plaintext
-            // lives only in SessionId until after Seal). REALITY Open uses zeroed original.
-            for aad in [&zeroed_aad, &wire_aad] {
-                if let Ok(plaintext) = decrypt_session_id(fields, &auth_key, aad) {
-                    if validate_token(
-                        &plaintext,
-                        &self.config.short_ids,
-                        self.config.max_time_diff,
-                    )
-                    .is_ok()
-                        && auth_roundtrip_matches(fields, &auth_key, aad, &plaintext)
-                    {
-                        return Ok(auth_key);
-                    }
+            // Xray/sing-box: Seal(..., hello.SessionId[:16], hello.Raw) with session_id zeroed in Raw.
+            // XTLS REALITY server Open(..., hs.clientHello.original) uses zeroed original.
+            for (aad_mode, aad) in [
+                (RealityAadMode::Zeroed, zeroed_aad.as_slice()),
+                (RealityAadMode::Wire, wire_aad.as_slice()),
+            ] {
+                if let Some(token) = decrypt_and_validate_reality_token(
+                    fields,
+                    &auth_key,
+                    aad,
+                    &self.config.short_ids,
+                    self.config.max_time_diff,
+                ) {
+                    log_reality_auth_ok(peer_kind, aad_mode, fields, &token, &auth_key);
+                    return Ok(auth_key);
                 }
             }
 
-            // Xray/sing-box seal with hello.Raw where session_id[0..16] is plaintext and
-            // session_id[16..32] is zero before encryption.
+            // Xray/sing-box: Seal with hello.Raw where session_id[0..16] is plaintext, [16..32] zero.
             for plaintext16 in
-                candidate_reality_plaintexts(&self.config.short_ids, self.config.max_time_diff)
+                candidate_reality_tokens(&self.config.short_ids, self.config.max_time_diff)
             {
-                let Ok(seal_aad) = make_reality_aad_after_decrypt(handshake_body, &plaintext16)
+                let Ok(seal_aad) = xray_plaintext_session_id_aad(handshake_body, &plaintext16)
                 else {
                     continue;
                 };
-                if let Ok(plaintext) = decrypt_session_id(fields, &auth_key, &seal_aad) {
-                    if validate_token(
-                        &plaintext,
-                        &self.config.short_ids,
-                        self.config.max_time_diff,
-                    )
-                    .is_ok()
-                        && auth_roundtrip_matches(fields, &auth_key, &seal_aad, &plaintext)
-                    {
-                        return Ok(auth_key);
-                    }
+                if let Some(token) = decrypt_and_validate_reality_token(
+                    fields,
+                    &auth_key,
+                    &seal_aad,
+                    &self.config.short_ids,
+                    self.config.max_time_diff,
+                ) {
+                    log_reality_auth_ok(
+                        peer_kind,
+                        RealityAadMode::PlaintextSession,
+                        fields,
+                        &token,
+                        &auth_key,
+                    );
+                    return Ok(auth_key);
                 }
             }
         }
@@ -247,8 +240,121 @@ fn join_record(record_header: [u8; 5], handshake_body: &[u8]) -> Vec<u8> {
     all_bytes
 }
 
-/// AAD used by our own REALITY client (session_id built as zeros before encryption).
-fn make_reality_aad_zeroed_session_id(handshake_body: &[u8]) -> Result<Vec<u8>> {
+#[derive(Clone, Copy)]
+enum RealityAadMode {
+    Zeroed,
+    Wire,
+    PlaintextSession,
+}
+
+impl RealityAadMode {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Zeroed => "zeroed",
+            Self::Wire => "wire",
+            Self::PlaintextSession => "plaintext_session",
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
+enum RealityPeerKeyKind {
+    X25519,
+    MlkemTail,
+}
+
+impl RealityPeerKeyKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::X25519 => "x25519",
+            Self::MlkemTail => "mlkem_tail",
+        }
+    }
+}
+
+/// Standalone X25519 first, ML-KEM768 tail second; fallback to parsed key_share.
+fn reality_auth_peer_public_keys_or_fallback(
+    fields: &ClientHelloFields,
+    handshake_body: &[u8],
+) -> Vec<[u8; 32]> {
+    let mut peer_keys = reality_auth_peer_public_keys(handshake_body);
+    if peer_keys.is_empty() {
+        peer_keys.push(fields.x25519_key_share);
+    }
+    peer_keys
+}
+
+fn peer_key_kind(peer_idx: usize) -> RealityPeerKeyKind {
+    if peer_idx == 0 {
+        RealityPeerKeyKind::X25519
+    } else {
+        RealityPeerKeyKind::MlkemTail
+    }
+}
+
+fn derive_reality_auth_key(
+    private_key: &StaticSecret,
+    peer_pub: &[u8; 32],
+    client_random: &[u8; 32],
+) -> Result<[u8; 32]> {
+    let shared_secret = private_key.diffie_hellman(&PublicKey::from(*peer_pub));
+    let hk = Hkdf::<Sha256>::new(Some(&client_random[..20]), shared_secret.as_bytes());
+    let mut auth_key = [0u8; 32];
+    hk.expand(REALITY_HKDF_INFO, &mut auth_key)
+        .map_err(|_| anyhow::anyhow!("HKDF expand failed"))?;
+    Ok(auth_key)
+}
+
+fn decrypt_and_validate_reality_token(
+    fields: &ClientHelloFields,
+    auth_key: &[u8; 32],
+    aad: &[u8],
+    short_ids: &[Vec<u8>],
+    max_time_diff: i64,
+) -> Option<Vec<u8>> {
+    let plaintext = decrypt_reality_session_id(fields, auth_key, aad).ok()?;
+    validate_reality_token(&plaintext, short_ids, max_time_diff).ok()?;
+    if !reality_auth_roundtrip_matches(fields, auth_key, aad, &plaintext) {
+        return None;
+    }
+    Some(plaintext)
+}
+
+fn log_reality_auth_ok(
+    peer_kind: RealityPeerKeyKind,
+    aad_mode: RealityAadMode,
+    fields: &ClientHelloFields,
+    token: &[u8],
+    auth_key: &[u8; 32],
+) {
+    let version = if token.len() >= 4 {
+        format!(
+            "{:02x}{:02x}{:02x}{:02x}",
+            token[0], token[1], token[2], token[3]
+        )
+    } else {
+        "????".to_string()
+    };
+    let short_id_hex = hex::encode(token.get(8..16).unwrap_or(&[]));
+    debug!(
+        peer_key = peer_kind.as_str(),
+        aad = aad_mode.as_str(),
+        client_version = %version,
+        short_id = %short_id_hex,
+        auth_key_prefix = %hex::encode(&auth_key[..4]),
+        "REALITY auth succeeded"
+    );
+    if std::env::var_os("REALITY_DEBUG_HELLO").is_some() {
+        debug!(
+            sni = %fields.sni,
+            random_prefix = %hex::encode(&fields.random[..4]),
+            "REALITY_DEBUG_HELLO"
+        );
+    }
+}
+
+/// AAD with session_id zeroed — matches Xray/sing-box Seal input and REALITY Open original.
+fn xray_zeroed_session_id_aad(handshake_body: &[u8]) -> Result<Vec<u8>> {
     let sid_start = SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
     let sid_end = sid_start + 32;
     if handshake_body.len() < sid_end {
@@ -260,7 +366,7 @@ fn make_reality_aad_zeroed_session_id(handshake_body: &[u8]) -> Result<Vec<u8>> 
     Ok(aad)
 }
 
-fn decrypt_session_id(
+fn decrypt_reality_session_id(
     fields: &ClientHelloFields,
     auth_key: &[u8; 32],
     aad: &[u8],
@@ -301,7 +407,7 @@ fn encrypt_session_id(
         .map_err(|_| anyhow::anyhow!("REALITY token encryption length mismatch"))
 }
 
-fn auth_roundtrip_matches(
+fn reality_auth_roundtrip_matches(
     fields: &ClientHelloFields,
     auth_key: &[u8; 32],
     aad: &[u8],
@@ -315,7 +421,7 @@ fn auth_roundtrip_matches(
         .unwrap_or(false)
 }
 
-fn validate_token(
+fn validate_reality_token(
     plaintext: &[u8],
     allowed_short_ids: &[Vec<u8>],
     max_time_diff: i64,
@@ -356,23 +462,34 @@ fn strip_zero_padding(short_id: &[u8]) -> &[u8] {
     &short_id[..last_nonzero]
 }
 
-/// After decrypting the session token, rebuild the ClientHello AAD that Xray/sing-box
-/// used at `Seal` time: plaintext in the first 16 session_id bytes, zeros in the last 16.
+/// AAD with plaintext in session_id[0..16] and zeros in [16..32] — Xray/sing-box Seal layout.
+fn xray_plaintext_session_id_aad(handshake_body: &[u8], plaintext16: &[u8]) -> Result<Vec<u8>> {
+    let sid_start = SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
+    let sid_end = sid_start + 32;
+    if handshake_body.len() < sid_end {
+        anyhow::bail!("handshake body too short to contain session_id");
+    }
+    if plaintext16.len() != 16 {
+        anyhow::bail!("REALITY token plaintext must be 16 bytes");
+    }
+
+    let mut aad = handshake_body.to_vec();
+    aad[sid_start..sid_start + 16].copy_from_slice(plaintext16);
+    aad[sid_start + 16..sid_end].fill(0);
+    Ok(aad)
+}
+
 /// Candidate 16-byte session tokens for Xray/sing-box ClientHello sealing.
-fn candidate_reality_plaintexts(short_ids: &[Vec<u8>], max_time_diff: i64) -> Vec<[u8; 16]> {
+fn candidate_reality_tokens(short_ids: &[Vec<u8>], max_time_diff: i64) -> Vec<[u8; 16]> {
     let now = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64;
-    let window = max_time_diff.max(1).min(600);
+    let window = max_time_diff.clamp(1, 600);
     // sing-box: 1.8.1 (+ byte 3 may be non-zero from PutUint64 before version overwrite).
     // Xray 26.3.x uses core.Version bytes in the first three slots.
-    const VERSION_PREFIXES: &[[u8; 4]] = &[
-        [1, 8, 1, 0],
-        [26, 3, 27, 0],
-        [1, 8, 0, 0],
-        [0, 0, 0, 0],
-    ];
+    const VERSION_PREFIXES: &[[u8; 4]] =
+        &[[1, 8, 1, 0], [26, 3, 27, 0], [1, 8, 0, 0], [0, 0, 0, 0]];
 
     let mut out = Vec::new();
     for short_id in short_ids {
@@ -382,7 +499,11 @@ fn candidate_reality_plaintexts(short_ids: &[Vec<u8>], max_time_diff: i64) -> Ve
 
         for prefix in VERSION_PREFIXES {
             // sing-box leaves byte 3 from PutUint64; for current Unix times it is 0.
-            let b3_end = if prefix[..3] == [1, 8, 1] { 1u8 } else { prefix[3] };
+            let b3_end = if prefix[..3] == [1, 8, 1] {
+                1u8
+            } else {
+                prefix[3]
+            };
             for b3 in 0..=b3_end {
                 for dt in -window..=window {
                     let ts = (now + dt) as u32;
@@ -399,22 +520,6 @@ fn candidate_reality_plaintexts(short_ids: &[Vec<u8>], max_time_diff: i64) -> Ve
     out
 }
 
-fn make_reality_aad_after_decrypt(handshake_body: &[u8], plaintext16: &[u8]) -> Result<Vec<u8>> {
-    let sid_start = SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
-    let sid_end = sid_start + 32;
-    if handshake_body.len() < sid_end {
-        anyhow::bail!("handshake body too short to contain session_id");
-    }
-    if plaintext16.len() != 16 {
-        anyhow::bail!("REALITY token plaintext must be 16 bytes");
-    }
-
-    let mut aad = handshake_body.to_vec();
-    aad[sid_start..sid_start + 16].copy_from_slice(plaintext16);
-    aad[sid_start + 16..sid_end].fill(0);
-    Ok(aad)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -424,8 +529,8 @@ mod tests {
     use sha2::Sha256;
     use x25519_dalek::{PublicKey, StaticSecret};
 
-    /// Reproduce Xray `Seal` / REALITY `Open` AAD behavior from xtls/reality.
-    /// ClientHello captured from sing-box 1.13 + chrome fp against matrix keys (docker).
+    /// Static sing-box Chrome ClientHello fixture (see `testdata/README.md`).
+    /// Does not enforce wall-clock freshness; verifies decrypt, auth key, and cert HMAC.
     #[test]
     fn docker_singbox_chrome_hello_authenticates() {
         let hello = include_bytes!("testdata/singbox-chrome-hello.bin");
@@ -446,12 +551,9 @@ mod tests {
         let auth_key = server
             .derive_auth_key(&fields, hello)
             .expect("matrix server must authenticate captured sing-box hello");
-        let (cert, _) = crate::reality::cert::tls_cert_for_auth_key(
-            &auth_key,
-            "www.microsoft.com",
-            false,
-        )
-        .unwrap();
+        let (cert, _) =
+            crate::reality::cert::tls_cert_for_auth_key(&auth_key, "www.microsoft.com", false)
+                .unwrap();
         crate::reality::cert::verify_reality_cert_hmac(&auth_key, &cert)
             .expect("cert HMAC must verify with same auth_key");
     }
@@ -507,8 +609,8 @@ mod tests {
         let mut original = raw.clone();
         original[39..71].copy_from_slice(&session_wire);
 
-        let zeroed = make_reality_aad_zeroed_session_id(&original).unwrap();
-        let seal_aad = make_reality_aad_after_decrypt(&original, &session_plain[..16]).unwrap();
+        let zeroed = xray_zeroed_session_id_aad(&original).unwrap();
+        let seal_aad = xray_plaintext_session_id_aad(&original, &session_plain[..16]).unwrap();
 
         assert!(cipher
             .decrypt(

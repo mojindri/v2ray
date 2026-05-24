@@ -26,7 +26,8 @@ struct CertTemplate {
 }
 
 fn cert_cache() -> &'static Mutex<HashMap<String, CertTemplate>> {
-    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, CertTemplate>>> = std::sync::OnceLock::new();
+    static CACHE: std::sync::OnceLock<Mutex<HashMap<String, CertTemplate>>> =
+        std::sync::OnceLock::new();
     CACHE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
@@ -51,7 +52,10 @@ pub fn tls_cert_for_auth_key(
 }
 
 /// Build PEM cert/key for the post-REALITY TLS handshake.
-pub fn tls_pem_for_auth_key(auth_key: &[u8; 32], cover_sni: &str) -> Result<(String, String), ProxyError> {
+pub fn tls_pem_for_auth_key(
+    auth_key: &[u8; 32],
+    cover_sni: &str,
+) -> Result<(String, String), ProxyError> {
     let sni = normalize_sni(cover_sni);
     let template = get_template(sni, false)?;
     let cert_der = patch_cert_der(&template, auth_key)?;
@@ -67,7 +71,10 @@ fn normalize_sni(cover_sni: &str) -> &str {
 }
 
 /// HMAC-SHA512(auth_key, ed25519_public_key) — what Xray/sing-box compare to `cert.Signature`.
-pub fn reality_cert_hmac(auth_key: &[u8; 32], ed25519_public_key: &[u8; 32]) -> Result<[u8; 64], ProxyError> {
+pub fn reality_cert_hmac(
+    auth_key: &[u8; 32],
+    ed25519_public_key: &[u8; 32],
+) -> Result<[u8; 64], ProxyError> {
     let mut mac = Hmac::<Sha512>::new_from_slice(auth_key)
         .map_err(|e| ProxyError::Tls(format!("REALITY HMAC key: {e}")))?;
     mac.update(ed25519_public_key);
@@ -127,7 +134,7 @@ pub fn parse_certificate_message_der(msg: &[u8]) -> Result<Vec<u8>, ProxyError> 
             "TLS Certificate message: empty certificate_list".into(),
         ));
     }
-    let cert_data_len = read_u24(&msg[pos..pos + 3])? as usize;
+    let cert_data_len = read_u24(&msg[pos..pos + 3])?;
     pos += 3;
     if pos + cert_data_len > list_end {
         return Err(ProxyError::Tls(
@@ -145,12 +152,24 @@ fn read_u24(bytes: &[u8]) -> Result<usize, ProxyError> {
 }
 
 fn ed25519_public_key_from_cert(cert: &X509Certificate<'_>) -> Result<[u8; 32], ProxyError> {
-    if cert.tbs_certificate.subject_pki.algorithm.algorithm.to_string() != "1.3.101.112" {
+    if cert
+        .tbs_certificate
+        .subject_pki
+        .algorithm
+        .algorithm
+        .to_string()
+        != "1.3.101.112"
+    {
         return Err(ProxyError::Tls(
             "REALITY cert: expected ed25519 subject public key".into(),
         ));
     }
-    let key = cert.tbs_certificate.subject_pki.subject_public_key.data.as_ref();
+    let key = cert
+        .tbs_certificate
+        .subject_pki
+        .subject_public_key
+        .data
+        .as_ref();
     let raw: &[u8] = match key.len() {
         32 => key,
         33 if key[0] == 0 => &key[1..],
@@ -272,7 +291,8 @@ mod tests {
     #[test]
     fn patched_cert_signature_matches_sing_box_hmac() {
         let auth_key = [9u8; 32];
-        let (der, _signing_key) = tls_cert_for_auth_key(&auth_key, "www.example.com", false).unwrap();
+        let (der, _signing_key) =
+            tls_cert_for_auth_key(&auth_key, "www.example.com", false).unwrap();
         verify_reality_cert_hmac(&auth_key, &der).expect("Go-style HMAC verify");
     }
 

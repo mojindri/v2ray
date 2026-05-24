@@ -22,7 +22,9 @@ use proxy_app::features::OutboundHandler;
 use proxy_common::{Address, BoxedStream, ProxyError};
 
 use super::auth::{cmd_key, generate_auth_id};
-use super::codec::{encode_header, read_response_header, response_body_iv, response_body_key, Security};
+use super::codec::{
+    encode_header, read_response_header, response_body_iv, response_body_key, Security,
+};
 use super::stream::VmessStream;
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -89,7 +91,7 @@ pub async fn connect_vmess_on_stream(
 
     // Build the encrypted header.
     let (iv, key, v, connection_nonce, encrypted_len, header_ct) =
-        encode_header(cmd_key_bytes, &auth_id, dest, Security::Aes128Gcm);
+        encode_header(cmd_key_bytes, &auth_id, dest, Security::Aes128Gcm)?;
 
     // Wire: auth_id(16) || enc_len(18) || connection_nonce(8) || header_ciphertext
     stream.write_all(&auth_id).await?;

@@ -64,16 +64,17 @@ impl ConnectionHandler for RealityConnectionHandler {
     ) -> Result<(), ProxyError> {
         let accepted = self.reality.accept_with_key(stream).await?;
         let mut stream = accepted.stream;
+        // Keep this on the custom TLS path: rustls does not currently negotiate with uTLS REALITY clients.
         let app_keys = complete_tls13_server_handshake(
             &mut stream,
             &accepted.auth_key,
             &self.cover_sni,
         )
-            .await
-            .map_err(|e| {
-                warn!(error = %e, sni = %self.cover_sni, "REALITY post-auth TLS handshake failed");
-                e
-            })?;
+        .await
+        .map_err(|e| {
+            warn!(error = %e, sni = %self.cover_sni, "REALITY post-auth TLS handshake failed");
+            e
+        })?;
         let stream = Box::new(Tls13Stream::new_server(stream, app_keys));
         self.inbound
             .handle(stream, source, Arc::clone(&self.dispatcher))

@@ -54,6 +54,14 @@ pub use replay::SaltReplay;
 pub use stream::Ss2022Stream;
 pub use subkey::derive_subkey;
 
+/// Parse an 8-byte big-endian timestamp from a fixed-width slice.
+pub(crate) fn u64_from_be8(bytes: &[u8]) -> Result<u64, proxy_common::ProxyError> {
+    let arr: [u8; 8] = bytes.try_into().map_err(|_| {
+        proxy_common::ProxyError::Protocol("SS-2022: timestamp field must be 8 bytes".into())
+    })?;
+    Ok(u64::from_be_bytes(arr))
+}
+
 /// SS-2022 configuration (shared by inbound and outbound builders).
 #[derive(Debug, Clone)]
 pub struct Ss2022Config {

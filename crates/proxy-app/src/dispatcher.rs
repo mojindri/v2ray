@@ -98,65 +98,6 @@ impl DefaultDispatcher {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::dns::DnsModuleConfig;
-    use crate::router::{Route, RoutingContext};
-
-    struct StaticRouter;
-
-    impl Router for StaticRouter {
-        fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
-            Ok(Route {
-                outbound_tag: "unused".into(),
-            })
-        }
-    }
-
-    #[tokio::test]
-    async fn dispatcher_restores_fakeip_destination_before_routing() {
-        let dns = Arc::new(
-            DnsModule::new(DnsModuleConfig {
-                fake_ip_enabled: true,
-                ..Default::default()
-            })
-            .await
-            .unwrap(),
-        );
-        let fake = dns.resolve_fake("example.com");
-        let dispatcher = DefaultDispatcher::new_with_dns(
-            Arc::new(StaticRouter),
-            std::collections::HashMap::new(),
-            dns,
-        );
-
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(fake, 443));
-        assert_eq!(restored, Address::Domain("example.com".into(), 443));
-    }
-
-    #[tokio::test]
-    async fn dispatcher_keeps_unknown_fakeip_as_ip_destination() {
-        let dns = Arc::new(
-            DnsModule::new(DnsModuleConfig {
-                fake_ip_enabled: true,
-                ..Default::default()
-            })
-            .await
-            .unwrap(),
-        );
-        let dispatcher = DefaultDispatcher::new_with_dns(
-            Arc::new(StaticRouter),
-            std::collections::HashMap::new(),
-            dns,
-        );
-
-        let ip = "198.18.0.100".parse().unwrap();
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(ip, 443));
-        assert_eq!(restored, Address::Ipv4(ip, 443));
-    }
-}
-
 #[async_trait]
 impl Dispatcher for DefaultDispatcher {
     #[instrument(skip(self, inbound_stream), fields(dest = %dest, inbound = %ctx.inbound_tag))]
@@ -256,5 +197,64 @@ impl DefaultDispatcher {
                 .unwrap_or(Address::Ipv4(ip, port)),
             other => other,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dns::DnsModuleConfig;
+    use crate::router::{Route, RoutingContext};
+
+    struct StaticRouter;
+
+    impl Router for StaticRouter {
+        fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
+            Ok(Route {
+                outbound_tag: "unused".into(),
+            })
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatcher_restores_fakeip_destination_before_routing() {
+        let dns = Arc::new(
+            DnsModule::new(DnsModuleConfig {
+                fake_ip_enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap(),
+        );
+        let fake = dns.resolve_fake("example.com");
+        let dispatcher = DefaultDispatcher::new_with_dns(
+            Arc::new(StaticRouter),
+            std::collections::HashMap::new(),
+            dns,
+        );
+
+        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(fake, 443));
+        assert_eq!(restored, Address::Domain("example.com".into(), 443));
+    }
+
+    #[tokio::test]
+    async fn dispatcher_keeps_unknown_fakeip_as_ip_destination() {
+        let dns = Arc::new(
+            DnsModule::new(DnsModuleConfig {
+                fake_ip_enabled: true,
+                ..Default::default()
+            })
+            .await
+            .unwrap(),
+        );
+        let dispatcher = DefaultDispatcher::new_with_dns(
+            Arc::new(StaticRouter),
+            std::collections::HashMap::new(),
+            dns,
+        );
+
+        let ip = "198.18.0.100".parse().unwrap();
+        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(ip, 443));
+        assert_eq!(restored, Address::Ipv4(ip, 443));
     }
 }

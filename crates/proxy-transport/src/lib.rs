@@ -47,12 +47,13 @@ pub use hysteria2::{
 pub use mkcp::{
     mkcp_accept_once, mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
 };
-pub use quic::{build_client_endpoint, build_server_endpoint, dev_self_signed, dev_self_signed_for_names};
+pub use quic::{
+    build_client_endpoint, build_server_endpoint, dev_self_signed, dev_self_signed_for_names,
+};
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{
     complete_tls13_server_handshake, tls_cert_for_auth_key, tls_pem_for_auth_key, RealityAccepted,
-    accept_tls13_after_reality, RealityClient, RealityClientConfig, RealityServer,
-    RealityServerConfig, Tls13Stream,
+    RealityClient, RealityClientConfig, RealityServer, RealityServerConfig, Tls13Stream,
 };
 pub use shadowtls::{
     compute_marker, shadowtls_accept, shadowtls_connect, shadowtls_marker_accept,

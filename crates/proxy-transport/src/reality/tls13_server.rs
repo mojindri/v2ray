@@ -16,8 +16,8 @@ use super::{
 };
 
 const SIG_ED25519: u16 = 0x0807;
-const TLS13_SERVER_CERT_VERIFY_CONTEXT: &[u8] =
-    b"TLS 1.3, server CertificateVerify\x00";
+// Must match Go TLS `serverSignatureContext`; Xray/sing-box verify this with uTLS.
+const TLS13_SERVER_CERT_VERIFY_CONTEXT: &[u8] = b"TLS 1.3, server CertificateVerify\x00";
 
 /// Complete TLS 1.3 as server after REALITY auth.
 pub async fn complete_tls13_server_handshake(
@@ -39,9 +39,8 @@ pub async fn complete_tls13_server_handshake(
     // External clients (sing-box) strip ML-KEM shares; use the standard cert template.
     let (cert_der, signing_key) =
         crate::reality::cert::tls_cert_for_auth_key(auth_key, cover_sni, false)?;
-    crate::reality::cert::verify_reality_cert_hmac(auth_key, &cert_der).map_err(|e| {
-        ProxyError::Tls(format!("REALITY cert self-check before send: {e}"))
-    })?;
+    crate::reality::cert::verify_reality_cert_hmac(auth_key, &cert_der)
+        .map_err(|e| ProxyError::Tls(format!("REALITY cert self-check before send: {e}")))?;
 
     let server_tls_secret = StaticSecret::random_from_rng(rand::thread_rng());
     let server_tls_pub = PublicKey::from(&server_tls_secret);
@@ -51,9 +50,7 @@ pub async fn complete_tls13_server_handshake(
 
     let session_id = parse_client_session_id(&ch_body)?;
     let sh_body = build_server_hello(cs, &server_pub_bytes, session_id);
-    stream
-        .write_all(&write_handshake_record(&sh_body))
-        .await?;
+    stream.write_all(&write_handshake_record(&sh_body)).await?;
     transcript.extend_from_slice(&sh_body);
     let client_tls_pub = PublicKey::from(client_share);
     let tls_dhe = server_tls_secret
@@ -153,8 +150,7 @@ async fn read_client_finished(
                     if hs_type == HS_FINISHED {
                         let body_start = 4;
                         let verify_data = &msg_bytes[body_start..];
-                        let expected =
-                            cs.hmac(&hs_keys.client_finished_key, app_transcript_hash);
+                        let expected = cs.hmac(&hs_keys.client_finished_key, app_transcript_hash);
                         if verify_data != expected.as_slice() {
                             return Err(ProxyError::Protocol(
                                 "client Finished HMAC mismatch".into(),
@@ -180,7 +176,9 @@ fn pick_cipher_suite(ch_body: &[u8]) -> Result<CipherSuite, ProxyError> {
     let sid_len = ch_body[38] as usize;
     let mut pos = 39 + sid_len;
     if pos + 2 > ch_body.len() {
-        return Err(ProxyError::Protocol("ClientHello: cipher_suites_len".into()));
+        return Err(ProxyError::Protocol(
+            "ClientHello: cipher_suites_len".into(),
+        ));
     }
     let cs_len = u16::from_be_bytes([ch_body[pos], ch_body[pos + 1]]) as usize;
     pos += 2;
@@ -202,12 +200,16 @@ fn pick_cipher_suite(ch_body: &[u8]) -> Result<CipherSuite, ProxyError> {
 
 fn parse_client_session_id(ch_body: &[u8]) -> Result<&[u8], ProxyError> {
     if ch_body.len() < 39 {
-        return Err(ProxyError::Protocol("ClientHello too short for session_id".into()));
+        return Err(ProxyError::Protocol(
+            "ClientHello too short for session_id".into(),
+        ));
     }
     let sid_len = ch_body[38] as usize;
     let end = 39 + sid_len;
     if end > ch_body.len() {
-        return Err(ProxyError::Protocol("ClientHello session_id truncated".into()));
+        return Err(ProxyError::Protocol(
+            "ClientHello session_id truncated".into(),
+        ));
     }
     Ok(&ch_body[39..end])
 }
@@ -303,11 +305,22 @@ fn build_certificate_verify(
     Ok(msg)
 }
 
+fn build_finished(verify_data: Vec<u8>) -> Vec<u8> {
+    let vd_len = verify_data.len() as u32;
+    let mut msg = Vec::with_capacity(4 + verify_data.len());
+    msg.push(HS_FINISHED);
+    msg.push((vd_len >> 16) as u8);
+    msg.push((vd_len >> 8) as u8);
+    msg.push(vd_len as u8);
+    msg.extend_from_slice(&verify_data);
+    msg
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::parse_server_hello;
-    use super::complete_tls13_server_handshake;
     use super::build_server_hello;
+    use super::complete_tls13_server_handshake;
     use super::CipherSuite;
     use crate::reality::parse_client_hello;
     use crate::Tls13Stream;
@@ -341,9 +354,15 @@ mod tests {
         let th = [2u8; 32];
         let hs = derive_handshake_keys(CipherSuite::Aes128GcmSha256, &dhe, &th);
         let ee = build_encrypted_extensions();
-        let record =
-            encrypt_app_record(CipherSuite::Aes128GcmSha256, &hs.server_key, &hs.server_iv, 0, &ee, RT_HANDSHAKE)
-                .unwrap();
+        let record = encrypt_app_record(
+            CipherSuite::Aes128GcmSha256,
+            &hs.server_key,
+            &hs.server_iv,
+            0,
+            &ee,
+            RT_HANDSHAKE,
+        )
+        .unwrap();
         let header: [u8; 5] = record[..5].try_into().unwrap();
         let (plain, ty) = decrypt_app_record(
             CipherSuite::Aes128GcmSha256,
@@ -427,18 +446,16 @@ mod tests {
 
     #[tokio::test]
     async fn self_client_server_tls13_roundtrip() {
-        let priv_bytes = hex::decode(
-            "8cb13706aa547712de8f687dc32e66b0ec2e753ba310e734b72fb52ce5e6a4a8",
-        )
-        .unwrap()
-        .try_into()
-        .unwrap();
-        let pub_bytes = hex::decode(
-            "bbf29cec98e1aff519fcd09456d90407804f91ae62be4b8aac48f6d676807865",
-        )
-        .unwrap()
-        .try_into()
-        .unwrap();
+        let priv_bytes =
+            hex::decode("8cb13706aa547712de8f687dc32e66b0ec2e753ba310e734b72fb52ce5e6a4a8")
+                .unwrap()
+                .try_into()
+                .unwrap();
+        let pub_bytes =
+            hex::decode("bbf29cec98e1aff519fcd09456d90407804f91ae62be4b8aac48f6d676807865")
+                .unwrap()
+                .try_into()
+                .unwrap();
         let short_id = hex::decode("0123456789abcdef").unwrap();
         let fallback = {
             let l = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -460,13 +477,10 @@ mod tests {
             let (tcp, _) = listener.accept().await.unwrap();
             let accepted = srv.accept_with_key(Box::new(tcp)).await.unwrap();
             let mut stream = accepted.stream;
-            let keys = complete_tls13_server_handshake(
-                &mut stream,
-                &accepted.auth_key,
-                "www.example.com",
-            )
-            .await
-            .unwrap();
+            let keys =
+                complete_tls13_server_handshake(&mut stream, &accepted.auth_key, "www.example.com")
+                    .await
+                    .unwrap();
             let mut tls = Tls13Stream::new_server(stream, keys);
             let mut buf = [0u8; 4];
             tls.read_exact(&mut buf).await.unwrap();
@@ -503,9 +517,9 @@ mod tests {
         use tokio::sync::oneshot;
         use x25519_dalek::{PublicKey, StaticSecret};
 
-        use crate::{RealityServer, RealityServerConfig, Tls13Stream};
-        use crate::reality::{REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
         use super::super::complete_tls13_handshake;
+        use crate::reality::{REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
+        use crate::{RealityServer, RealityServerConfig, Tls13Stream};
 
         let server_secret = StaticSecret::random_from_rng(rand::thread_rng());
         let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
@@ -600,15 +614,9 @@ mod tests {
         let mut tcp = tokio::net::TcpStream::connect(addr).await.unwrap();
         tcp.write_all(&wire_hello).await.unwrap();
         let hs_body = &wire_hello[5..];
-        let keys = complete_tls13_handshake(
-            &mut tcp,
-            hs_body,
-            &client_secret,
-            None,
-            &auth_key,
-        )
-        .await
-        .expect("client TLS with sing-box-style auth");
+        let keys = complete_tls13_handshake(&mut tcp, hs_body, &client_secret, None, &auth_key)
+            .await
+            .expect("client TLS with sing-box-style auth");
         let mut tls = Tls13Stream::new(Box::new(tcp), keys);
         tls.write_all(b"ping").await.unwrap();
         let mut reply = [0u8; 4];
@@ -616,15 +624,4 @@ mod tests {
         assert_eq!(&reply, b"pong");
         rx.await.unwrap();
     }
-}
-
-fn build_finished(verify_data: Vec<u8>) -> Vec<u8> {
-    let vd_len = verify_data.len() as u32;
-    let mut msg = Vec::with_capacity(4 + verify_data.len());
-    msg.push(HS_FINISHED);
-    msg.push((vd_len >> 16) as u8);
-    msg.push((vd_len >> 8) as u8);
-    msg.push(vd_len as u8);
-    msg.extend_from_slice(&verify_data);
-    msg
 }
