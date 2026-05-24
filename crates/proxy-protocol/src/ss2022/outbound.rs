@@ -3,15 +3,21 @@
 //! # Wire format (SIP022 compatible)
 //!
 //! 1. Send salt (32 random bytes, plaintext).
-//! 2. Send request header as the **first AEAD chunk** (nonce=0 for length, nonce=1 for data):
-//!    `type(1)=0x00 | timestamp(8 BE) | pad_len(2 BE)=0 | atyp(1) | addr | port(2 BE)`
-//! 3. Data relay uses the same AEAD stream (nonces continue from 2).
+//! 2. Send SIP022 request fixed header (nonce=0):
+//!    `type(1)=0x00 | timestamp(8 BE) | variable_header_len(2 BE)`
+//! 3. Send SIP022 request variable header (nonce=1):
+//!    `atyp | addr | port | padding_len(2 BE) | padding | initial_payload`
+//! 4. Data relay uses normal length/payload chunks (nonces continue from 2).
 
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use async_trait::async_trait;
+use aes_gcm::{
+    aead::{generic_array::GenericArray, Aead},
+    Aes256Gcm, KeyInit,
+};
 use rand::RngCore;
 use tokio::io::AsyncWriteExt;
 use tokio::net::TcpStream;
@@ -108,33 +114,40 @@ pub async fn open_ss2022_stream(
     rand::thread_rng().fill_bytes(&mut salt);
     raw.write_all(&salt).await?;
 
-    // 2. Derive subkey and wrap raw stream in AEAD chunk stream.
+    // 2. Derive subkey and write the two SIP022 standalone request header chunks.
     let subkey = derive_subkey(psk, &salt);
-    let mut aead = Ss2022Stream::new_with_nonce(raw, &subkey, 0);
+    let cipher = Aes256Gcm::new(GenericArray::from_slice(&subkey));
+    let variable = build_request_variable_header(dest);
 
-    // 3. Write request header as first AEAD chunk.
-    let header = build_request_header(dest);
-    aead.write_all(&header).await?;
-    aead.flush().await?;
-
-    // Nonce counter is now at 2 (length used nonce 0, data used nonce 1).
-    Ok(aead)
-}
-
-/// Build the request header plaintext.
-///
-/// ```text
-/// type(1)=0x00 | timestamp(8 BE) | pad_len(2 BE)=0 | atyp(1) | addr | port(2 BE)
-/// ```
-fn build_request_header(dest: &Address) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(32);
-    buf.push(TYPE_TCP);
+    let mut fixed = [0u8; 11];
+    fixed[0] = TYPE_TCP;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs();
-    buf.extend_from_slice(&ts.to_be_bytes());
-    buf.extend_from_slice(&0u16.to_be_bytes()); // pad_len = 0
+    fixed[1..9].copy_from_slice(&ts.to_be_bytes());
+    fixed[9..11].copy_from_slice(&(variable.len() as u16).to_be_bytes());
+
+    let fixed_ct = cipher
+        .encrypt(GenericArray::from_slice(&make_nonce(0)), fixed.as_slice())
+        .map_err(|_| ProxyError::Protocol("SS-2022: fixed header encrypt failed".into()))?;
+    let variable_ct = cipher
+        .encrypt(GenericArray::from_slice(&make_nonce(1)), variable.as_slice())
+        .map_err(|_| ProxyError::Protocol("SS-2022: variable header encrypt failed".into()))?;
+    raw.write_all(&fixed_ct).await?;
+    raw.write_all(&variable_ct).await?;
+    raw.flush().await?;
+
+    Ok(Ss2022Stream::new_with_nonce(raw, &subkey, 2))
+}
+
+/// Build the SIP022 request variable header plaintext.
+///
+/// ```text
+/// atyp(1) | addr | port(2 BE) | padding_len(2 BE)=0 | initial_payload(empty)
+/// ```
+fn build_request_variable_header(dest: &Address) -> Vec<u8> {
+    let mut buf = Vec::with_capacity(32);
     match dest {
         Address::Ipv4(ip, port) => {
             buf.push(ATYP_IPV4);
@@ -153,5 +166,12 @@ fn build_request_header(dest: &Address) -> Vec<u8> {
             buf.extend_from_slice(&port.to_be_bytes());
         }
     }
+    buf.extend_from_slice(&0u16.to_be_bytes()); // padding_len = 0
     buf
+}
+
+fn make_nonce(counter: u64) -> [u8; 12] {
+    let mut n = [0u8; 12];
+    n[..8].copy_from_slice(&counter.to_le_bytes());
+    n
 }

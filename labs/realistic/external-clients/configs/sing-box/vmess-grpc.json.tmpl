@@ -10,7 +10,7 @@
       "server": "${EXTERNAL_SERVER_ADDRESS}",
       "server_port": 8444,
       "uuid": "${VMESS_UUID}",
-      "security": "auto",
+      "security": "aes-128-gcm",
       "tls": { "enabled": true, "server_name": "${EXTERNAL_TLS_SERVER_NAME}", "insecure": true },
       "transport": { "type": "grpc", "service_name": "lab.Gun" }
     }

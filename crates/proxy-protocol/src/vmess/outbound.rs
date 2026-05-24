@@ -89,15 +89,13 @@ pub async fn connect_vmess_on_stream(
     let auth_id = generate_auth_id(cmd_key_bytes);
 
     // Build the encrypted header.
-    let (iv, key, _v, header_ct) =
+    let (iv, key, _v, connection_nonce, encrypted_len, header_ct) =
         encode_header(cmd_key_bytes, &auth_id, dest, Security::Aes128Gcm);
 
-    // Build the encrypted length prefix (18 bytes: 2 plaintext + 16 GCM tag).
-    let enc_len_field = encrypt_length_field(cmd_key_bytes, &auth_id, header_ct.len() as u16)?;
-
-    // Wire: auth_id(16) || enc_len(18) || header_ciphertext
+    // Wire: auth_id(16) || enc_len(18) || connection_nonce(8) || header_ciphertext
     stream.write_all(&auth_id).await?;
-    stream.write_all(&enc_len_field).await?;
+    stream.write_all(&encrypted_len).await?;
+    stream.write_all(&connection_nonce).await?;
     stream.write_all(&header_ct).await?;
     stream.flush().await?;
 
@@ -114,14 +112,14 @@ fn encrypt_length_field(
     auth_id: &[u8; 16],
     len: u16,
 ) -> Result<Vec<u8>, ProxyError> {
-    use super::codec::{PATH_HEADER_IV, PATH_HEADER_IV_2, PATH_HEADER_KEY, PATH_HEADER_KEY_2};
+    use super::codec::{PATH_HDR_IV, PATH_HDR_KEY};
     use aes_gcm::{
         aead::{generic_array::GenericArray, Aead, Payload},
         Aes128Gcm, KeyInit,
     };
 
-    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HEADER_KEY, auth_id, PATH_HEADER_KEY_2]);
-    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HEADER_IV, auth_id, PATH_HEADER_IV_2]);
+    let enc_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id]);
+    let enc_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id]);
 
     let cipher = Aes128Gcm::new(GenericArray::from_slice(&enc_key));
     let nonce = GenericArray::from_slice(&enc_nonce);

@@ -30,7 +30,7 @@ use aes_gcm::{
     aead::{generic_array::GenericArray, Aead, Payload},
     Aes128Gcm, KeyInit,
 };
-use bytes::{BufMut, Bytes, BytesMut};
+use bytes::{BufMut, BytesMut};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -165,7 +165,9 @@ pub fn encode_header(
         .encrypt(
             GenericArray::from_slice(&len_nonce),
             Payload {
-                msg: &(enc_header.len() as u16).to_be_bytes(),
+                // VMess AEAD length is the plaintext header length.
+                // Encrypted header on wire is plaintext_len + 16-byte GCM tag.
+                msg: &(plaintext.len() as u16).to_be_bytes(),
                 aad: auth_id,
             },
         )
@@ -213,7 +215,7 @@ pub async fn decode_header<R: AsyncRead + Unpin>(
     connection_nonce: &[u8; 8],
     enc_len: usize,
 ) -> Result<VmessRequest, ProxyError> {
-    let mut ciphertext = vec![0u8; enc_len];
+    let mut ciphertext = vec![0u8; enc_len + 16];
     reader.read_exact(&mut ciphertext).await?;
 
     let key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, connection_nonce.as_ref()]);
