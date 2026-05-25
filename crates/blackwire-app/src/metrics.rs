@@ -31,6 +31,8 @@ use metrics_exporter_prometheus::PrometheusHandle;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
+use crate::runtime_stats;
+
 /// Shared state for the metrics HTTP server.
 #[derive(Clone)]
 struct MetricsState {
@@ -154,6 +156,7 @@ async fn version_handler() -> impl IntoResponse {
 
 /// Record that a new connection was accepted on `inbound` using `protocol`.
 pub fn record_connection_accepted(inbound: &str, protocol: &str) {
+    runtime_stats::record_connection_accepted(inbound, protocol);
     metrics::counter!(
         "proxy_connections_total",
         "inbound" => inbound.to_owned(),
@@ -173,6 +176,7 @@ pub fn record_connection_accepted(inbound: &str, protocol: &str) {
 /// Call this after the relay finishes to decrement the active gauge and
 /// record bytes / duration.
 pub fn record_connection_closed(inbound: &str, rx_bytes: u64, tx_bytes: u64, duration: Duration) {
+    runtime_stats::record_relay_traffic(inbound, None, rx_bytes, tx_bytes);
     metrics::gauge!(
         "proxy_active_connections",
         "inbound" => inbound.to_owned()

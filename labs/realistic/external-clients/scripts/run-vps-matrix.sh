@@ -103,10 +103,13 @@ cleanup_all() {
 trap cleanup_all EXIT
 
 assert_single_client() {
-    local n
-    n="$(ssh_client 'docker ps -q --filter name=external-xray-client --filter name=external-sing-box-client 2>/dev/null | wc -l' 2>/dev/null | tr -d ' ')"
+    local n=0
+    ssh_client 'docker ps --filter status=running --format "{{.Names}}" | grep -qx external-xray-client' \
+        2>/dev/null && n=$((n + 1)) || true
+    ssh_client 'docker ps --filter status=running --format "{{.Names}}" | grep -qx external-sing-box-client' \
+        2>/dev/null && n=$((n + 1)) || true
     if [[ "${n:-0}" -gt 1 ]]; then
-        echo "ERROR: multiple external clients on VPS; sequential matrix violated" >&2
+        echo "ERROR: multiple external clients on VPS (${n}); sequential matrix violated" >&2
         exit 1
     fi
 }

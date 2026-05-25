@@ -33,6 +33,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use dashmap::DashMap;
+use serde_json::Value;
 use tracing::info;
 
 use blackwire_app::router::LiveRouter;
@@ -122,6 +123,68 @@ pub fn inbound_listener_changes(old: &Config, new: &Config) -> Vec<String> {
         }
     }
     changed
+}
+
+/// Returns `true` when a validated config change requires rebuilding the running instance.
+///
+/// Routing, DNS, sniffing, and VLESS user lists are hot-swappable via [`ReloadState::apply`].
+/// Structural changes such as listeners, transport wrappers, and outbound definitions
+/// need a fresh `Instance` because the handler graph is built at startup.
+pub fn requires_instance_restart(old: &Config, new: &Config) -> bool {
+    if !inbound_listener_changes(old, new).is_empty() {
+        return true;
+    }
+
+    if old.metrics_addr != new.metrics_addr || old.api != new.api {
+        return true;
+    }
+
+    match (serde_json::to_value(&old.tun), serde_json::to_value(&new.tun)) {
+        (Ok(a), Ok(b)) if a != b => return true,
+        (Err(_), _) | (_, Err(_)) => return true,
+        _ => {}
+    }
+
+    match (
+        serde_json::to_value(&old.outbounds),
+        serde_json::to_value(&new.outbounds),
+    ) {
+        (Ok(a), Ok(b)) if a != b => return true,
+        (Err(_), _) | (_, Err(_)) => return true,
+        _ => {}
+    }
+
+    if old.inbounds.len() != new.inbounds.len() {
+        return true;
+    }
+
+    for new_in in &new.inbounds {
+        let Some(old_in) = old.inbounds.iter().find(|i| i.tag == new_in.tag) else {
+            return true;
+        };
+        if normalized_inbound_value(old_in) != normalized_inbound_value(new_in) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn normalized_inbound_value(inbound: &blackwire_config::schema::InboundConfig) -> Value {
+    let mut value = serde_json::to_value(inbound).unwrap_or(Value::Null);
+    let Some(obj) = value.as_object_mut() else {
+        return value;
+    };
+
+    // Sniffing is hot-swapped separately and VLESS users are refreshed in-place.
+    obj.remove("sniffing");
+    if inbound.protocol == Protocol::Vless {
+        if let Some(settings) = obj.get_mut("settings").and_then(|v| v.as_object_mut()) {
+            settings.remove("clients");
+        }
+    }
+
+    value
 }
 
 /// Collect every outbound tag referenced in the config so routing rules can be validated.

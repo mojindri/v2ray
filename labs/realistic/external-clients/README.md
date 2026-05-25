@@ -12,13 +12,24 @@ external-client scenarios are compatible with the server side.
 
 ## Sequential execution (required)
 
-**Do not run external clients in parallel.**
+**Do not run two matrix invocations in parallel.**
 
-The matrix runs one case at a time: for each `scenarios.env` row it runs Xray,
-then sing-box, then negative-auth variants—each after full teardown of the prior
-client container. Only one of `xray-client` / `sing-box-client` (or VPS
-equivalent) may be live at once. A lock under the report directory prevents
-overlapping matrix invocations.
+Within one run, the Docker harness (`run-docker-matrix.sh`) keeps long-lived
+containers and still runs **one external client at a time** (Xray, then sing-box,
+then negatives). Only one of `xray-client` / `sing-box-client` may run a proxy
+process at once. A lock under the report directory prevents overlapping matrix
+invocations.
+
+### Fast harness (default)
+
+- `docker compose up -d` once (target, probe, server, clients).
+- Reused `matrix-probe` container for `nc` / `curl` (no `docker run --rm` per check).
+- `compose exec` to start/stop `blackwire` and sing-box per case.
+- **Xray** uses `compose run` per case (distroless image has no `/bin/sh` for idle holders).
+- **One server start per protocol** (four client cases reuse the same listener).
+- `target-http` compose healthcheck instead of blind sleep loops.
+
+Tune waits: `MATRIX_PORT_WAIT_TRIES`, `MATRIX_PORT_WAIT_SLEEP`, `MATRIX_SOCKS_WAIT_TRIES`, `MATRIX_SOCKS_WAIT_SLEEP`.
 
 ## Commands
 

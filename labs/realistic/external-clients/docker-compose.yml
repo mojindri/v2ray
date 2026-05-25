@@ -5,27 +5,42 @@ services:
       - "-listen=:8080"
       - "-text=blackwire external client target"
 
-  blackwire-server:
-    image: blackwire:latest
-    volumes:
-      - ./generated/blackwire:/generated/blackwire:ro
-      - ./generated/certs:/etc/blackwire/certs:ro
-    command: ["run", "-c", "/generated/blackwire/server-vless-tcp.json"]
+  # Long-lived probe: nc + curl (no per-check docker run --rm).
+  matrix-probe:
+    image: alpine:3.20
+    command: ["sleep", "infinity"]
     depends_on:
       - target-http
 
-  xray-client:
-    image: ghcr.io/xtls/xray-core:latest
+  # Debian-based image: idle holder + exec-driven blackwire runs.
+  blackwire-server:
+    image: blackwire:latest
+    hostname: blackwire-server
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec sleep infinity"]
     volumes:
-      - ./generated:/generated:ro
-    command: ["run", "-c", "/generated/xray/vless-tcp.json"]
+      - ./generated/blackwire:/generated/blackwire:ro
+      - ./generated/certs:/etc/blackwire/certs:ro
     depends_on:
-      - blackwire-server
+      - target-http
 
+  # sing-box image includes /bin/sh — idle holder + exec-driven runs.
   sing-box-client:
     image: ghcr.io/sagernet/sing-box:latest
+    hostname: sing-box-client
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec sleep infinity"]
     volumes:
       - ./generated:/generated:ro
-    command: ["run", "-c", "/generated/sing-box/vless-tcp.json"]
     depends_on:
-      - blackwire-server
+      - target-http
+
+  # Xray-core is distroless (no shell). Not started via `compose up`; matrix uses
+  # `compose run --name xray-client` per case (see run-docker-matrix.sh).
+  xray-client:
+    image: ghcr.io/xtls/xray-core:latest
+    hostname: xray-client
+    volumes:
+      - ./generated:/generated:ro
+    depends_on:
+      - target-http

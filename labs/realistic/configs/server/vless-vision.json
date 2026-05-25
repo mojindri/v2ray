@@ -7,8 +7,7 @@
       "listen": "0.0.0.0",
       "port": 10082,
       "settings": {
-        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "xtls-rprx-vision" }],
-        "fallback": { "dest": "${REALITY_DEST}" }
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "xtls-rprx-vision" }]
       },
       "streamSettings": {
         "network": "tcp",

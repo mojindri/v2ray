@@ -38,6 +38,7 @@ use crate::context::Context;
 use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
 use crate::metrics::{record_connection_accepted, record_connection_closed};
+use crate::runtime_stats;
 use crate::router::Router;
 
 /// The dispatcher connects inbounds to outbounds by consulting the router
@@ -244,6 +245,9 @@ impl Dispatcher for DefaultDispatcher {
 
         let (rx_bytes, tx_bytes) = result.unwrap_or((0, 0));
         record_connection_closed(&ctx.inbound_tag, rx_bytes, tx_bytes, elapsed);
+        if let Some(user) = ctx.user.as_deref() {
+            runtime_stats::record_user_traffic(user, rx_bytes, tx_bytes);
+        }
 
         Ok(())
     }

@@ -55,7 +55,7 @@ pub(crate) fn initial_health_states(
 pub(crate) fn reject_unfinished_transport_settings(
     side: &str,
     tag: &str,
-    protocol: Protocol,
+    _protocol: Protocol,
     stream_settings: &Option<StreamSettingsConfig>,
 ) -> Result<()> {
     let Some(settings) = stream_settings else {
@@ -86,18 +86,6 @@ pub(crate) fn reject_unfinished_transport_settings(
                 .parse::<blackwire_transport::mkcp::header::HeaderType>()
                 .map_err(|e| anyhow::anyhow!("{side} '{tag}' has invalid mKCP header: {e}"))?;
         }
-    }
-
-    if settings.network == NetworkType::SplitHttp {
-        anyhow::bail!(
-            "{side} '{tag}' uses network=splithttp (SplitHTTP/xHTTP) — not implemented yet; see docs/xray-parity-roadmap.md"
-        );
-    }
-
-    if settings.network == NetworkType::Quic && protocol != Protocol::Hysteria2 {
-        anyhow::bail!(
-            "{side} '{tag}' uses network=quic — generic QUIC for VLESS/VMess is not implemented yet"
-        );
     }
 
     Ok(())

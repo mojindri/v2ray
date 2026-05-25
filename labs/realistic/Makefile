@@ -2,15 +2,16 @@ SHELL := /bin/bash
 
 ROOT := ../..
 REPORTS := reports
-# Hetzner VPS are x86_64; on Apple Silicon default docker build is arm64 — force linux/amd64.
-DOCKER_PLATFORM ?= linux/amd64
+# Local interop: native Docker arch (fast on Apple Silicon). VPS deploy: make build-amd64.
+DOCKER_PLATFORM ?=
 LINUX_BIN := $(ROOT)/target/linux-amd64/blackwire
+DOCKER_PLATFORM_FLAG := $(if $(DOCKER_PLATFORM),--platform $(DOCKER_PLATFORM),)
 SSH_USER ?= root
 SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build build-linux-bin docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
+.PHONY: help build build-amd64 build-linux-bin docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
 	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
@@ -18,16 +19,19 @@ SSH_EXTRA_OPTS ?=
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
 
-build: ## Build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
+build: ## Build blackwire:latest (native platform; fast local interop on arm64 Mac)
 	@mkdir -p $(REPORTS)
-	docker build --platform $(DOCKER_PLATFORM) \
+	docker build $(DOCKER_PLATFORM_FLAG) \
 		-f $(ROOT)/deploy/docker/Dockerfile \
 		-t blackwire:latest $(ROOT) | tee $(REPORTS)/docker-build-image.txt
-	@echo "Built blackwire:latest ($(DOCKER_PLATFORM))"
+	@echo "Built blackwire:latest $$(docker image inspect blackwire:latest --format '{{.Os}}/{{.Architecture}}')"
 
-build-linux-bin: build ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
+build-amd64: ## Cross-build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
+	$(MAKE) build DOCKER_PLATFORM=linux/amd64
+
+build-linux-bin: build-amd64 ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
 	@mkdir -p $(dir $(LINUX_BIN))
-	@cid=$$(docker create --platform $(DOCKER_PLATFORM) blackwire:latest); \
+	@cid=$$(docker create --platform linux/amd64 blackwire:latest); \
 	 docker cp "$$cid:/usr/local/bin/blackwire" "$(LINUX_BIN)"; \
 	 docker rm "$$cid" >/dev/null
 	@file "$(LINUX_BIN)"

@@ -12,6 +12,7 @@ blackwire-config          = { path = "../blackwire-config" }
 blackwire-app             = { path = "../blackwire-app" }
 blackwire-transport       = { path = "../blackwire-transport" }
 blackwire-protocol        = { path = "../blackwire-protocol" }
+blackwire-api             = { path = "../blackwire-api" }
 
 dashmap.workspace    = true
 tokio.workspace       = true

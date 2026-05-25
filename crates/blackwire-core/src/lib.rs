@@ -27,4 +27,4 @@ mod ws_tls;
 
 pub use instance::Instance;
 /// Hot-reload handles: swap routing rules and VLESS users without restarting listeners.
-pub use reload::{inbound_listener_changes, ReloadState};
+pub use reload::{inbound_listener_changes, requires_instance_restart, ReloadState};

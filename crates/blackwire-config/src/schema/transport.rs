@@ -45,6 +45,15 @@ pub struct StreamSettingsConfig {
     )]
     pub httpupgrade_settings: Option<WsConfig>,
 
+    /// SplitHTTP / xHTTP settings.
+    #[serde(
+        default,
+        rename = "splithttpSettings",
+        alias = "xhttpSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub splithttp_settings: Option<SplitHttpConfig>,
+
     /// gRPC-specific settings.
     #[serde(
         default,
@@ -175,6 +184,30 @@ pub struct WsConfig {
 
 fn default_ws_path() -> String {
     "/".to_string()
+}
+
+/// SplitHTTP transport settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SplitHttpConfig {
+    /// HTTP path used by the transport.
+    #[serde(default = "default_ws_path")]
+    pub path: String,
+
+    /// Optional host override(s).
+    #[serde(default)]
+    pub host: Vec<String>,
+
+    /// HTTP method to use for the upload request.
+    #[serde(default = "default_splithttp_method")]
+    pub method: String,
+
+    /// Extra HTTP headers.
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+fn default_splithttp_method() -> String {
+    "PUT".to_string()
 }
 
 /// gRPC transport settings.

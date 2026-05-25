@@ -19,7 +19,7 @@ pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
     GrpcConfig, Hysteria2Config, KcpConfig, RealityConfig, ShadowTlsConfig, SniffingConfig,
-    StreamSettingsConfig, TlsConfig, WsConfig,
+    SplitHttpConfig, StreamSettingsConfig, TlsConfig, WsConfig,
 };
 
 use serde::{Deserialize, Serialize};

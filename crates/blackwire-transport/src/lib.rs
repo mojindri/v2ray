@@ -31,6 +31,9 @@ pub mod ws;
 /// HTTPUpgrade transport (Xray `httpupgrade` network).
 pub mod httpupgrade;
 
+/// SplitHTTP / xHTTP transport.
+pub mod splithttp;
+
 // Phase 4+
 /// TUN transport runtime and packet helpers for full-device proxying.
 pub mod tun;
@@ -41,6 +44,9 @@ pub mod grpc;
 // mKCP transport
 /// mKCP transport implementation (KCP over UDP).
 pub mod mkcp;
+
+/// Generic QUIC transport for VLESS / VMess stream protocols.
+pub mod v2rayquic;
 
 // Phase 7: ShadowTLS v3 transport
 pub mod shadowtls;
@@ -54,7 +60,8 @@ pub use mkcp::{
     mkcp_accept_once, mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
 };
 pub use quic::{
-    build_client_endpoint, build_server_endpoint, dev_self_signed, dev_self_signed_for_names,
+    build_client_endpoint, build_client_endpoint_with_alpn, build_server_endpoint,
+    build_server_endpoint_with_alpn, dev_self_signed, dev_self_signed_for_names,
     ensure_crypto_provider,
 };
 pub use quic::{BrutalCC, BrutalCCFactory};
@@ -74,6 +81,8 @@ pub use tun::{
     build_tcp_rst, create_tun, IpPacket, TransportProtocol, TunConfig, TunRuntime, UdpNatTable,
 };
 pub use httpupgrade::{accept_httpupgrade, dial_httpupgrade, httpupgrade_listen_path};
+pub use splithttp::{splithttp_accept, splithttp_connect, splithttp_listen_params};
+pub use v2rayquic::{accepted_quic_stream, quic_connect, quic_server_endpoint, QuicStream};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};
 
 // Re-export quinn's congestion module so downstream crates can implement

@@ -19,6 +19,7 @@ pub mod features;
 pub mod geo;
 pub mod health;
 pub mod metrics;
+pub mod runtime_stats;
 mod relay;
 pub mod router;
 pub mod sniff;

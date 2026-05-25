@@ -49,6 +49,7 @@ use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
 
 use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
+use crate::outbound_transport::uses_quic;
 mod helpers;
 
 pub(crate) use helpers::{build_rules, build_sniffing_map, load_geo_data, populate_vless_registry};
@@ -65,7 +66,8 @@ use helpers::{
 };
 
 use crate::ws_tls::{
-    build_conn_handler, uses_grpc, uses_httpupgrade, uses_shadowtls, uses_tls, uses_ws,
+    build_conn_handler, uses_grpc, uses_httpupgrade, uses_shadowtls, uses_splithttp, uses_tls,
+    uses_ws,
 };
 
 /// Running proxy instance plus reload handles for live config updates.
@@ -318,6 +320,77 @@ impl Instance {
                 continue;
             }
 
+            if uses_quic(&in_cfg.stream_settings) {
+                let tls_cfg = in_cfg
+                    .stream_settings
+                    .as_ref()
+                    .and_then(|s| s.tls_settings.as_ref())
+                    .ok_or_else(|| {
+                        anyhow::anyhow!(
+                            "inbound '{}' uses network=quic but has no tlsSettings",
+                            in_cfg.tag
+                        )
+                    })?;
+                if tls_cfg.certificate_file.is_empty() || tls_cfg.key_file.is_empty() {
+                    anyhow::bail!(
+                        "inbound '{}' uses network=quic and requires certificateFile/keyFile",
+                        in_cfg.tag
+                    );
+                }
+
+                let cert_pem = std::fs::read_to_string(&tls_cfg.certificate_file).with_context(|| {
+                    format!("cannot read QUIC cert file '{}'", tls_cfg.certificate_file)
+                })?;
+                let key_pem = std::fs::read_to_string(&tls_cfg.key_file).with_context(|| {
+                    format!("cannot read QUIC key file '{}'", tls_cfg.key_file)
+                })?;
+                let endpoint = blackwire_transport::quic_server_endpoint(addr, &cert_pem, &key_pem)
+                    .with_context(|| format!("binding QUIC inbound '{}'", in_cfg.tag))?;
+                let conn_handler = Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
+                });
+
+                let task = tokio::spawn(async move {
+                    while let Some(connecting) = endpoint.accept().await {
+                        let conn_handler = Arc::clone(&conn_handler);
+                        tokio::spawn(async move {
+                            let connection = match connecting.await {
+                                Ok(connection) => connection,
+                                Err(e) => {
+                                    error!(addr = %addr, error = %e, "QUIC connection handshake failed");
+                                    return;
+                                }
+                            };
+                            let peer = connection.remote_address();
+                            loop {
+                                match connection.accept_bi().await {
+                                    Ok((send, recv)) => {
+                                        let conn_handler = Arc::clone(&conn_handler);
+                                        let stream = blackwire_transport::accepted_quic_stream(
+                                            connection.clone(),
+                                            recv,
+                                            send,
+                                        );
+                                        tokio::spawn(async move {
+                                            if let Err(e) = conn_handler.handle_connection(stream, peer).await {
+                                                error!(addr = %addr, error = %e, "QUIC inbound stream failed");
+                                            }
+                                        });
+                                    }
+                                    Err(e) => {
+                                        let _ = e;
+                                        break;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                });
+                tasks.push(task);
+                continue;
+            }
+
             // Choose the connection handler stack based on stream settings.
             let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
             {
@@ -347,6 +420,7 @@ impl Instance {
                 || uses_shadowtls(&in_cfg.stream_settings)
                 || uses_ws(&in_cfg.stream_settings)
                 || uses_grpc(&in_cfg.stream_settings)
+                || uses_splithttp(&in_cfg.stream_settings)
                 || uses_httpupgrade(&in_cfg.stream_settings)
             {
                 // Phase 4/5: TLS, WebSocket, HTTPUpgrade, and/or gRPC layering.
@@ -394,6 +468,17 @@ impl Instance {
         }
 
         // ── Optional: start metrics/health HTTP server ───────────────────────
+        if let Some(api_addr) = config
+            .api
+            .as_ref()
+            .and_then(blackwire_api::server::api_listen_addr)
+        {
+            let handle = blackwire_api::server::start_api_server(&api_addr)
+                .with_context(|| format!("starting blackwire-api gRPC server on '{api_addr}'"))?;
+            info!(addr = %api_addr, "blackwire-api gRPC server started");
+            tasks.push(handle);
+        }
+
         if let Some(metrics_addr) = &config.metrics_addr {
             let handle = blackwire_app::metrics::start_metrics_server(metrics_addr)
                 .with_context(|| format!("starting metrics server on '{metrics_addr}'"))?;

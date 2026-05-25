@@ -118,6 +118,16 @@ impl InboundHandler for VlessInbound {
                 // Check if the UUID is in the registry.
                 match self.registry.validate(&req.uuid) {
                     Some(user) => {
+                        if !req.flow.is_empty() && req.flow != user.flow {
+                            warn!(
+                                source = %source,
+                                requested_flow = %req.flow,
+                                user_flow = %user.flow,
+                                "VLESS flow mismatch — rejecting"
+                            );
+                            return Ok(());
+                        }
+
                         debug!(
                             source = %source,
                             dest = %req.dest,
@@ -150,9 +160,14 @@ impl InboundHandler for VlessInbound {
                         dispatcher.dispatch(ctx, req.dest, relay_stream).await
                     }
                     None => {
-                        // UUID not found — forward to fallback.
-                        warn!(source = %source, "VLESS auth failed — forwarding to fallback");
-                        self.do_fallback(stream, header_buf).await
+                        warn!(source = %source, "VLESS auth failed");
+                        if let Some(fallback_addr) = self.fallback {
+                            warn!(fallback = %fallback_addr, "forwarding to fallback");
+                            self.do_fallback(stream, header_buf).await
+                        } else {
+                            // Fail closed when no fallback (lab negative-auth cases).
+                            Ok(())
+                        }
                     }
                 }
             }

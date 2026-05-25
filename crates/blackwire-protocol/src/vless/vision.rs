@@ -12,6 +12,10 @@ use blackwire_common::BoxedStream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 const INITIAL: i32 = -1;
+const COMMAND_PADDING_CONTINUE: i32 = 0;
+const COMMAND_PADDING_END: i32 = 1;
+const COMMAND_PADDING_DIRECT: i32 = 2;
+const TLS_APPLICATION_DATA_START: [u8; 3] = [0x17, 0x03, 0x03];
 
 /// Per-direction Vision unpadding state (Xray `TrafficState` inbound/outbound fields).
 #[derive(Debug, Clone, Default)]
@@ -33,8 +37,9 @@ impl UnpaddingState {
     }
 
     /// Feed bytes; returns plaintext to deliver upstream.
-    fn feed(&mut self, uuid: &[u8; 16], input: &[u8]) -> Vec<u8> {
+    fn feed(&mut self, uuid: &[u8; 16], input: &[u8]) -> (Vec<u8>, bool) {
         let mut out = Vec::new();
+        let mut switch_to_direct = false;
         let mut pos = 0usize;
         while pos < input.len() {
             if self.remaining_command == INITIAL
@@ -46,7 +51,7 @@ impl UnpaddingState {
                     self.remaining_command = 5;
                 } else {
                     out.extend_from_slice(&input[pos..]);
-                    return out;
+                    return (out, switch_to_direct);
                 }
             }
 
@@ -74,9 +79,10 @@ impl UnpaddingState {
             }
 
             if self.remaining_command <= 0 && self.remaining_content <= 0 && self.remaining_padding <= 0 {
-                if self.current_command == 0 {
+                if self.current_command == COMMAND_PADDING_CONTINUE {
                     self.remaining_command = 5;
                 } else {
+                    switch_to_direct = self.current_command == COMMAND_PADDING_DIRECT;
                     self.remaining_command = INITIAL;
                     self.remaining_content = INITIAL;
                     self.remaining_padding = INITIAL;
@@ -87,7 +93,7 @@ impl UnpaddingState {
                 }
             }
         }
-        out
+        (out, switch_to_direct)
     }
 }
 
@@ -98,8 +104,10 @@ pub struct VisionStream<S> {
     uuid: [u8; 16],
     read_state: UnpaddingState,
     read_buf: Vec<u8>,
+    read_direct_copy: bool,
     /// First downlink write includes the 16-byte UUID prefix (Xray `XtlsPadding`).
     write_uuid_once: bool,
+    write_direct_copy: bool,
 }
 
 impl<S> VisionStream<S> {
@@ -109,7 +117,9 @@ impl<S> VisionStream<S> {
             uuid,
             read_state: UnpaddingState::new(),
             read_buf: Vec::new(),
+            read_direct_copy: false,
             write_uuid_once: true,
+            write_direct_copy: false,
         }
     }
 
@@ -124,6 +134,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for VisionStream<S> {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if self.read_direct_copy {
+            return Pin::new(&mut self.inner).poll_read(cx, buf);
+        }
+
         loop {
             if !self.read_buf.is_empty() {
                 let n = buf.remaining().min(self.read_buf.len());
@@ -140,7 +154,10 @@ impl<S: AsyncRead + Unpin> AsyncRead for VisionStream<S> {
                         return Poll::Ready(Ok(()));
                     }
                     let uuid = self.uuid;
-                    let plain = self.read_state.feed(&uuid, rb.filled());
+                    let (plain, switch_to_direct) = self.read_state.feed(&uuid, rb.filled());
+                    if switch_to_direct {
+                        self.read_direct_copy = true;
+                    }
                     if plain.is_empty() {
                         continue;
                     }
@@ -180,6 +197,9 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for VisionStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.write_direct_copy {
+            return Pin::new(&mut self.inner).poll_write(cx, buf);
+        }
         if buf.is_empty() {
             return Pin::new(&mut self.inner).poll_write(cx, buf);
         }
@@ -187,8 +207,13 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for VisionStream<S> {
         if include_uuid {
             self.write_uuid_once = false;
         }
-        // Command 1 = padding end (Xray); passthrough content inside the frame.
-        let framed = pad_chunk(&self.uuid, buf, 1, include_uuid);
+        let command = if looks_like_tls_application_data(buf) && is_complete_tls_record(buf) {
+            self.write_direct_copy = true;
+            COMMAND_PADDING_DIRECT as u8
+        } else {
+            COMMAND_PADDING_END as u8
+        };
+        let framed = pad_chunk(&self.uuid, buf, command, include_uuid);
         match Pin::new(&mut self.inner).poll_write(cx, &framed) {
             Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
             other => other,
@@ -209,6 +234,29 @@ pub fn wrap_vision_stream(stream: BoxedStream, uuid: [u8; 16]) -> BoxedStream {
     Box::new(VisionStream::new(stream, uuid))
 }
 
+fn looks_like_tls_application_data(buf: &[u8]) -> bool {
+    buf.len() >= 6 && buf[..3] == TLS_APPLICATION_DATA_START
+}
+
+fn is_complete_tls_record(buf: &[u8]) -> bool {
+    let mut pos = 0usize;
+    while pos < buf.len() {
+        if buf.len() - pos < 5 {
+            return false;
+        }
+        if buf[pos..pos + 3] != TLS_APPLICATION_DATA_START {
+            return false;
+        }
+        let record_len = u16::from_be_bytes([buf[pos + 3], buf[pos + 4]]) as usize;
+        pos += 5;
+        if buf.len() - pos < record_len {
+            return false;
+        }
+        pos += record_len;
+    }
+    true
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +265,41 @@ mod tests {
     fn passthrough_without_vision_header() {
         let mut st = UnpaddingState::new();
         let uuid = [0u8; 16];
-        let out = st.feed(&uuid, b"hello world");
+        let (out, direct) = st.feed(&uuid, b"hello world");
         assert_eq!(out, b"hello world");
+        assert!(!direct);
+    }
+
+    #[test]
+    fn switches_to_direct_copy_after_direct_command() {
+        let uuid = [7u8; 16];
+        let mut frame = uuid.to_vec();
+        frame.extend_from_slice(&[
+            COMMAND_PADDING_DIRECT as u8,
+            0,
+            3,
+            0,
+            0,
+            b'a',
+            b'b',
+            b'c',
+        ]);
+        frame.extend_from_slice(b"tail");
+
+        let mut st = UnpaddingState::new();
+        let (out, direct) = st.feed(&uuid, &frame);
+        assert_eq!(out, b"abctail");
+        assert!(direct);
+    }
+
+    #[test]
+    fn detects_complete_tls_records() {
+        let tls_record = [
+            0x17, 0x03, 0x03, 0x00, 0x03, b'a', b'b', b'c', 0x17, 0x03, 0x03, 0x00, 0x01,
+            b'z',
+        ];
+        assert!(looks_like_tls_application_data(&tls_record));
+        assert!(is_complete_tls_record(&tls_record));
+        assert!(!is_complete_tls_record(&tls_record[..tls_record.len() - 1]));
     }
 }

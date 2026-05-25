@@ -6,8 +6,11 @@
 # The final image is ~10 MB (distroless/cc) instead of ~1 GB (full Rust image).
 # This minimises the attack surface and download time.
 #
-# Build (linux/amd64 for Hetzner x86_64 VPS; on Apple Silicon pass --platform explicitly):
+# Local interop (native arch):
+#   docker build -t blackwire:latest .
+# Hetzner x86_64 VPS:
 #   docker build --platform linux/amd64 -t blackwire:latest .
+# Or: make -C labs/realistic build-amd64
 #
 # Run:
 #   docker run -v /path/to/config.json:/etc/blackwire/config.json \
@@ -61,6 +64,7 @@ FROM debian:bookworm-slim
 # Install CA certificates for TLS outbound verification.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    procps \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy only the compiled binary from the builder stage.

@@ -24,7 +24,7 @@ use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use blackwire_transport::{
     accept_httpupgrade, grpc_accept, httpupgrade_listen_path, shadowtls_accept, tls_accept,
-    ws_accept,
+    splithttp_accept, splithttp_listen_params, ws_accept,
 };
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -55,6 +55,12 @@ pub(crate) fn uses_httpupgrade(stream_settings: &Option<StreamSettingsConfig>) -
     stream_settings
         .as_ref()
         .is_some_and(|s| s.network == NetworkType::HttpUpgrade)
+}
+
+pub(crate) fn uses_splithttp(stream_settings: &Option<StreamSettingsConfig>) -> bool {
+    stream_settings
+        .as_ref()
+        .is_some_and(|s| s.network == NetworkType::SplitHttp)
 }
 
 /// Returns `true` when the config requests ShadowTLS wrapping.
@@ -191,6 +197,47 @@ impl ConnectionHandler for WsConnectionHandler {
 
 // ── gRPC inbound handler ──────────────────────────────────────────────────────
 
+pub(crate) struct SplitHttpConnectionHandler {
+    expected_path: Option<String>,
+    expected_method: Option<String>,
+    handshake_timeout: Option<Duration>,
+    inner: Arc<dyn ConnectionHandler>,
+}
+
+impl SplitHttpConnectionHandler {
+    pub(crate) fn new(
+        expected_path: Option<String>,
+        expected_method: Option<String>,
+        handshake_timeout: Option<Duration>,
+        inner: Arc<dyn ConnectionHandler>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            expected_path,
+            expected_method,
+            handshake_timeout,
+            inner,
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl ConnectionHandler for SplitHttpConnectionHandler {
+    async fn handle_connection(
+        &self,
+        stream: BoxedStream,
+        source: SocketAddr,
+    ) -> Result<(), ProxyError> {
+        let path = self.expected_path.as_deref();
+        let method = self.expected_method.as_deref();
+        let stream = with_handshake_timeout(
+            self.handshake_timeout,
+            splithttp_accept(stream, path, method),
+        )
+        .await?;
+        self.inner.handle_connection(stream, source).await
+    }
+}
+
 /// A `ConnectionHandler` that performs a gRPC server handshake, then delegates
 /// to the wrapped inner handler.
 pub(crate) struct GrpcConnectionHandler {
@@ -326,6 +373,19 @@ pub(crate) fn build_conn_handler(
             .as_ref()
             .and_then(httpupgrade_listen_path);
         handler = HttpUpgradeConnectionHandler::new(expected_path, handshake_timeout, handler);
+    }
+
+    if uses_splithttp(stream_settings) {
+        let (expected_path, expected_method) = stream_settings
+            .as_ref()
+            .map(splithttp_listen_params)
+            .unwrap_or((None, None));
+        handler = SplitHttpConnectionHandler::new(
+            expected_path,
+            expected_method,
+            handshake_timeout,
+            handler,
+        );
     }
 
     // Add gRPC layer if requested (mutually exclusive with WS).
