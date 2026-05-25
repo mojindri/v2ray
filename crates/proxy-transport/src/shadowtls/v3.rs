@@ -483,7 +483,9 @@ impl AsyncWrite for V3Stream {
         if !self.write_buf.is_empty() {
             while self.write_pos < self.write_buf.len() {
                 let this = self.as_mut().get_mut();
-                let n = ready!(Pin::new(this.inner.as_mut()).poll_write(cx, &this.write_buf[this.write_pos..]))?;
+                let n =
+                    ready!(Pin::new(this.inner.as_mut())
+                        .poll_write(cx, &this.write_buf[this.write_pos..]))?;
                 if n == 0 {
                     return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
                 }

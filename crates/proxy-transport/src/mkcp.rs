@@ -100,6 +100,7 @@ pub async fn mkcp_connect(cfg: &MkcpClientConfig) -> Result<MkcpStream> {
         rx_from_user,
         tx_to_user,
         cfg.interval_ms,
+        cfg.rcv_wnd as usize,
     ));
 
     Ok(MkcpStream::new(tx_to_driver, rx_from_driver))
@@ -233,6 +234,7 @@ async fn start_server_session(
             rx_udp,
             tx_to_user,
             cfg.interval_ms,
+            cfg.rcv_wnd as usize,
         ),
     ));
 
@@ -267,6 +269,7 @@ async fn run_server_driver(
     mut rx_from_udp: mpsc::Receiver<Vec<u8>>,
     tx_to_user: mpsc::Sender<Bytes>,
     interval_ms: u64,
+    pending_cap: usize,
 ) {
     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
     let idle_timer = tokio::time::sleep(SERVER_SESSION_IDLE_TIMEOUT);
@@ -292,7 +295,7 @@ async fn run_server_driver(
                 for seg in out {
                     let _ = socket.send_to(&header.encode(&seg), peer).await;
                 }
-                drain_kcp_recv_into(&mut kcp, &mut pending);
+                drain_kcp_recv_into(&mut kcp, &mut pending, pending_cap);
             }
             Some(data) = rx_from_user.recv() => {
                 idle_timer.as_mut().reset(tokio::time::Instant::now() + SERVER_SESSION_IDLE_TIMEOUT);
@@ -301,7 +304,7 @@ async fn run_server_driver(
             Some(packet) = rx_from_udp.recv() => {
                 idle_timer.as_mut().reset(tokio::time::Instant::now() + SERVER_SESSION_IDLE_TIMEOUT);
                 let _ = kcp.input(&packet);
-                drain_kcp_recv_into(&mut kcp, &mut pending);
+                drain_kcp_recv_into(&mut kcp, &mut pending, pending_cap);
             }
             _ = &mut idle_timer => {
                 return;
@@ -320,6 +323,7 @@ async fn run_client_driver(
     mut rx_from_user: mpsc::Receiver<Bytes>,
     tx_to_user: mpsc::Sender<Bytes>,
     interval_ms: u64,
+    pending_cap: usize,
 ) {
     let mut ticker = tokio::time::interval(Duration::from_millis(interval_ms));
     let mut udp_buf = vec![0u8; 65535];
@@ -342,7 +346,7 @@ async fn run_client_driver(
                 for seg in out {
                     let _ = socket.send(&header.encode(&seg)).await;
                 }
-                drain_kcp_recv_into(&mut kcp, &mut pending);
+                drain_kcp_recv_into(&mut kcp, &mut pending, pending_cap);
             }
             Some(data) = rx_from_user.recv() => {
                 let _ = kcp.send(&data);
@@ -350,7 +354,7 @@ async fn run_client_driver(
             Ok(n) = socket.recv(&mut udp_buf) => {
                 if let Some(payload) = header.strip(&udp_buf[..n]) {
                     let _ = kcp.input(payload);
-                    drain_kcp_recv_into(&mut kcp, &mut pending);
+                    drain_kcp_recv_into(&mut kcp, &mut pending, pending_cap);
                 }
             }
             else => {
@@ -360,13 +364,17 @@ async fn run_client_driver(
     }
 }
 
-/// Drain all fully-reassembled KCP messages into `pending`.
+/// Drain fully-reassembled KCP messages into `pending`, up to `max` messages.
 ///
-/// Non-blocking and infallible: data accumulates in `pending` rather than
-/// blocking the driver loop waiting for the consumer to catch up.
-fn drain_kcp_recv_into(kcp: &mut Kcp, pending: &mut VecDeque<Bytes>) {
+/// Stopping at `max` means the KCP receive window stays full (segments are
+/// not ACKed beyond what the application has consumed), which applies
+/// backpressure on the sender — matching xray's window-bounded behaviour.
+fn drain_kcp_recv_into(kcp: &mut Kcp, pending: &mut VecDeque<Bytes>, max: usize) {
     let mut recv_buf = vec![0u8; 65535];
     loop {
+        if pending.len() >= max {
+            break; // window full — stop ACKing so sender slows down
+        }
         let n = kcp.recv(&mut recv_buf);
         if n <= 0 {
             break;

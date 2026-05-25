@@ -382,7 +382,10 @@ pub async fn grpc_connect(
     tokio::spawn(async move {
         let response = match response_future.await {
             Ok(r) => r,
-            Err(_) => return,
+            Err(e) => {
+                tracing::warn!(error = %e, "gRPC upstream response failed");
+                return;
+            }
         };
         if response.status() != http::StatusCode::OK {
             tracing::warn!(status = %response.status(), "gRPC upstream returned non-200; treating as connection failure");
@@ -412,7 +415,8 @@ pub async fn grpc_connect(
                 Ok(n) => n,
             };
             let data = Bytes::copy_from_slice(&buf[..n]);
-            if send_h2.send_data(data, false).is_err() {
+            if let Err(e) = send_h2.send_data(data, false) {
+                tracing::warn!(error = %e, "gRPC send_data failed");
                 break;
             }
         }

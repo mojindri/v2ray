@@ -23,7 +23,13 @@ pub fn verify_auth_request(
     expected_password: &str,
 ) -> Result<AuthRequest, AuthError> {
     let req = auth_request_from_headers(headers).map_err(|e| AuthError::Protocol(e.to_string()))?;
-    if req.auth.as_bytes().ct_eq(expected_password.as_bytes()).unwrap_u8() != 1 {
+    if req
+        .auth
+        .as_bytes()
+        .ct_eq(expected_password.as_bytes())
+        .unwrap_u8()
+        != 1
+    {
         return Err(AuthError::WrongPassword);
     }
     Ok(req)

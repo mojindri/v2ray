@@ -229,7 +229,7 @@ mod tests {
             .await
             .unwrap(),
         );
-        let fake = dns.resolve_fake("example.com");
+        let fake = dns.resolve_fake("example.com").unwrap();
         let dispatcher = DefaultDispatcher::new_with_dns(
             Arc::new(StaticRouter),
             std::collections::HashMap::new(),

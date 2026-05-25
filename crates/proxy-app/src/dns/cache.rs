@@ -1,12 +1,18 @@
-//! DNS resolution cache with per-entry TTL.
+//! DNS resolution cache with per-entry TTL and LRU eviction.
 //!
 //! `DnsCache` stores resolved IP addresses keyed by domain name. Each entry
 //! has an expiry timestamp. Stale entries are removed on lookup.
+//!
+//! Eviction policy: when the cache is at capacity, the **least recently used**
+//! entry is evicted — matching xray's `app/dns/fakedns` which uses an LRU map
+//! (`lru.New(poolSize)`) with the same eviction semantics.
 
 use std::net::IpAddr;
+use std::num::NonZeroUsize;
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use dashmap::DashMap;
+use lru::LruCache;
 
 /// A single cached DNS entry.
 struct CacheEntry {
@@ -16,79 +22,88 @@ struct CacheEntry {
     expires: Instant,
 }
 
-/// A thread-safe DNS cache with per-entry TTL and a hard entry cap.
+/// A thread-safe DNS cache with per-entry TTL and LRU eviction.
+///
+/// Internally uses a `Mutex<LruCache>` so that `get` can promote entries to
+/// "most recently used" — something a shared reference cannot do.
 pub struct DnsCache {
-    /// The underlying storage. Key = domain name.
-    entries: DashMap<String, CacheEntry>,
-    /// Maximum number of live entries before eviction runs on insert.
-    capacity: usize,
+    inner: Mutex<LruCache<String, CacheEntry>>,
 }
 
 impl DnsCache {
     /// Create a new cache with the given maximum capacity.
     pub fn new(capacity: usize) -> Self {
+        let cap = NonZeroUsize::new(capacity.max(1)).expect("capacity >= 1");
         Self {
-            entries: DashMap::new(),
-            capacity: capacity.max(1),
+            inner: Mutex::new(LruCache::new(cap)),
         }
     }
 
     /// Look up a domain name in the cache.
     ///
     /// Returns `Some(ips)` if the entry exists and has not expired.
-    /// Expired entries are removed during lookup.
+    /// Expired entries are removed during lookup (lazy TTL eviction).
     pub fn get(&self, domain: &str) -> Option<Vec<IpAddr>> {
-        let entry = self.entries.get(domain)?;
-        if entry.expires < Instant::now() {
-            drop(entry);
-            self.entries.remove(domain);
-            return None;
+        let mut cache = self.inner.lock().unwrap();
+        // `LruCache::get` promotes the entry to MRU. We clone inside the map
+        // closure so the borrow on `cache` ends before we might need `pop`.
+        let result = cache.get(domain).map(|e| {
+            if e.expires >= Instant::now() {
+                Some(e.ips.clone())
+            } else {
+                None // expired
+            }
+        });
+        match result {
+            Some(Some(ips)) => Some(ips),
+            Some(None) => {
+                // Entry was expired: remove it and return cache miss.
+                cache.pop(domain);
+                None
+            }
+            None => None,
         }
-        Some(entry.ips.clone())
     }
 
     /// Insert a resolved entry into the cache.
     ///
     /// `ttl_secs` is how many seconds the entry should be considered valid.
+    /// When the cache is at capacity, the least-recently-used entry is evicted
+    /// automatically by the underlying `LruCache`.
     pub fn insert(&self, domain: &str, ips: Vec<IpAddr>, ttl_secs: u64) {
-        if !self.entries.contains_key(domain) {
-            self.evict_expired();
-            while self.entries.len() >= self.capacity {
-                if !self.evict_one_arbitrary() {
-                    break;
-                }
-            }
-        }
-
         let expires = Instant::now() + Duration::from_secs(ttl_secs);
-        self.entries
-            .insert(domain.to_string(), CacheEntry { ips, expires });
+        self.inner
+            .lock()
+            .unwrap()
+            .put(domain.to_string(), CacheEntry { ips, expires });
     }
 
     /// Remove all expired entries.
+    ///
+    /// Not required for correctness (TTL is checked on every `get`), but can
+    /// be called periodically to reclaim memory from entries that were inserted
+    /// but never read after their TTL elapsed.
     pub fn evict_expired(&self) {
         let now = Instant::now();
-        self.entries.retain(|_, v| v.expires >= now);
+        let mut cache = self.inner.lock().unwrap();
+        let expired: Vec<String> = cache
+            .iter()
+            .filter(|(_, v)| v.expires < now)
+            .map(|(k, _)| k.clone())
+            .collect();
+        for key in expired {
+            cache.pop(key.as_str());
+        }
     }
 
-    /// Returns the number of entries currently stored (including expired).
+    /// Returns the number of entries currently stored (including not-yet-expired).
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.inner.lock().unwrap().len()
     }
 
     /// Returns `true` if the cache has no entries.
     pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    fn evict_one_arbitrary(&self) -> bool {
-        let key = self.entries.iter().next().map(|e| e.key().clone());
-        if let Some(key) = key {
-            self.entries.remove(&key);
-            true
-        } else {
-            false
-        }
+        self.inner.lock().unwrap().is_empty()
     }
 }
 
@@ -147,12 +162,17 @@ mod tests {
     }
 
     #[test]
-    fn capacity_is_enforced() {
+    fn capacity_is_enforced_lru() {
         let cache = DnsCache::new(2);
         cache.insert("a.com", vec![ip(1, 0, 0, 1)], 60);
         cache.insert("b.com", vec![ip(1, 0, 0, 2)], 60);
+        // Access a.com to make it MRU; b.com becomes LRU.
+        assert!(cache.get("a.com").is_some());
+        // Insert c.com — should evict b.com (LRU), not a.com.
         cache.insert("c.com", vec![ip(1, 0, 0, 3)], 60);
         assert!(cache.len() <= 2);
         assert!(cache.get("c.com").is_some());
+        assert!(cache.get("a.com").is_some());
+        assert!(cache.get("b.com").is_none()); // evicted
     }
 }
