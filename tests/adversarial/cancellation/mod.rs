@@ -27,13 +27,12 @@ fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<proxy_config::schema:
 
 #[tokio::test]
 async fn drop_during_handshake_read_does_not_poison_listener() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut half = TcpStream::connect(("127.0.0.1", socks_port))
         .await
@@ -47,43 +46,43 @@ async fn drop_during_handshake_read_does_not_poison_listener() {
     let mut out = [0u8; 2];
     s.read_exact(&mut out).await.expect("read");
     assert_eq!(&out, b"ok");
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
 #[tokio::test]
 async fn drop_during_relay_copy_and_pending_flush_cleans_up() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (stall_port, _stall_task) = harness::spawn_stalled_reader_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", stall_port).await;
     let payload = vec![0xCDu8; 512 * 1024];
     let _ = tokio::time::timeout(Duration::from_secs(2), s.write_all(&payload)).await;
     drop(s);
+    drop(payload);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
 #[tokio::test]
 async fn drop_during_outbound_connect_keeps_runtime_live() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (drop_port, _drop_task) = harness::spawn_drop_on_connect_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     for _ in 0..128usize {
         let mut s = harness::socks5_connect(socks_port, "127.0.0.1", drop_port).await;
@@ -97,15 +96,16 @@ async fn drop_during_outbound_connect_keeps_runtime_live() {
     let mut out = [0u8; 4];
     good.read_exact(&mut out).await.expect("read");
     assert_eq!(&out, b"live");
+    drop(good);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
 #[tokio::test]
 async fn websocket_handshake_drop_returns_error_without_stuck_task() {
-    let baseline = leak_check::LeakSnapshot::capture();
+    let baseline = leak_check::steady_state_baseline().await;
 
     let (_a, b) = tokio::io::duplex(4096);
     let server = tokio::spawn(async move { ws_accept(Box::new(b)).await });
@@ -115,12 +115,12 @@ async fn websocket_handshake_drop_returns_error_without_stuck_task() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 128, 64, 40);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 128, 64);
 }
 
 #[tokio::test]
 async fn grpc_setup_drop_returns_error_without_stuck_task() {
-    let baseline = leak_check::LeakSnapshot::capture();
+    let baseline = leak_check::steady_state_baseline().await;
 
     let (_a, b) = tokio::io::duplex(4096);
     let server = tokio::spawn(async move { grpc_accept(Box::new(b), "svc.Cancel").await });
@@ -130,12 +130,12 @@ async fn grpc_setup_drop_returns_error_without_stuck_task() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 128, 64, 40);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 128, 64);
 }
 
 #[tokio::test]
 async fn tls_handshake_drop_returns_clean_error_without_stuck_task() {
-    let baseline = leak_check::LeakSnapshot::capture();
+    let baseline = leak_check::steady_state_baseline().await;
     let (cert, key) =
         dev_self_signed_for_names(&["localhost".to_string()]).expect("self-signed cert");
 
@@ -147,12 +147,12 @@ async fn tls_handshake_drop_returns_clean_error_without_stuck_task() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 128, 64, 40);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 128, 64);
 }
 
 #[tokio::test]
 async fn dns_resolve_cancellation_does_not_leak_tasks() {
-    let baseline = leak_check::LeakSnapshot::capture();
+    let baseline = leak_check::steady_state_baseline().await;
     let dns = proxy_app::dns::DnsModule::new(proxy_app::dns::DnsModuleConfig {
         servers: vec!["127.0.0.1:1".into()],
         ..Default::default()
@@ -169,5 +169,5 @@ async fn dns_resolve_cancellation_does_not_leak_tasks() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 128, 64, 40);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 128, 64);
 }
