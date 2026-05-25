@@ -1,7 +1,7 @@
 //! Shadowsocks-2022 protocol wiring for `instance.rs`.
 //!
 //! Reads SS-2022-specific settings from config JSON and builds the
-//! `Ss2022Inbound` / `Ss2022ChunkedOutbound` handlers.
+//! `Ss2022Inbound` / `Ss2022Outbound` handlers.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use anyhow::{Context as _, Result};
 
 use proxy_app::features::{InboundHandler, OutboundHandler};
-use proxy_protocol::ss2022::{inbound::Ss2022Inbound, outbound::Ss2022ChunkedOutbound};
+use proxy_protocol::ss2022::{inbound::Ss2022Inbound, outbound::Ss2022Outbound};
 
 /// Build an SS-2022 inbound handler from config.
 ///
@@ -66,5 +66,5 @@ pub(crate) fn build_ss2022_outbound(
         .ok_or_else(|| anyhow::anyhow!("SS-2022 outbound '{}' missing 'password'", cfg.tag))?
         .to_string();
 
-    Ok(Ss2022ChunkedOutbound::new(&cfg.tag, server, &password))
+    Ok(Ss2022Outbound::new(&cfg.tag, server, &password))
 }

@@ -81,16 +81,10 @@ async fn missing_tls_cert_key_must_fail_startup() {
 async fn invalid_tls_key_material_must_fail_startup() {
     let cert = "-----BEGIN CERTIFICATE-----\nMIIB\n-----END CERTIFICATE-----\n";
     let key = "-----BEGIN PRIVATE KEY-----\nnot-a-real-key\n-----END PRIVATE KEY-----\n";
-    let cert_path = std::env::temp_dir().join(format!(
-        "fail-closed-cert-{}-{}.pem",
-        std::process::id(),
-        1
-    ));
-    let key_path = std::env::temp_dir().join(format!(
-        "fail-closed-key-{}-{}.pem",
-        std::process::id(),
-        1
-    ));
+    let cert_path =
+        std::env::temp_dir().join(format!("fail-closed-cert-{}-{}.pem", std::process::id(), 1));
+    let key_path =
+        std::env::temp_dir().join(format!("fail-closed-key-{}-{}.pem", std::process::id(), 1));
     std::fs::write(&cert_path, cert).expect("write cert");
     std::fs::write(&key_path, key).expect("write key");
 

@@ -171,22 +171,7 @@ async fn read_client_finished(
 }
 
 fn pick_cipher_suite(ch_body: &[u8]) -> Result<CipherSuite, ProxyError> {
-    if ch_body.len() < 39 {
-        return Err(ProxyError::Protocol("ClientHello too short".into()));
-    }
-    let sid_len = ch_body[38] as usize;
-    let mut pos = 39 + sid_len;
-    if pos + 2 > ch_body.len() {
-        return Err(ProxyError::Protocol(
-            "ClientHello: cipher_suites_len".into(),
-        ));
-    }
-    let cs_len = u16::from_be_bytes([ch_body[pos], ch_body[pos + 1]]) as usize;
-    pos += 2;
-    if pos + cs_len > ch_body.len() {
-        return Err(ProxyError::Protocol("ClientHello: cipher_suites".into()));
-    }
-    let list = &ch_body[pos..pos + cs_len];
+    let list = crate::reality::parser::client_hello_cipher_suites(ch_body)?;
     for prefer in [0x1301u16, 0x1302] {
         for chunk in list.chunks_exact(2) {
             if u16::from_be_bytes([chunk[0], chunk[1]]) == prefer {
@@ -200,19 +185,7 @@ fn pick_cipher_suite(ch_body: &[u8]) -> Result<CipherSuite, ProxyError> {
 }
 
 fn parse_client_session_id(ch_body: &[u8]) -> Result<&[u8], ProxyError> {
-    if ch_body.len() < 39 {
-        return Err(ProxyError::Protocol(
-            "ClientHello too short for session_id".into(),
-        ));
-    }
-    let sid_len = ch_body[38] as usize;
-    let end = 39 + sid_len;
-    if end > ch_body.len() {
-        return Err(ProxyError::Protocol(
-            "ClientHello session_id truncated".into(),
-        ));
-    }
-    Ok(&ch_body[39..end])
+    crate::reality::parser::client_hello_session_id(ch_body)
 }
 
 fn build_server_hello(cs: CipherSuite, server_pub: &[u8; 32], session_id: &[u8]) -> Vec<u8> {

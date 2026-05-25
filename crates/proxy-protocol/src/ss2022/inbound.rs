@@ -34,19 +34,16 @@ use tracing::{debug, warn};
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
-use proxy_common::{Address, BoxedStream, Network, ProxyError};
+use proxy_common::{BoxedStream, Network, ProxyError};
 
 use super::{
     password_to_psk, replay::SaltReplay, stream::Ss2022Stream, subkey::derive_subkey, u64_from_be8,
+    variable_header::parse_variable_header,
 };
 
 const MAX_TIME_DIFF: u64 = 30;
 const TYPE_TCP: u8 = 0x00;
 const TYPE_SERVER: u8 = 0x01;
-const ATYP_IPV4: u8 = 0x01;
-const ATYP_DOMAIN: u8 = 0x03;
-const ATYP_IPV6: u8 = 0x04;
-
 /// SS-2022 inbound handler that accepts encrypted TCP sessions.
 pub struct Ss2022Inbound {
     tag: String,
@@ -191,82 +188,4 @@ fn build_response_fixed_header(req_salt: &[u8; 32]) -> [u8; 43] {
     out[9..41].copy_from_slice(req_salt);
     // bytes 41-43: initial_payload_length = 0 (already zeroed)
     out
-}
-
-fn parse_variable_header(data: &[u8]) -> Result<(Address, Vec<u8>), ProxyError> {
-    if data.is_empty() {
-        return Err(ProxyError::Protocol(
-            "SS-2022: empty variable header".into(),
-        ));
-    }
-    let mut pos = 0;
-    let atyp = data[pos];
-    pos += 1;
-    let dest = match atyp {
-        ATYP_IPV4 => {
-            if pos + 6 > data.len() {
-                return Err(ProxyError::Protocol(
-                    "SS-2022: truncated IPv4 header".into(),
-                ));
-            }
-            let ip =
-                std::net::Ipv4Addr::from([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]);
-            pos += 4;
-            let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
-            pos += 2;
-            Address::Ipv4(ip, port)
-        }
-        ATYP_IPV6 => {
-            if pos + 18 > data.len() {
-                return Err(ProxyError::Protocol(
-                    "SS-2022: truncated IPv6 header".into(),
-                ));
-            }
-            let mut ip = [0u8; 16];
-            ip.copy_from_slice(&data[pos..pos + 16]);
-            pos += 16;
-            let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
-            pos += 2;
-            Address::Ipv6(std::net::Ipv6Addr::from(ip), port)
-        }
-        ATYP_DOMAIN => {
-            if pos >= data.len() {
-                return Err(ProxyError::Protocol(
-                    "SS-2022: truncated domain length".into(),
-                ));
-            }
-            let n = data[pos] as usize;
-            pos += 1;
-            if pos + n + 2 > data.len() {
-                return Err(ProxyError::Protocol(
-                    "SS-2022: truncated domain header".into(),
-                ));
-            }
-            let name = std::str::from_utf8(&data[pos..pos + n])
-                .map_err(|_| ProxyError::Protocol("SS-2022: invalid domain UTF-8".into()))?
-                .to_string();
-            pos += n;
-            let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
-            pos += 2;
-            Address::Domain(name, port)
-        }
-        other => {
-            return Err(ProxyError::Protocol(format!(
-                "SS-2022: unknown ATYP {other:#x}"
-            )))
-        }
-    };
-
-    if pos + 2 > data.len() {
-        return Err(ProxyError::Protocol(
-            "SS-2022: truncated padding length".into(),
-        ));
-    }
-    let pad_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-    pos += 2;
-    if pos + pad_len > data.len() {
-        return Err(ProxyError::Protocol("SS-2022: truncated padding".into()));
-    }
-    pos += pad_len;
-    Ok((dest, data[pos..].to_vec()))
 }

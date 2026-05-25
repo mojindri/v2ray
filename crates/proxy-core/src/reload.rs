@@ -93,14 +93,8 @@ impl ReloadState {
 fn collect_outbound_tags(config: &Config) -> HashSet<String> {
     let mut tags: HashSet<String> = config.outbounds.iter().map(|o| o.tag.clone()).collect();
     if let Some(routing) = &config.routing {
-        for rule in &routing.rules {
-            tags.insert(rule.outbound_tag.clone());
-        }
         for balancer in &routing.balancers {
             tags.insert(balancer.tag.clone());
-            for selector in &balancer.selector {
-                tags.insert(selector.clone());
-            }
         }
     }
     tags

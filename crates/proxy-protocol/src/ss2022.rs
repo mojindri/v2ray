@@ -45,11 +45,12 @@ pub mod outbound;
 pub mod replay;
 pub mod stream;
 pub mod subkey;
+mod variable_header;
 
 #[cfg(feature = "fuzzing")]
 pub use fuzzing::try_decrypt_chunk_for_fuzz;
 pub use inbound::Ss2022Inbound;
-pub use outbound::Ss2022Outbound;
+pub use outbound::{Ss2022ChunkedOutbound, Ss2022Outbound};
 pub use replay::SaltReplay;
 pub use stream::Ss2022Stream;
 pub use subkey::derive_subkey;

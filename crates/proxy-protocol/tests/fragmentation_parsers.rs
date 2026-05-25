@@ -17,7 +17,10 @@ struct ChunkedRead<S> {
 
 impl<S> ChunkedRead<S> {
     fn new(inner: S, max: usize) -> Self {
-        Self { inner, max: max.max(1) }
+        Self {
+            inner,
+            max: max.max(1),
+        }
     }
 }
 
@@ -55,10 +58,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ChunkedRead<S> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }

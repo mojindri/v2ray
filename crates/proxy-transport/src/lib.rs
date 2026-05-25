@@ -16,6 +16,7 @@
 //! is what the protocol layer receives. The protocol layer never knows which
 //! transport is underneath.
 
+mod pem;
 pub mod reality;
 pub mod tcp;
 

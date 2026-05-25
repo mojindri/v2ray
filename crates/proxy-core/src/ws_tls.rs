@@ -307,6 +307,9 @@ pub(crate) fn build_conn_handler(
         } else {
             vec![]
         };
+        let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
+        proxy_transport::tls_build_server_config(&cert_pem, &key_pem, &alpn_refs)
+            .map_err(|e| anyhow::anyhow!("invalid TLS certificate/key material: {e}"))?;
         handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handshake_timeout, handler);
     }
 

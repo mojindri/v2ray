@@ -184,33 +184,24 @@ pub fn encode_header(
     let hdr_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, &connection_nonce]);
     let hdr_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, &connection_nonce]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-    let enc_header = cipher
-        .encrypt(
-            GenericArray::from_slice(&hdr_nonce),
-            Payload {
-                msg: &plaintext,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: header ciphertext encrypt failed".into()))?;
+    let enc_header = vmess_aead_encrypt(
+        &hdr_key,
+        &hdr_nonce,
+        &plaintext,
+        auth_id,
+        "VMess: header ciphertext encrypt failed",
+    )?;
 
-    // Encrypt header length with connection_nonce in KDF.
     let len_key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, &connection_nonce]);
     let len_nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, &connection_nonce]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-    let enc_len = cipher
-        .encrypt(
-            GenericArray::from_slice(&len_nonce),
-            Payload {
-                // VMess AEAD length is the plaintext header length.
-                // Encrypted header on wire is plaintext_len + 16-byte GCM tag.
-                msg: &(plaintext.len() as u16).to_be_bytes(),
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: header length encrypt failed".into()))?;
+    let enc_len = vmess_aead_encrypt(
+        &len_key,
+        &len_nonce,
+        &(plaintext.len() as u16).to_be_bytes(),
+        auth_id,
+        "VMess: header length encrypt failed",
+    )?;
 
     Ok((iv, key, v_byte, connection_nonce, enc_len, enc_header))
 }
@@ -229,16 +220,13 @@ pub fn decrypt_length_field(
     let key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, connection_nonce.as_ref()]);
     let nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, connection_nonce.as_ref()]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
-    let plaintext = cipher
-        .decrypt(
-            GenericArray::from_slice(&nonce),
-            Payload {
-                msg: enc,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: length field decryption failed".into()))?;
+    let plaintext = vmess_aead_decrypt(
+        &key,
+        &nonce,
+        enc,
+        auth_id,
+        "VMess: length field decryption failed",
+    )?;
 
     if plaintext.len() < 2 {
         return Err(ProxyError::Protocol("VMess: length field too short".into()));
@@ -260,16 +248,13 @@ pub async fn decode_header<R: AsyncRead + Unpin>(
     let key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, connection_nonce.as_ref()]);
     let nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, connection_nonce.as_ref()]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
-    let plaintext = cipher
-        .decrypt(
-            GenericArray::from_slice(&nonce),
-            Payload {
-                msg: &ciphertext,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: AEAD header decryption failed".into()))?;
+    let plaintext = vmess_aead_decrypt(
+        &key,
+        &nonce,
+        &ciphertext,
+        auth_id,
+        "VMess: AEAD header decryption failed",
+    )?;
 
     decode_plaintext(&plaintext)
 }
@@ -291,28 +276,24 @@ pub async fn send_response_header<W: AsyncWrite + Unpin>(
     let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
     let len_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_LEN_IV]);
 
-    let enc_len = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-        cipher
-            .encrypt(
-                GenericArray::from_slice(&len_nonce),
-                Payload {
-                    msg: &(plaintext.len() as u16).to_be_bytes(),
-                    aad: &[],
-                },
-            )
-            .map_err(|_| ProxyError::Protocol("VMess: resp header len encrypt failed".into()))?
-    };
+    let enc_len = vmess_aead_encrypt(
+        &len_key,
+        &len_nonce,
+        &(plaintext.len() as u16).to_be_bytes(),
+        &[],
+        "VMess: resp header len encrypt failed",
+    )?;
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
     let hdr_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_HDR_IV]);
 
-    let enc_hdr = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-        cipher
-            .encrypt(GenericArray::from_slice(&hdr_nonce), plaintext.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp header encrypt failed".into()))?
-    };
+    let enc_hdr = vmess_aead_encrypt(
+        &hdr_key,
+        &hdr_nonce,
+        &plaintext,
+        &[],
+        "VMess: resp header encrypt failed",
+    )?;
 
     writer.write_all(&enc_len).await?;
     writer.write_all(&enc_hdr).await?;
@@ -334,12 +315,13 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     let mut enc_len = [0u8; 18];
     reader.read_exact(&mut enc_len).await?;
 
-    let len_pt = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-        cipher
-            .decrypt(GenericArray::from_slice(&len_nonce), enc_len.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp len decrypt failed".into()))?
-    };
+    let len_pt = vmess_aead_decrypt(
+        &len_key,
+        &len_nonce,
+        enc_len.as_ref(),
+        &[],
+        "VMess: resp len decrypt failed",
+    )?;
     let payload_len = u16::from_be_bytes([len_pt[0], len_pt[1]]) as usize;
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
@@ -348,12 +330,13 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     let mut enc_hdr = vec![0u8; payload_len + 16];
     reader.read_exact(&mut enc_hdr).await?;
 
-    let hdr_pt = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-        cipher
-            .decrypt(GenericArray::from_slice(&hdr_nonce), enc_hdr.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp header decrypt failed".into()))?
-    };
+    let hdr_pt = vmess_aead_decrypt(
+        &hdr_key,
+        &hdr_nonce,
+        enc_hdr.as_ref(),
+        &[],
+        "VMess: resp header decrypt failed",
+    )?;
 
     let got_v = hdr_pt.first().copied().unwrap_or(0);
     if got_v != expected_v {
@@ -366,6 +349,41 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
 }
 
 // ── Internal ──────────────────────────────────────────────────────────────────
+
+fn vmess_aead_encrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    msg: &[u8],
+    aad: &[u8],
+    err: &str,
+) -> Result<Vec<u8>, ProxyError> {
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
+    cipher
+        .encrypt(
+            GenericArray::from_slice(nonce),
+            Payload { msg, aad },
+        )
+        .map_err(|_| ProxyError::Protocol(err.into()))
+}
+
+fn vmess_aead_decrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+    aad: &[u8],
+    err: &str,
+) -> Result<Vec<u8>, ProxyError> {
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
+    cipher
+        .decrypt(
+            GenericArray::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| ProxyError::Protocol(err.into()))
+}
 
 fn build_request_plaintext(
     iv: &[u8; 16],
