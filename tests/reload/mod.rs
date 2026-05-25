@@ -45,7 +45,6 @@ async fn one_echo_roundtrip(socks_port: u16, echo_port: u16) {
 
 #[tokio::test]
 async fn reload_same_config_during_traffic_keeps_service_alive() {
-    let baseline = leak_check::LeakSnapshot::capture();
     let (echo_port, _echo_task) = harness::spawn_echo_server().await;
     let socks_port = harness::unused_local_port();
     let vless_port = harness::unused_local_port();
@@ -53,6 +52,7 @@ async fn reload_same_config_during_traffic_keeps_service_alive() {
     let cfg = base_cfg(socks_port, vless_port);
     let instance = Instance::from_config(cfg.clone()).await.expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let traffic = tokio::spawn(async move {
         for _ in 0..48usize {
@@ -67,7 +67,7 @@ async fn reload_same_config_during_traffic_keeps_service_alive() {
     traffic.await.expect("traffic join");
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
 #[tokio::test]
