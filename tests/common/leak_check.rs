@@ -1,3 +1,7 @@
+//! Process leak snapshots for integration tests. RSS checks remain for heavy
+//! suites; most adversarial binaries use [`assert_fd_tasks_close_to_baseline`] only.
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 /// Process-level snapshot used by adversarial tests to catch obvious leaks.

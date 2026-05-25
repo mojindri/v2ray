@@ -1,3 +1,7 @@
+//! Shared integration-test helpers. Each `tests/tests/*.rs` binary includes this
+//! via `#[path]` and only uses a subset of functions.
+#![allow(dead_code)]
+
 use std::sync::Arc;
 use std::time::Duration;
 
