@@ -42,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
-use rand::{Rng, RngExt, SeedableRng};
+use rand::{RngExt, SeedableRng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
