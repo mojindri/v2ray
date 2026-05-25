@@ -1,116 +1,211 @@
 # blackwire Feature Matrix
 
+Last updated against the `blackwire-*` workspace crates, `tests/tests/` e2e
+suite, `labs/realistic/` interop lab, and GitHub Actions (CI + cross-platform).
+
 Status labels:
 
 | Label | Meaning |
 |---|---|
-| Supported | Expected to work and covered by local/interop tests |
-| Experimental | Implemented but still needs more interop, load, or hostile-network testing |
-| Partial | Some behavior exists, but compatibility or coverage is incomplete |
-| Unsupported | Not implemented |
-| Intentional deviation | Different from V2Ray/Xray by design |
+| **Supported** | Wired in `blackwire-core` `Instance`, exercised by automated tests or the realistic lab mandatory matrix |
+| **Experimental** | Implemented end-to-end but missing hostile-network coverage, external-client breadth, or production hardening |
+| **Partial** | Code or schema exists; behavior, wiring, or observability is incomplete |
+| **Unsupported** | Not implemented or explicitly stubbed |
+| **Intentional deviation** | Differs from V2Ray/Xray by design |
+
+Evidence shorthand: crate paths use `blackwire-{common,config,app,core,protocol,transport,tls,api,cli}`.
+
+---
 
 ## Product scope
 
-**blackwire** is a Rust-native server that targets **wire compatibility** with
-Xray-core and sing-box clients on supported protocol/transport combinations.
-Validation runs against those upstream clients in local Docker labs and on real
-VPS hosts — not mock peers alone.
+**blackwire** is a Rust-native **proxy server** that targets **wire compatibility**
+with Xray-core and sing-box on selected protocol/transport pairs. Validation uses
+in-process e2e tests, per-crate `production_readiness` tests, and (optionally)
+Docker labs with real upstream clients — not mock peers alone.
 
 | Area | Status | Notes |
 |---|---|---|
-| Xray / sing-box **wire interop** (server) | Supported | Wire-level interop exists; automated external-client scenarios currently start with REALITY and can be expanded via `labs/realistic/external-clients/scenarios.env`. |
-| Native config schema | Supported | Own JSON schema — not Xray JSON paste-compatible |
-| V2Ray JSON config compatibility | Unsupported | Not a goal |
-| Xray JSON config compatibility | Partial | Interop is wire-level; config must be translated to native schema |
-| Client mode | Supported | Supported protocols only |
-| Server mode | Supported | Primary focus — compatible with standard Xray/sing-box clients |
+| Xray / sing-box **wire interop** (as server) | **Experimental** | REALITY d1 interop is in `blackwire-transport/tests/interop.rs` (`#[ignore]` without `tests/interop`); mandatory green matrix in `labs/realistic/README.md` lists seven stable paths + REALITY |
+| Native JSON config schema | **Supported** | `blackwire-config` — validated at load; fail-closed schema tests |
+| V2Ray JSON config | **Unsupported** | Not a goal |
+| Xray JSON config | **Unsupported** | Interop is wire-level only; configs must be translated |
+| **Server mode** (listen for clients) | **Supported** | Primary product: `blackwire run` |
+| **Local proxy mode** (SOCKS/HTTP in → outbound) | **Supported** | Same `Instance` stack; covered by e2e (`e2e_socks5_vless`, `e2e_http_connect`, etc.) |
+| Standalone **client app** (TUN/system proxy UI) | **Unsupported** | No dedicated client binary or mobile/desktop shell; TUN is server-side transparent path |
+
+---
 
 ## Protocols
 
-| Protocol | Client | Server | Status | Notes |
+Inbound handlers registered in `blackwire-core/src/instance/mod.rs`:
+`Socks`, `Vless`, `Trojan`, `Vmess`, `Http`, `Shadowsocks`, `Hysteria2`.
+
+Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowsocks`.
+
+| Protocol | Inbound | Outbound | Status | Evidence / notes |
 |---|---:|---:|---|---|
-| SOCKS5 | N/A | Yes | Supported | TCP CONNECT; UDP ASSOCIATE partial/experimental |
-| HTTP proxy / CONNECT | N/A | Yes | Supported | Proxy auth/header limits still need hardening |
-| Freedom/direct | Yes | N/A | Supported | Direct outbound |
-| VLESS | Yes | Yes | Supported | REALITY/TLS/WS/gRPC covered; XTLS Vision partial |
-| VMess AEAD | Yes | Yes | Supported | Legacy alterId unsupported |
-| Trojan | Yes | Yes | Supported | UDP associate partial |
-| Shadowsocks 2022 | Yes | Yes | Supported | UDP coverage limited |
-| Hysteria2 | Yes | Yes | Experimental | QUIC/UDP behavior needs hostility tests |
+| SOCKS5 (TCP CONNECT) | Yes | No | **Supported** | `blackwire-protocol/socks.rs`; e2e `e2e_socks5_vless.rs` |
+| SOCKS5 UDP ASSOCIATE | No | No | **Unsupported** | Explicitly not implemented (`socks.rs`) |
+| HTTP CONNECT | Yes | No | **Supported** | `http_connect.rs`, `blackwire-core/http.rs`; e2e `e2e_http_connect.rs` |
+| Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
+| VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
+| VLESS UDP command | No | No | **Unsupported** | `vless/codec.rs` — UDP command not handled |
+| VLESS flow `xtls-rprx-vision` | Partial | Partial | **Partial** | Encoded on wire; inbound logs and continues without Vision splice (`vless/inbound.rs` TODO) |
+| VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
+| Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
+| Trojan UDP | No | No | **Unsupported** | No UDP associate path in trojan module |
+| Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
+| SS2022 UDP relay | No | No | **Unsupported** | TCP stream cipher path only in crate |
+| Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
+| ShadowTLS as `protocol` enum | No | No | **Unsupported** | Only `security: shadowtls` on TCP inbounds/outbounds |
+| DNS / dokodemo / tun inbound protocol | No | No | **Unsupported** | Not in `Protocol` enum |
+
+---
 
 ## Transports
 
-| Transport | Status | Notes |
-|---|---|---|
-| TCP | Supported | Basic TCP transport |
-| TLS | Supported | rustls provider |
-| WebSocket | Supported | Xray interop exists |
-| gRPC | Supported | Xray interop exists |
-| REALITY | Experimental | Functional Xray d1 interop passes; byte-level fingerprint comparison still missing |
-| ShadowTLS | Experimental | Implemented, needs more external-client interop |
-| mKCP | Experimental | Implemented, needs hostility tests |
-| QUIC/Hysteria2 | Experimental | Needs loss/jitter/bandwidth testing |
-| HTTPUpgrade / xHTTP | Partial | Schema/research exists; runtime coverage must be verified |
+Stack wired via `blackwire-core/outbound_transport.rs`, `ws_tls.rs`, and inbound
+TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 
-## DNS
+| Transport | Status | Evidence / notes |
+|---|---|---|
+| TCP | **Supported** | `blackwire-transport/tcp.rs` |
+| TLS (rustls) | **Supported** | `transport/tls.rs` |
+| WebSocket | **Supported** | `transport/ws.rs`; e2e `e2e_phase4_vless_ws.rs` |
+| gRPC (Gun-style) | **Supported** | `transport/grpc.rs`; e2e `e2e_phase5_http_vmess_grpc.rs` |
+| REALITY | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_phase2_reality.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test |
+| ShadowTLS v3 | **Experimental** | `transport/shadowtls/` (v3 only); e2e `e2e_phase7_shadowtls.rs`; lab advanced-features smoke, not mandatory green |
+| mKCP | **Experimental** | `transport/mkcp/`; e2e `e2e_phase8_mkcp.rs`; lab advanced-features smoke |
+| QUIC (`network: quic` for VLESS/VMess) | **Unsupported** | `NetworkType::Quic` in schema only; QUIC used inside Hysteria2, not generic stream stack |
+| Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
+| TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
+| HTTPUpgrade | **Unsupported** | No runtime handler |
+| SplitHTTP / xHTTP | **Unsupported** | `NetworkType::SplitHttp` in schema only; no transport implementation |
+
+---
+
+## DNS (`blackwire-app/dns`)
 
 | Feature | Status | Notes |
 |---|---|---|
-| System resolver | Supported | |
-| Custom DNS server | Supported | |
-| UDP DNS | Supported | |
-| TCP DNS | Partial | |
-| FakeIP | Supported | More production edge cases needed |
-| DNS cache | Supported | TTL respected |
-| DoH | Unsupported | Not implemented |
-| DoT | Unsupported | Not implemented |
-| DNS leak tests | Partial | More direct-vs-proxied coverage needed |
+| System resolver (empty `servers`) | **Supported** | `dns/resolver.rs` — hickory system config |
+| Custom upstream (plain IP, UDP 53) | **Supported** | Parsed into hickory `NameServerConfig` |
+| DoH / DoT upstream URLs | **Unsupported** | Skipped with warning at build (`resolver.rs`) |
+| FakeIP pool + restore on dispatch | **Supported** | `dns/fakeip.rs`, dispatcher; startup rejects invalid pool (`production_readiness`) |
+| DNS response cache | **Supported** | `dns/cache.rs` |
+| `domain_strategy` (routing) | **Unsupported** | Field in schema; not used in `router.rs` |
+| Sniffing (`http` / `tls` / `fakedns`) | **Unsupported** | `SniffingConfig` in schema; `Context.sniffed_protocol` never populated from core |
 
-## Routing
+---
 
-| Feature | Status | Notes |
-|---|---|---|
-| Domain match | Supported | |
-| Full-domain match | Supported | |
-| Suffix match | Supported | |
-| Keyword match | Supported | |
-| Regex match | Partial | Verify runtime/test coverage |
-| IP CIDR match | Supported | |
-| Port match | Supported | |
-| Source IP match | Supported | |
-| Inbound tag match | Supported | |
-| Sniffed protocol/domain routing | Partial | More ambiguity tests needed |
-| GeoIP / GeoSite | Supported | Requires data files |
-
-## Security and production readiness
+## Routing (`blackwire-app`)
 
 | Feature | Status | Notes |
 |---|---|---|
-| Fuzz smoke | Supported | `make fuzz-smoke` |
-| Heavier fuzz | Experimental | `make fuzz-long` (`FUZZ_RUNS=…`), not scheduled/enforced |
-| cargo-audit | Partial | `make audit` / `make security` (requires `cargo-audit`) |
-| cargo-deny | Partial | `deny.toml` + `make deny` / `make security` (requires `cargo-deny`) |
-| Connection limits | Partial | Basic TCP inbound limit support added; deeper global/account limits pending |
-| Slowloris diagnostics | Partial | Diagnostic target exists; timeout enforcement still needs protocol-path hardening |
-| Load testing | Partial | Managed local load helper exists; real benchmark thresholds still needed |
-| Packet capture on failure | Unsupported | Needed for fingerprint/debugging |
-| TLS/REALITY fingerprint comparison | Unsupported | Functional interop is not byte-level proof |
+| `domain` (exact) | **Supported** | `router.rs` + unit tests |
+| `domain_suffix` | **Supported** | |
+| `domain_keyword` | **Supported** | |
+| `domain_regex` | **Supported** | `RegexSet` in `DomainMatcher` + `domain_regex_match` test |
+| `ip` / CIDR | **Supported** | |
+| `port` | **Supported** | |
+| `source_ip` | **Supported** | |
+| `inboundTag` | **Supported** | |
+| `protocol` / sniffed domain rules | **Unsupported** | Sniffing not wired |
+| GeoIP / geosite (`geoip:`, `geosite:`) | **Supported** | `geo/`; missing data files → empty matchers + warn |
+| Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; latency uses HTTP 204 health checks |
+| Route to balancer tag | **Supported** | `production_readiness` tests |
+
+---
+
+## Operations
+
+| Feature | Status | Notes |
+|---|---|---|
+| Config file load + validation | **Supported** | `blackwire-config` |
+| `${ENV}` substitution | **Supported** | `env.rs` |
+| File watch + validated reload notify | **Supported** | `ConfigManager::watch`; CLI subscribes |
+| Hot-reload **routing rules** | **Supported** | `blackwire-core/reload.rs` — `LiveRouter::swap` |
+| Hot-reload **VLESS user UUIDs** | **Supported** | Per-inbound registry refresh |
+| Hot-reload **GeoIP/geosite data** | **Supported** | Reloaded with router rebuild |
+| Hot-reload listeners / new tags / TLS keys | **Unsupported** | Documented in `reload.rs` — requires restart |
+| Per-inbound / global `max_connections` | **Partial** | TCP accept path in `transport/tcp.rs` + config limits; not all protocols share the same limit surface |
+| Prometheus HTTP (`metricsAddr`) | **Supported** | `metrics.rs` — `/metrics`, `/healthz`, `/readyz`, `/version` |
+| Per-connection Prometheus counters | **Partial** | `record_connection_*` exists; **not** called from dispatcher/TCP hot path (only tests / `tests/observability`) |
+| v2ray gRPC Stats / Handler API | **Unsupported** | `blackwire-api` is a Phase 6 stub; `stats` / `api` config keys unused in core |
+
+---
+
+## Security, quality, and CI
+
+| Feature | Status | Notes |
+|---|---|---|
+| `make verify-local` (fmt, check, clippy, test) | **Supported** | Required on PRs via **CI / Rust** |
+| Cross-platform `cargo test` | **Supported** | **Cross-platform** workflow: `ubuntu-latest`, `macos-latest`, `linux-arm64` on PRs |
+| Fuzz targets (`fuzz/`) | **Supported** | REALITY, VMess, VLESS, Hysteria2, ShadowTLS, SS2022, stateful sequences |
+| `make fuzz-smoke` | **Supported** | Short local smoke |
+| `make fuzz-long` | **Experimental** | Optional; not CI-gated |
+| `make audit` / `cargo-audit` | **Supported** | Weekly **Security / Dependency audit** schedule + manual |
+| `make deny` / `cargo-deny` | **Supported** | `deny.toml` license/advisory policy |
+| Adversarial integration tests | **Supported** | `tests/tests/adversarial_*.rs` — fragmentation, cancellation, backpressure, etc. |
+| Leak / resource tests | **Partial** | `leak_assertions`, `resource_limits` (some `#[ignore]`) |
+| External-client Docker lab | **Experimental** | `labs/realistic/` — mandatory matrix documented in lab README |
+| TLS/REALITY byte-level fingerprint diff vs Chrome | **Unsupported** | Functional interop ≠ identical ClientHello bytes |
+| Packet capture on failure | **Unsupported** | `run-pcap-local.sh` helper exists; not automated in CI |
+
+---
 
 ## Platform support
 
 | Platform | Status | Notes |
 |---|---|---|
-| Linux x86_64 | Supported | Main target |
-| Linux aarch64 | Partial | Needs CI verification |
-| macOS Apple Silicon | Partial | Development works; not release-certified |
-| Windows | Unsupported | Build/service/cert behavior not verified |
-| OpenWrt | Unsupported | Not targeted |
-| Android/iOS | Unsupported | Not targeted as native builds |
+| Linux x86_64 | **Supported** | Primary dev and CI target |
+| Linux aarch64 | **Supported** | CI job `Test (linux-arm64)` on `ubuntu-24.04-arm` |
+| macOS (Apple Silicon / Intel) | **Partial** | CI runs `macos-latest` tests; release artifacts not certified |
+| Windows | **Unsupported** | Not built or tested in CI |
+| OpenWrt | **Unsupported** | Not targeted |
+| Android / iOS native | **Unsupported** | Not targeted |
+
+---
+
+## Test coverage map (realistic expectations)
+
+| Layer | What it proves |
+|---|---|
+| `tests/tests/e2e_*.rs` | Full `Instance` paths: SOCKS/HTTP → protocol → freedom (and variants) |
+| `tests/tests/golden_vless.rs` | VLESS header bytes vs Xray vectors |
+| `tests/tests/adversarial_*.rs` | Parser/state machine robustness under chaos |
+| `crates/*/tests/production_readiness.rs` | Wiring guards, crypto edge cases, config fail-closed |
+| `blackwire-transport/tests/interop.rs` | Live Xray/sing-box clients (`#[ignore]` by default) |
+| `labs/realistic/` | Docker + optional two-VPS checklist |
+
+**Not claimed:** full Xray feature parity, every `network`/`security` schema combination, or
+production certification on all Experimental rows.
+
+---
 
 ## Known intentional deviations
 
-- Native config schema instead of V2Ray/Xray JSON compatibility.
-- VMess legacy alterId support is not implemented.
-- DoH/DoT are not implemented yet.
-- Full V2Ray/Xray compatibility is not currently claimed.
+- Native JSON schema — not V2Ray/Xray config paste-compatible.
+- VMess legacy non-AEAD / alterId — not implemented.
+- DoH/DoT DNS upstreams — skipped at resolver build.
+- XTLS Vision — flow recognized on wire; splice not implemented.
+- `blackwire-api` gRPC management — deferred (stub crate).
+- Full hot-reload of listeners, outbounds, and TLS material — requires process restart.
+
+---
+
+## Quick reference: lab mandatory green (local)
+
+From `labs/realistic/README.md` — paths expected to pass in `make -C labs/realistic docker-full`:
+
+- VLESS TCP  
+- VLESS REALITY  
+- VLESS over WebSocket  
+- VMess over gRPC  
+- Trojan over TLS  
+- Shadowsocks 2022  
+- Hysteria2  
+- Xray REALITY interop  
+
+**Advanced (smoke, not mandatory green):** ShadowTLS, mKCP, health/failover, DNS/geo routing guards.
