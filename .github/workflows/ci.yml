@@ -9,11 +9,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  verify-local:
-    name: verify-local
+  rust:
+    name: Rust
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -23,5 +23,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Host-only validation gate
+      - name: Run workspace checks
         run: make verify-local

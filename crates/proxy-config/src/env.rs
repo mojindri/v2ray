@@ -57,10 +57,31 @@ static ENV_VAR_RE: Lazy<Regex> = Lazy::new(|| {
 pub fn substitute(raw: &str) -> String {
     ENV_VAR_RE
         .replace_all(raw, |caps: &regex::Captures<'_>| {
-            // caps[1] is the variable name (the part inside ${...})
-            std::env::var(&caps[1]).unwrap_or_default()
+            let val = std::env::var(&caps[1]).unwrap_or_default();
+            // Escape characters that would break JSON structure when inserted
+            // into a string value context (e.g. quotes, backslashes, newlines).
+            json_escape(&val)
         })
         .into_owned()
+}
+
+/// Escape a string for safe insertion into a JSON string value context.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for ch in s.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => {
+                let _ = std::fmt::write(&mut out, format_args!("\\u{:04x}", c as u32));
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 #[cfg(test)]

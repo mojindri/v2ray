@@ -1,0 +1,39 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "listen": "0.0.0.0",
+      "port": 1080,
+      "protocol": "socks",
+      "settings": { "auth": "noauth", "udp": true }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy-out",
+      "protocol": "hysteria",
+      "settings": {
+        "version": 2,
+        "address": "${EXTERNAL_SERVER_ADDRESS}",
+        "port": 4433
+      },
+      "streamSettings": {
+        "network": "hysteria",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "${EXTERNAL_TLS_SERVER_NAME}",
+          "allowInsecure": true,
+          "alpn": ["h3"]
+        },
+        "hysteriaSettings": {
+          "version": 2,
+          "auth": "${HYSTERIA2_PASSWORD}",
+          "congestion": "brutal",
+          "up": "50mbps",
+          "down": "50mbps"
+        }
+      }
+    }
+  ]
+}

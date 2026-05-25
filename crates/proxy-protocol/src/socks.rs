@@ -28,7 +28,7 @@
 //! # References
 //! RFC 1928 — SOCKS Protocol Version 5
 
-use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -38,7 +38,7 @@ use tracing::debug;
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
-use proxy_common::{Address, BoxedStream, Network, ProxyError};
+use proxy_common::{read_socks5_address, Address, BoxedStream, Network, ProxyError, ATYP_IPV4};
 
 // ── SOCKS5 protocol constants ─────────────────────────────────────────────────
 
@@ -53,15 +53,6 @@ const METHOD_NO_ACCEPTABLE: u8 = 0xFF;
 
 /// Command: CONNECT (open a TCP connection to the destination).
 const CMD_CONNECT: u8 = 0x01;
-
-/// Address type: IPv4 (4-byte address follows).
-const ATYP_IPV4: u8 = 0x01;
-
-/// Address type: domain name (1-byte length + name follows).
-const ATYP_DOMAIN: u8 = 0x03;
-
-/// Address type: IPv6 (16-byte address follows).
-const ATYP_IPV6: u8 = 0x04;
 
 /// Reserved byte in the CONNECT request (must be 0x00).
 const RSV: u8 = 0x00;
@@ -192,7 +183,7 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
     }
 
     let atyp = stream.read_u8().await?;
-    let dest = read_address(stream, atyp).await?;
+    let dest = read_socks5_address(stream, atyp, "SOCKS5").await?;
 
     // ── Phase 3: Reply ───────────────────────────────────────────────────────
     //
@@ -209,40 +200,6 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
     send_reply(stream, REP_SUCCESS).await?;
 
     Ok(dest)
-}
-
-/// Read a destination address from the stream based on the address type byte.
-async fn read_address(stream: &mut BoxedStream, atyp: u8) -> Result<Address, ProxyError> {
-    match atyp {
-        ATYP_IPV4 => {
-            // IPv4: 4 bytes for the address + 2 bytes for the port.
-            let mut buf = [0u8; 4];
-            stream.read_exact(&mut buf).await?;
-            let port = stream.read_u16().await?;
-            Ok(Address::Ipv4(Ipv4Addr::from(buf), port))
-        }
-        ATYP_IPV6 => {
-            // IPv6: 16 bytes for the address + 2 bytes for the port.
-            let mut buf = [0u8; 16];
-            stream.read_exact(&mut buf).await?;
-            let port = stream.read_u16().await?;
-            Ok(Address::Ipv6(Ipv6Addr::from(buf), port))
-        }
-        ATYP_DOMAIN => {
-            // Domain name: 1 byte for the length, then that many bytes for the name,
-            // then 2 bytes for the port.
-            let len = stream.read_u8().await? as usize;
-            let mut name = vec![0u8; len];
-            stream.read_exact(&mut name).await?;
-            let port = stream.read_u16().await?;
-            let domain = String::from_utf8(name)
-                .map_err(|_| ProxyError::Protocol("domain name is not valid UTF-8".into()))?;
-            Ok(Address::Domain(domain, port))
-        }
-        other => Err(ProxyError::Protocol(format!(
-            "unknown SOCKS5 ATYP: {other:#x}"
-        ))),
-    }
 }
 
 /// Send a SOCKS5 reply with the given reply code.
@@ -265,6 +222,7 @@ async fn send_reply(stream: &mut BoxedStream, rep: u8) -> Result<(), ProxyError>
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::net::Ipv4Addr;
     use tokio::io::duplex;
 
     // Helper: performs a SOCKS5 CONNECT handshake from the "client" side

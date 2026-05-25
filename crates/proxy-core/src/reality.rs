@@ -10,7 +10,7 @@ use anyhow::{Context as _, Result};
 
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use proxy_config::schema::{SecurityType, StreamSettingsConfig};
 use proxy_protocol::vless::connect_vless_on_stream;
 use tracing::warn;
@@ -31,6 +31,7 @@ pub(crate) fn uses_reality(stream_settings: &Option<StreamSettingsConfig>) -> bo
 pub(crate) struct RealityConnectionHandler {
     reality: Arc<RealityServer>,
     cover_sni: String,
+    handshake_timeout: Option<std::time::Duration>,
     inbound: Arc<dyn InboundHandler>,
     dispatcher: Arc<dyn Dispatcher>,
 }
@@ -39,6 +40,7 @@ impl RealityConnectionHandler {
     pub(crate) fn new(
         reality: Arc<RealityServer>,
         cover_sni: &str,
+        handshake_timeout: Option<std::time::Duration>,
         inbound: Arc<dyn InboundHandler>,
         dispatcher: Arc<dyn Dispatcher>,
     ) -> Result<Arc<Self>> {
@@ -49,6 +51,7 @@ impl RealityConnectionHandler {
             } else {
                 cover_sni.to_string()
             },
+            handshake_timeout,
             inbound,
             dispatcher,
         }))
@@ -62,13 +65,14 @@ impl ConnectionHandler for RealityConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let accepted = self.reality.accept_with_key(stream).await?;
+        let accepted =
+            with_handshake_timeout(self.handshake_timeout, self.reality.accept_with_key(stream))
+                .await?;
         let mut stream = accepted.stream;
         // Keep this on the custom TLS path: rustls does not currently negotiate with uTLS REALITY clients.
-        let app_keys = complete_tls13_server_handshake(
-            &mut stream,
-            &accepted.auth_key,
-            &self.cover_sni,
+        let app_keys = with_handshake_timeout(
+            self.handshake_timeout,
+            complete_tls13_server_handshake(&mut stream, &accepted.auth_key, &self.cover_sni),
         )
         .await
         .map_err(|e| {

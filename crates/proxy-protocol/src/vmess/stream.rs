@@ -172,6 +172,9 @@ pub struct VmessStream {
     read_global_padding: bool,
     read_buf: BytesMut,
     read_raw_buf: BytesMut,
+    /// Decoded (size, padding_len) from a previous partial read of the chunk header.
+    /// Prevents re-advancing the SizeMask when the chunk body has not yet arrived.
+    read_pending: Option<(usize, usize)>,
 
     write_cipher: BodyCipher,
     write_iv: [u8; 16],
@@ -210,6 +213,7 @@ impl VmessStream {
             read_global_padding: options & REQUEST_OPTION_GLOBAL_PADDING != 0,
             read_buf: BytesMut::new(),
             read_raw_buf: BytesMut::new(),
+            read_pending: None,
             write_cipher: BodyCipher::new(security, write_key),
             write_iv: *write_iv,
             write_counter: 0,
@@ -257,22 +261,22 @@ impl VmessStream {
     }
 
     fn try_decrypt_chunk(&mut self, src: &mut BytesMut) -> Option<Result<Bytes, io::Error>> {
-        if src.len() < 2 {
-            return None;
-        }
-
-        let encoded_size = [src[0], src[1]];
-        let padding_len = self.next_read_padding_len();
-        let size = self.decode_size(encoded_size);
-        let overhead = self.read_cipher.overhead();
-
-        if size == overhead + padding_len {
-            let _ = src.split_to(2);
-            if padding_len > 0 && src.len() >= padding_len {
-                let _ = src.split_to(padding_len);
+        // Re-use a previously decoded header if the chunk body was incomplete last call.
+        // This prevents the SizeMask from being advanced a second time for the same chunk,
+        // matching Xray's ShakeSizeParser caching approach (body.go sizeParser interface).
+        let (size, padding_len) = if let Some(pending) = self.read_pending.take() {
+            pending
+        } else {
+            if src.len() < 2 {
+                return None;
             }
-            return Some(Ok(Bytes::new()));
-        }
+            let encoded_size = [src[0], src[1]];
+            let padding_len = self.next_read_padding_len();
+            let size = self.decode_size(encoded_size);
+            (size, padding_len)
+        };
+
+        let overhead = self.read_cipher.overhead();
 
         if size < overhead + padding_len {
             return Some(Err(io::Error::new(
@@ -283,6 +287,9 @@ impl VmessStream {
 
         let total = 2 + size;
         if src.len() < total {
+            // Body has not arrived yet. Cache the decoded header so the mask is
+            // not re-advanced on the next poll. Return None to wait for more data.
+            self.read_pending = Some((size, padding_len));
             return None;
         }
 
@@ -293,6 +300,8 @@ impl VmessStream {
         }
         let data_nonce = chunk_nonce(self.read_counter, &self.read_iv);
 
+        // Decrypt. An empty plaintext signals EOF (the peer sent an empty encrypted chunk).
+        // This matches Xray's body reader: no special EOF branch; empty plaintext == EOF.
         let plaintext = match self.read_cipher.decrypt(&data_nonce, &data_ct) {
             Ok(pt) => pt,
             Err(_) => {
@@ -397,13 +406,21 @@ impl AsyncWrite for VmessStream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Split field borrows: borrow `inner` mutably and `write_buf` immutably at the
+        // same time. Using get_mut() is safe because VmessStream: Unpin.
         while !self.write_buf.is_empty() {
-            let data = self.write_buf.clone().freeze();
-            match Pin::new(self.inner.as_mut()).poll_write(cx, &data) {
+            let this = self.as_mut().get_mut();
+            match Pin::new(this.inner.as_mut()).poll_write(cx, &this.write_buf) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "VMess: inner write returned 0",
+                    )));
+                }
                 Poll::Ready(Ok(n)) => {
-                    let _ = self.write_buf.split_to(n);
+                    let _ = this.write_buf.split_to(n);
                 }
             }
         }

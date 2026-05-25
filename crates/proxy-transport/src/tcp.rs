@@ -35,7 +35,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use proxy_app::features::ConnectionHandler;
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{BoxedStream, ProxyError, TCP_CONNECT_TIMEOUT};
 
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone, Default)]
@@ -201,32 +201,39 @@ impl TcpClientTransport {
 
     /// Dial a TCP connection to `addr` and return it as a `BoxedStream`.
     ///
+    /// SO_MARK is applied **before** `connect()` so the TCP SYN packet also
+    /// carries the mark. This matches xray's `net.Dialer.Control` callback,
+    /// which fires after `socket()` but before `connect()`.
+    ///
     /// # Arguments
     /// * `addr` — the remote address to connect to
     pub async fn dial(&self, addr: SocketAddr) -> Result<BoxedStream, ProxyError> {
-        let stream = TcpStream::connect(addr).await?;
+        use tokio::net::TcpSocket;
 
-        // Apply socket options.
-        let sock = SockRef::from(&stream);
-        sock.set_tcp_nodelay(true)?;
+        let socket = if addr.is_ipv6() {
+            TcpSocket::new_v6()
+        } else {
+            TcpSocket::new_v4()
+        }
+        .map_err(ProxyError::Io)?;
 
-        // Apply SO_MARK if configured (Linux only).
-        //
-        // Think of `mark` as a small integer label attached to every packet
-        // sent from this socket. Linux routing rules can match that label:
-        //
-        //   ip rule add fwmark <mark> table <table>
-        //
-        // That is useful in TUN mode: traffic from normal apps enters the
-        // proxy through the virtual interface, but traffic created by the proxy
-        // itself must leave through the real network interface. Marking the
-        // proxy's own sockets is how Linux can tell those two cases apart.
+        // Set SO_MARK *before* connect so the TCP SYN carries the routing mark.
+        // Xray uses net.Dialer.Control for the same reason — the callback runs
+        // after socket creation but before the kernel sends the SYN.
         #[cfg(target_os = "linux")]
         if let Some(mark) = self.config.so_mark {
             use nix::sys::socket::{setsockopt, sockopt::Mark};
-            setsockopt(&stream, Mark, &mark)
+            setsockopt(&socket, Mark, &mark)
                 .map_err(|e| ProxyError::Transport(format!("SO_MARK failed: {e}")))?;
         }
+
+        socket.set_nodelay(true).map_err(ProxyError::Io)?;
+
+        let stream = match tokio::time::timeout(TCP_CONNECT_TIMEOUT, socket.connect(addr)).await {
+            Ok(Ok(s)) => s,
+            Ok(Err(e)) => return Err(ProxyError::Io(e)),
+            Err(_) => return Err(ProxyError::Timeout),
+        };
 
         debug!(addr = %addr, "TCP outbound connected");
         Ok(Box::new(stream))

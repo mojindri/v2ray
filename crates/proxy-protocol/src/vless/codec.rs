@@ -35,7 +35,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use proxy_common::{Address, ProxyError};
+use proxy_common::{domain_wire_len, Address, ProxyError};
 
 // ── Command byte constants ────────────────────────────────────────────────────
 
@@ -191,49 +191,71 @@ async fn read_address<R: AsyncRead + Unpin>(
     }
 }
 
-/// Minimal protobuf parser for the VLESS addons field.
+/// Minimal protobuf parser for the VLESS addons field (Xray `proto.Unmarshal`).
 ///
 /// The addons message has one field: field 1 = flow (string).
-/// Protobuf encoding: field_number (3 bits) + wire_type (3 bits) in a varint,
-/// followed by a length-prefixed string for string fields.
-///
-/// We only look for field 1 (the flow string) and ignore everything else.
 fn parse_flow_from_addons(data: &[u8]) -> String {
     let mut cursor = 0usize;
     while cursor < data.len() {
-        // Read the tag varint (field number + wire type).
-        // For small values (< 128), a varint is a single byte.
-        let tag = data[cursor];
-        cursor += 1;
-
-        // wire_type = lower 3 bits; field_number = upper 5 bits (for 1-byte varints)
-        let wire_type = tag & 0x07;
-        let field_number = tag >> 3;
-
-        // Wire type 2 = length-delimited (string, bytes, embedded message).
-        if wire_type == 2 {
-            if cursor >= data.len() {
-                break;
-            }
-            let len = data[cursor] as usize;
-            cursor += 1;
-            if cursor + len > data.len() {
-                break;
-            }
-
-            if field_number == 1 {
-                // Field 1 is the flow string.
-                if let Ok(s) = std::str::from_utf8(&data[cursor..cursor + len]) {
-                    return s.to_string();
-                }
-            }
-            cursor += len;
-        } else {
-            // Skip unknown wire types by breaking — we don't need them.
+        let Some(tag) = read_varint(data, &mut cursor) else {
             break;
+        };
+        let field_number = (tag >> 3) as u32;
+        let wire_type = (tag & 0x07) as u8;
+
+        match wire_type {
+            2 => {
+                let Some(len) = read_varint(data, &mut cursor) else {
+                    break;
+                };
+                let len = len as usize;
+                if cursor + len > data.len() {
+                    break;
+                }
+                if field_number == 1 {
+                    if let Ok(s) = std::str::from_utf8(&data[cursor..cursor + len]) {
+                        return s.to_string();
+                    }
+                }
+                cursor += len;
+            }
+            0 => {
+                let Some(_value) = read_varint(data, &mut cursor) else {
+                    break;
+                };
+            }
+            1 => cursor = cursor.saturating_add(8),
+            5 => cursor = cursor.saturating_add(4),
+            _ => break,
         }
     }
     String::new()
+}
+
+fn read_varint(data: &[u8], cursor: &mut usize) -> Option<u64> {
+    let mut result = 0u64;
+    let mut shift = 0;
+    while *cursor < data.len() {
+        let byte = data[*cursor];
+        *cursor += 1;
+        result |= u64::from(byte & 0x7f) << shift;
+        if byte & 0x80 == 0 {
+            return Some(result);
+        }
+        shift += 7;
+        if shift >= 64 {
+            return None;
+        }
+    }
+    None
+}
+
+fn put_varint(buf: &mut BytesMut, mut value: u64) {
+    while value >= 0x80 {
+        buf.put_u8((value as u8) | 0x80);
+        value >>= 7;
+    }
+    buf.put_u8(value as u8);
 }
 
 // ── Encoder ───────────────────────────────────────────────────────────────────
@@ -249,7 +271,12 @@ fn parse_flow_from_addons(data: &[u8]) -> String {
 /// * `flow`    — optional flow string (e.g. "xtls-rprx-vision"); empty for normal connections
 /// * `command` — TCP or UDP
 /// * `dest`    — the destination address and port
-pub fn encode_request(uuid: &[u8; 16], flow: &str, command: Command, dest: &Address) -> Bytes {
+pub fn encode_request(
+    uuid: &[u8; 16],
+    flow: &str,
+    command: Command,
+    dest: &Address,
+) -> Result<Bytes, ProxyError> {
     let mut buf = BytesMut::with_capacity(256);
 
     // Version byte.
@@ -263,15 +290,17 @@ pub fn encode_request(uuid: &[u8; 16], flow: &str, command: Command, dest: &Addr
         // No addons — length = 0.
         buf.put_u8(0);
     } else {
-        // Encode the flow field as a minimal protobuf message.
-        // Field 1, wire type 2 (length-delimited): tag byte = (1 << 3) | 2 = 0x0A
+        let mut addons = BytesMut::new();
+        addons.put_u8(0x0A); // field 1, wire type 2
         let flow_bytes = flow.as_bytes();
-        // Total addons length: 1 (tag) + 1 (length) + flow_bytes.len()
-        let addons_len = 2 + flow_bytes.len();
+        put_varint(&mut addons, flow_bytes.len() as u64);
+        addons.put_slice(flow_bytes);
+        let addons_len = addons.len();
+        if addons_len > 255 {
+            return Err(ProxyError::Protocol("VLESS addons too long".into()));
+        }
         buf.put_u8(addons_len as u8);
-        buf.put_u8(0x0A); // field 1, wire type 2
-        buf.put_u8(flow_bytes.len() as u8); // string length
-        buf.put_slice(flow_bytes); // the string
+        buf.put_slice(&addons);
     }
 
     // Command byte.
@@ -295,12 +324,12 @@ pub fn encode_request(uuid: &[u8; 16], flow: &str, command: Command, dest: &Addr
         }
         Address::Domain(name, _) => {
             buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(name.len() as u8);
+            buf.put_u8(domain_wire_len(name)?);
             buf.put_slice(name.as_bytes());
         }
     }
 
-    buf.freeze()
+    Ok(buf.freeze())
 }
 
 /// Encode a VLESS response header (server → client).
@@ -391,7 +420,7 @@ mod tests {
     async fn encode_decode_roundtrip_ipv4() {
         let uuid = [0xCCu8; 16];
         let dest = Address::Ipv4(Ipv4Addr::new(1, 2, 3, 4), 8080);
-        let encoded = encode_request(&uuid, "", Command::Tcp, &dest);
+        let encoded = encode_request(&uuid, "", Command::Tcp, &dest).unwrap();
 
         let decoded = decode_from_bytes(&encoded).await.unwrap();
         assert_eq!(decoded.uuid, uuid);
@@ -405,7 +434,7 @@ mod tests {
     async fn encode_decode_roundtrip_domain() {
         let uuid = [0xDDu8; 16];
         let dest = Address::Domain("proxy.example.com".into(), 443);
-        let encoded = encode_request(&uuid, "", Command::Tcp, &dest);
+        let encoded = encode_request(&uuid, "", Command::Tcp, &dest).unwrap();
         let decoded = decode_from_bytes(&encoded).await.unwrap();
         assert_eq!(decoded.dest, dest);
     }
@@ -415,7 +444,7 @@ mod tests {
     async fn flow_field_roundtrip() {
         let uuid = [0xEEu8; 16];
         let dest = Address::Domain("example.com".into(), 443);
-        let encoded = encode_request(&uuid, "xtls-rprx-vision", Command::Tcp, &dest);
+        let encoded = encode_request(&uuid, "xtls-rprx-vision", Command::Tcp, &dest).unwrap();
         let decoded = decode_from_bytes(&encoded).await.unwrap();
         assert_eq!(decoded.flow, "xtls-rprx-vision");
     }

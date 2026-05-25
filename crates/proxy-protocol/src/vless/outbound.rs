@@ -47,7 +47,7 @@ pub async fn connect_vless_on_stream(
     flow: &str,
     dest: &Address,
 ) -> Result<BoxedStream, ProxyError> {
-    let header = encode_request(uuid, flow, Command::Tcp, dest);
+    let header = encode_request(uuid, flow, Command::Tcp, dest)?;
     stream.write_all(&header).await?;
     // Flush explicitly so that WebSocket and other buffered transports send
     // the VLESS header immediately without waiting for more data.
@@ -121,7 +121,7 @@ impl OutboundHandler for VlessOutbound {
 
         // Step 2: Send the VLESS request header.
         // This tells the server which user we are and where we want to connect.
-        let header = encode_request(&self.config.uuid, &self.config.flow, Command::Tcp, dest);
+        let header = encode_request(&self.config.uuid, &self.config.flow, Command::Tcp, dest)?;
         stream.write_all(&header).await?;
         stream.flush().await?;
 

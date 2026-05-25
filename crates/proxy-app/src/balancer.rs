@@ -71,46 +71,73 @@ impl Balancer {
     }
 
     fn pick(&self) -> Option<Arc<dyn OutboundHandler>> {
-        let alive: Vec<&(String, Arc<dyn OutboundHandler>)> = self
-            .outbounds
-            .iter()
-            .filter(|(tag, _)| {
-                self.states
-                    .get(tag.as_str())
-                    .map(|s| s.alive)
-                    .unwrap_or(true)
-            })
-            .collect();
-
-        if alive.is_empty() {
+        let alive = self.alive_count();
+        if alive == 0 {
             warn!(balancer = %self.tag, "all outbounds dead; falling back to first");
             return self.outbounds.first().map(|(_, ob)| ob.clone());
         }
 
         match self.strategy {
-            Strategy::Latency => alive
-                .iter()
-                .min_by_key(|(tag, _)| {
-                    self.states
-                        .get(tag.as_str())
-                        .map(|s| s.latency_ms)
-                        .unwrap_or(u64::MAX)
-                })
-                .map(|(_, ob)| ob.clone()),
-
+            Strategy::Latency => self.pick_latency(),
             Strategy::RoundRobin => {
-                let idx = self.rr_counter.fetch_add(1, Ordering::Relaxed) % alive.len();
-                alive.get(idx).map(|(_, ob)| ob.clone())
+                let slot = self.rr_counter.fetch_add(1, Ordering::Relaxed) % alive;
+                self.nth_alive(slot)
             }
-
             Strategy::Random => {
-                let seed = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default()
-                    .subsec_nanos() as usize;
-                alive.get(seed % alive.len()).map(|(_, ob)| ob.clone())
+                let slot = self
+                    .rr_counter
+                    .fetch_add(1, Ordering::Relaxed)
+                    .wrapping_mul(0x9E37_79B9_7F4A_7C15)
+                    % alive;
+                self.nth_alive(slot)
             }
         }
+    }
+
+    fn alive_count(&self) -> usize {
+        self.outbounds
+            .iter()
+            .filter(|(tag, _)| self.is_alive(tag))
+            .count()
+    }
+
+    fn is_alive(&self, tag: &str) -> bool {
+        self.states.get(tag).map(|s| s.alive).unwrap_or(true)
+    }
+
+    fn nth_alive(&self, n: usize) -> Option<Arc<dyn OutboundHandler>> {
+        let mut idx = 0;
+        for (tag, ob) in &self.outbounds {
+            if !self.is_alive(tag) {
+                continue;
+            }
+            if idx == n {
+                return Some(ob.clone());
+            }
+            idx += 1;
+        }
+        None
+    }
+
+    fn pick_latency(&self) -> Option<Arc<dyn OutboundHandler>> {
+        let mut best: Option<(u64, Arc<dyn OutboundHandler>)> = None;
+        for (tag, ob) in &self.outbounds {
+            if !self.is_alive(tag) {
+                continue;
+            }
+            let latency = self
+                .states
+                .get(tag.as_str())
+                .map(|s| s.latency_ms)
+                .unwrap_or(u64::MAX);
+            if best
+                .as_ref()
+                .is_none_or(|(best_lat, _)| latency < *best_lat)
+            {
+                best = Some((latency, ob.clone()));
+            }
+        }
+        best.map(|(_, ob)| ob)
     }
 }
 

@@ -26,10 +26,14 @@
 //! ...
 //! ```
 
-use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
+use std::time::Duration;
 
-use proxy_common::{BoxedStream, ProxyError};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+
+use proxy_common::{tcp_connect_to, BoxedStream, ProxyError};
+
+/// Maximum time to complete the TLS handshake relay (sing-box `C.TCPTimeoutShort`).
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(4);
 
 use super::v3::{
     residual_handshake_mac, taint_backend_application_data, verify_client_hello_session_id,
@@ -57,13 +61,15 @@ pub async fn relay_handshake(
     client: &mut BoxedStream,
     backend_addr: &str,
 ) -> Result<([u8; 32], bool), ProxyError> {
-    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+    let mut backend = tcp_connect_to(backend_addr).await.map_err(|e| {
         ProxyError::Transport(format!(
             "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
         ))
     })?;
 
-    let server_random = do_relay(client, &mut backend).await?;
+    let server_random = tokio::time::timeout(HANDSHAKE_TIMEOUT, do_relay(client, &mut backend))
+        .await
+        .map_err(|_| ProxyError::Timeout)??;
     Ok((server_random, true))
 }
 
@@ -78,7 +84,7 @@ pub async fn relay_v3_handshake(
     psk: &[u8],
     backend_addr: &str,
 ) -> Result<([u8; 32], Vec<u8>), ProxyError> {
-    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+    let mut backend = tcp_connect_to(backend_addr).await.map_err(|e| {
         ProxyError::Transport(format!(
             "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
         ))
@@ -94,7 +100,9 @@ pub async fn relay_v3_handshake(
     verify_client_hello_session_id(&client_hello, psk)?;
     write_tls_record(&mut backend, record_type, version, &payload).await?;
 
-    do_v3_relay(client, &mut backend, psk).await
+    tokio::time::timeout(HANDSHAKE_TIMEOUT, do_v3_relay(client, &mut backend, psk))
+        .await
+        .map_err(|_| ProxyError::Timeout)?
 }
 
 /// Inner relay: pump records between client and backend, sniffing server_random.

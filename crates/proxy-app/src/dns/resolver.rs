@@ -8,7 +8,7 @@
 
 use std::net::IpAddr;
 
-use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig, GOOGLE};
+use hickory_resolver::config::{ConnectionConfig, NameServerConfig, ResolverConfig};
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
 use tracing::debug;
@@ -25,26 +25,33 @@ impl DnsResolver {
     ///
     /// If `servers` is empty, the OS system resolver is used.
     /// If servers are provided, they are used as upstreams.
+    /// If all provided servers fail to parse, we fall back to the system
+    /// resolver with a warning — matching xray's `NewLocalDNSClient()` fallback.
     ///
     /// Plain IP addresses (e.g. `"8.8.8.8"`) are supported.
-    /// DoT/DoH URLs are skipped with a warning (fall back to system resolver).
+    /// DoT/DoH URLs are skipped with a warning.
     pub async fn new(servers: &[String]) -> Result<Self, ProxyError> {
         let resolver = if servers.is_empty() {
-            // Use the system resolver from /etc/resolv.conf.
-            TokioResolver::builder(TokioRuntimeProvider::default())
-                .unwrap_or_else(|_| {
-                    TokioResolver::builder_with_config(
-                        ResolverConfig::udp_and_tcp(&GOOGLE),
-                        TokioRuntimeProvider::default(),
-                    )
-                })
-                .build()
-                .map_err(|e| ProxyError::Protocol(format!("DNS system resolver build: {e}")))?
+            build_system_resolver()?
         } else {
-            let config = build_custom_config(servers);
-            TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
-                .build()
-                .map_err(|e| ProxyError::Protocol(format!("DNS custom resolver build: {e}")))?
+            match build_custom_config(servers) {
+                Some(config) => {
+                    TokioResolver::builder_with_config(config, TokioRuntimeProvider::default())
+                        .build()
+                        .map_err(|e| {
+                            ProxyError::Protocol(format!("DNS custom resolver build: {e}"))
+                        })?
+                }
+                None => {
+                    // All operator-configured servers were unparseable.
+                    // Fall back to the system resolver (xray uses NewLocalDNSClient()).
+                    tracing::warn!(
+                        "all configured DNS servers are invalid; \
+                         falling back to system resolver — check your config"
+                    );
+                    build_system_resolver()?
+                }
+            }
         };
 
         Ok(Self { inner: resolver })
@@ -71,11 +78,29 @@ impl DnsResolver {
     }
 }
 
+/// Build a system resolver using `/etc/resolv.conf` (or OS equivalent).
+///
+/// This matches xray's `NewLocalDNSClient()` fallback path.
+fn build_system_resolver() -> Result<TokioResolver, ProxyError> {
+    TokioResolver::builder(TokioRuntimeProvider::default())
+        .unwrap_or_else(|_| {
+            TokioResolver::builder_with_config(
+                ResolverConfig::default(),
+                TokioRuntimeProvider::default(),
+            )
+        })
+        .build()
+        .map_err(|e| ProxyError::Protocol(format!("DNS system resolver build: {e}")))
+}
+
 /// Build a custom resolver config from server address strings.
+///
+/// Returns `None` if all servers fail to parse (caller falls back to system
+/// resolver with a warning).
 ///
 /// Only plain IP addresses (UDP port 53) are supported. DoT/DoH URLs
 /// are skipped with a warning.
-fn build_custom_config(servers: &[String]) -> ResolverConfig {
+fn build_custom_config(servers: &[String]) -> Option<ResolverConfig> {
     let mut name_servers: Vec<NameServerConfig> = Vec::new();
 
     for server in servers {
@@ -103,11 +128,10 @@ fn build_custom_config(servers: &[String]) -> ResolverConfig {
     }
 
     if name_servers.is_empty() {
-        // All servers failed to parse — use Google DNS as fallback.
-        return ResolverConfig::udp_and_tcp(&GOOGLE);
+        return None;
     }
 
-    ResolverConfig::from_parts(None, vec![], name_servers)
+    Some(ResolverConfig::from_parts(None, vec![], name_servers))
 }
 
 #[cfg(test)]

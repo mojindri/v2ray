@@ -48,7 +48,6 @@
 mod linux {
     use std::os::unix::io::{AsRawFd, RawFd};
 
-    use tokio::io::unix::AsyncFd;
     use tokio::net::TcpStream;
 
     // The pipe capacity we request from the kernel.
@@ -155,17 +154,13 @@ mod linux {
 
     /// Relay bytes from `src` to `dst` using splice, until EOF or error.
     ///
-    /// This is one half of the bidirectional relay. The other half runs
-    /// concurrently in a separate task.
-    async fn splice_one_direction(src: RawFd, dst: RawFd) -> std::io::Result<u64> {
-        // Wrap each raw fd in AsyncFd so Tokio's epoll reactor knows when
-        // they are ready for I/O.
-        //
-        // SAFETY: The fds are valid for the lifetime of this function because the
-        // TcpStream they belong to is kept alive by the caller.
-        // AsyncFd::new does not require `unsafe` — the unsafe block was a mistake.
-        let async_src = AsyncFd::new(AsyncRawFd(src))?;
-        let async_dst = AsyncFd::new(AsyncRawFd(dst))?;
+    /// Uses the TcpStream's own Tokio readiness notifications to avoid
+    /// double-registering the underlying fd with the epoll reactor.
+    /// When `src` reaches EOF, sends a TCP half-close (SHUT_WR) on `dst`
+    /// so the remote peer sees a clean FIN in that direction.
+    async fn splice_one_direction(src: &TcpStream, dst: &TcpStream) -> std::io::Result<u64> {
+        let src_fd = src.as_raw_fd();
+        let dst_fd = dst.as_raw_fd();
 
         let pipe = Pipe::new()?;
         let mut total: u64 = 0;
@@ -173,17 +168,17 @@ mod linux {
         loop {
             // --- Phase A: wait for src to be readable, then splice into pipe ---
             let in_bytes = loop {
-                // Register interest in readability.
-                let mut guard = async_src.readable().await?;
-                match splice_in(src, pipe.write_fd) {
-                    Ok(0) => return Ok(total), // EOF — src closed
-                    Ok(n) => {
-                        guard.retain_ready(); // src might still have data
-                        break n;
+                src.readable().await?;
+                match splice_in(src_fd, pipe.write_fd) {
+                    Ok(0) => {
+                        // Source EOF — half-close the write side of dst so the peer
+                        // receives a FIN and knows no more data will arrive.
+                        // SAFETY: dst_fd is valid for the lifetime of this call.
+                        unsafe { libc::shutdown(dst_fd, libc::SHUT_WR) };
+                        return Ok(total);
                     }
-                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
-                        guard.clear_ready(); // no data yet — wait again
-                    }
+                    Ok(n) => break n,
+                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {}
                     Err(e) => return Err(e),
                 }
             };
@@ -191,31 +186,17 @@ mod linux {
             // --- Phase B: drain the pipe into dst (may take multiple splice calls) ---
             let mut remaining = in_bytes;
             while remaining > 0 {
-                let mut guard = async_dst.writable().await?;
-                match splice_out(pipe.read_fd, dst, remaining) {
+                dst.writable().await?;
+                match splice_out(pipe.read_fd, dst_fd, remaining) {
                     Ok(0) => return Ok(total), // dst closed
                     Ok(n) => {
                         remaining -= n;
                         total += n as u64;
-                        if remaining > 0 {
-                            guard.retain_ready(); // still space in dst
-                        }
                     }
-                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {
-                        guard.clear_ready(); // dst buffer full — wait
-                    }
+                    Err(e) if e.raw_os_error() == Some(libc::EAGAIN) => {}
                     Err(e) => return Err(e),
                 }
             }
-        }
-    }
-
-    /// A zero-copy wrapper around a raw file descriptor so it can be used with `AsyncFd`.
-    struct AsyncRawFd(RawFd);
-
-    impl AsRawFd for AsyncRawFd {
-        fn as_raw_fd(&self) -> RawFd {
-            self.0
         }
     }
 
@@ -226,18 +207,9 @@ mod linux {
     ///   - `b → a` (server data coming back to client)
     ///
     /// Returns `(a_to_b_bytes, b_to_a_bytes)` when both directions finish.
-    /// Either side closing the connection terminates both directions.
+    /// Each direction sends a TCP half-close when its source reaches EOF.
     pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> std::io::Result<(u64, u64)> {
-        let a_fd = a.as_raw_fd();
-        let b_fd = b.as_raw_fd();
-
-        // Run both directions concurrently.
-        // `tokio::try_join!` cancels the other future as soon as one resolves
-        // (either because that direction finished, or due to an error).
-        tokio::try_join!(
-            splice_one_direction(a_fd, b_fd),
-            splice_one_direction(b_fd, a_fd),
-        )
+        tokio::try_join!(splice_one_direction(a, b), splice_one_direction(b, a),)
     }
 }
 

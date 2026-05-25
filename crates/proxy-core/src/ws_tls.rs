@@ -14,12 +14,13 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::{ConnectionHandler, InboundHandler};
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_transport::{grpc_accept, shadowtls_accept, tls_accept, ws_accept};
 
@@ -62,6 +63,7 @@ pub(crate) struct TlsConnectionHandler {
     key_pem: String,
     /// ALPN protocols to advertise during the TLS handshake (e.g. `["h2"]` for gRPC).
     alpn: Vec<String>,
+    handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
 
@@ -73,12 +75,14 @@ impl TlsConnectionHandler {
         cert_pem: String,
         key_pem: String,
         alpn: Vec<String>,
+        handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
         Arc::new(Self {
             cert_pem,
             key_pem,
             alpn,
+            handshake_timeout,
             inner,
         })
     }
@@ -92,7 +96,11 @@ impl ConnectionHandler for TlsConnectionHandler {
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
         let alpn: Vec<&str> = self.alpn.iter().map(|s| s.as_str()).collect();
-        let tls_stream = tls_accept(stream, &self.cert_pem, &self.key_pem, &alpn).await?;
+        let tls_stream = with_handshake_timeout(
+            self.handshake_timeout,
+            tls_accept(stream, &self.cert_pem, &self.key_pem, &alpn),
+        )
+        .await?;
         self.inner.handle_connection(tls_stream, source).await
     }
 }
@@ -102,12 +110,19 @@ impl ConnectionHandler for TlsConnectionHandler {
 /// A `ConnectionHandler` that performs a WebSocket server handshake, then
 /// delegates to the wrapped inner handler.
 pub(crate) struct WsConnectionHandler {
+    handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
 
 impl WsConnectionHandler {
-    pub(crate) fn new(inner: Arc<dyn ConnectionHandler>) -> Arc<Self> {
-        Arc::new(Self { inner })
+    pub(crate) fn new(
+        handshake_timeout: Option<Duration>,
+        inner: Arc<dyn ConnectionHandler>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            handshake_timeout,
+            inner,
+        })
     }
 }
 
@@ -118,7 +133,7 @@ impl ConnectionHandler for WsConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let ws_stream = ws_accept(stream).await?;
+        let ws_stream = with_handshake_timeout(self.handshake_timeout, ws_accept(stream)).await?;
         self.inner.handle_connection(ws_stream, source).await
     }
 }
@@ -129,6 +144,7 @@ impl ConnectionHandler for WsConnectionHandler {
 /// to the wrapped inner handler.
 pub(crate) struct GrpcConnectionHandler {
     service_name: String,
+    handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
 
@@ -137,6 +153,7 @@ pub(crate) struct GrpcConnectionHandler {
 pub(crate) struct ShadowTlsConnectionHandler {
     password: String,
     dest: String,
+    handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
 
@@ -144,11 +161,13 @@ impl ShadowTlsConnectionHandler {
     pub(crate) fn new(
         password: impl Into<String>,
         dest: impl Into<String>,
+        handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
         Arc::new(Self {
             password: password.into(),
             dest: dest.into(),
+            handshake_timeout,
             inner,
         })
     }
@@ -161,7 +180,11 @@ impl ConnectionHandler for ShadowTlsConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let stream = shadowtls_accept(stream, self.password.as_bytes(), &self.dest).await?;
+        let stream = with_handshake_timeout(
+            self.handshake_timeout,
+            shadowtls_accept(stream, self.password.as_bytes(), &self.dest),
+        )
+        .await?;
         self.inner.handle_connection(stream, source).await
     }
 }
@@ -169,10 +192,12 @@ impl ConnectionHandler for ShadowTlsConnectionHandler {
 impl GrpcConnectionHandler {
     pub(crate) fn new(
         service_name: impl Into<String>,
+        handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
         Arc::new(Self {
             service_name: service_name.into(),
+            handshake_timeout,
             inner,
         })
     }
@@ -185,7 +210,11 @@ impl ConnectionHandler for GrpcConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let grpc_stream = grpc_accept(stream, &self.service_name).await?;
+        let grpc_stream = with_handshake_timeout(
+            self.handshake_timeout,
+            grpc_accept(stream, &self.service_name),
+        )
+        .await?;
         self.inner.handle_connection(grpc_stream, source).await
     }
 }
@@ -227,6 +256,7 @@ pub(crate) fn build_conn_handler(
     inbound: Arc<dyn InboundHandler>,
     dispatcher: Arc<dyn Dispatcher>,
     stream_settings: &Option<StreamSettingsConfig>,
+    handshake_timeout: Option<Duration>,
 ) -> Result<Arc<dyn ConnectionHandler>, anyhow::Error> {
     // Innermost: protocol handler.
     let mut handler: Arc<dyn ConnectionHandler> = Arc::new(PlainConnectionHandler {
@@ -236,7 +266,7 @@ pub(crate) fn build_conn_handler(
 
     // Add WebSocket layer if requested.
     if uses_ws(stream_settings) {
-        handler = WsConnectionHandler::new(handler);
+        handler = WsConnectionHandler::new(handshake_timeout, handler);
     }
 
     // Add gRPC layer if requested (mutually exclusive with WS).
@@ -247,7 +277,7 @@ pub(crate) fn build_conn_handler(
             .map(|g| g.service_name.as_str())
             .unwrap_or("GunService")
             .to_string();
-        handler = GrpcConnectionHandler::new(service_name, handler);
+        handler = GrpcConnectionHandler::new(service_name, handshake_timeout, handler);
     }
 
     // Add TLS layer if requested.
@@ -277,7 +307,10 @@ pub(crate) fn build_conn_handler(
         } else {
             vec![]
         };
-        handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handler);
+        let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
+        proxy_transport::tls_build_server_config(&cert_pem, &key_pem, &alpn_refs)
+            .map_err(|e| anyhow::anyhow!("invalid TLS certificate/key material: {e}"))?;
+        handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handshake_timeout, handler);
     }
 
     if uses_shadowtls(stream_settings) {
@@ -301,6 +334,7 @@ pub(crate) fn build_conn_handler(
         handler = ShadowTlsConnectionHandler::new(
             shadow_cfg.password.clone(),
             shadow_cfg.dest.clone(),
+            handshake_timeout,
             handler,
         );
     }

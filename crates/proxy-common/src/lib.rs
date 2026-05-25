@@ -14,7 +14,10 @@
 
 pub mod address;
 pub mod buf;
+pub mod connect;
 pub mod error;
+pub mod relay;
+pub mod socks5_address;
 pub mod splice;
 pub mod stream;
 
@@ -22,7 +25,15 @@ pub mod stream;
 // `use proxy_common::Address` instead of `use proxy_common::address::Address`.
 pub use address::{Address, Network};
 pub use buf::BufferPool;
+pub use connect::{tcp_connect, tcp_connect_to, TCP_CONNECT_TIMEOUT};
 pub use error::ProxyError;
+pub use relay::{
+    copy_bidirectional_with_idle, domain_wire_len, with_handshake_timeout, CONNECTION_IDLE_TIMEOUT,
+};
+pub use socks5_address::{
+    decode_socks5_address, read_socks5_address, write_socks5_address, ATYP_DOMAIN, ATYP_IPV4,
+    ATYP_IPV6,
+};
 pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream, ReunionStream};
 
 // Linux-only relay optimization support.

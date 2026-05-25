@@ -35,21 +35,14 @@ use bytes::{BufMut, Bytes, BytesMut};
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use proxy_common::{Address, ProxyError};
+use proxy_common::{read_socks5_address, write_socks5_address, Address, ProxyError};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Length of a Trojan auth token: SHA224 produces 28 bytes → 56 hex chars.
 pub const TOKEN_LEN: usize = 56;
 
-/// ATYP byte: IPv4.
-pub const ATYP_IPV4: u8 = 0x01;
-
-/// ATYP byte: domain name.
-pub const ATYP_DOMAIN: u8 = 0x03;
-
-/// ATYP byte: IPv6.
-pub const ATYP_IPV6: u8 = 0x04;
+pub use proxy_common::{ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
 
 /// Trojan command byte for TCP CONNECT.
 pub const CMD_CONNECT: u8 = 0x01;
@@ -89,14 +82,7 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
     let mut token = [0u8; TOKEN_LEN];
     reader.read_exact(&mut token).await?;
 
-    // Read and discard the "\r\n" separator.
-    let mut crlf = [0u8; 2];
-    reader.read_exact(&mut crlf).await?;
-    if crlf != [b'\r', b'\n'] {
-        return Err(ProxyError::Protocol(
-            "Trojan: expected CRLF after token".into(),
-        ));
-    }
+    expect_crlf(reader, "after token").await?;
 
     let command = reader.read_u8().await?;
     if command != CMD_CONNECT {
@@ -107,51 +93,19 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
 
     // Read address type.
     let atyp = reader.read_u8().await?;
-    let dest = read_address(reader, atyp).await?;
-
-    // Read and discard the trailing "\r\n".
-    reader.read_exact(&mut crlf).await?;
-    if crlf != [b'\r', b'\n'] {
-        return Err(ProxyError::Protocol(
-            "Trojan: expected CRLF after address".into(),
-        ));
-    }
+    let dest = read_socks5_address(reader, atyp, "Trojan").await?;
+    expect_crlf(reader, "after address").await?;
 
     Ok(TrojanRequest { token, dest })
 }
 
-/// Read a SOCKS5-style destination address from the stream.
-async fn read_address<R: AsyncRead + Unpin>(
-    reader: &mut R,
-    atyp: u8,
-) -> Result<Address, ProxyError> {
-    match atyp {
-        ATYP_IPV4 => {
-            let mut buf = [0u8; 4];
-            reader.read_exact(&mut buf).await?;
-            let port = reader.read_u16().await?;
-            Ok(Address::Ipv4(std::net::Ipv4Addr::from(buf), port))
-        }
-        ATYP_IPV6 => {
-            let mut buf = [0u8; 16];
-            reader.read_exact(&mut buf).await?;
-            let port = reader.read_u16().await?;
-            Ok(Address::Ipv6(std::net::Ipv6Addr::from(buf), port))
-        }
-        ATYP_DOMAIN => {
-            let len = reader.read_u8().await? as usize;
-            let mut name = vec![0u8; len];
-            reader.read_exact(&mut name).await?;
-            let port = reader.read_u16().await?;
-            let domain = String::from_utf8(name).map_err(|_| {
-                ProxyError::Protocol("Trojan: domain name is not valid UTF-8".into())
-            })?;
-            Ok(Address::Domain(domain, port))
-        }
-        other => Err(ProxyError::Protocol(format!(
-            "Trojan: unknown ATYP {other:#x}"
-        ))),
+async fn expect_crlf<R: AsyncRead + Unpin>(reader: &mut R, ctx: &str) -> Result<(), ProxyError> {
+    let mut crlf = [0u8; 2];
+    reader.read_exact(&mut crlf).await?;
+    if crlf != [b'\r', b'\n'] {
+        return Err(ProxyError::Protocol(format!("Trojan: expected CRLF {ctx}")));
     }
+    Ok(())
 }
 
 // ── Encoder ───────────────────────────────────────────────────────────────────
@@ -164,7 +118,7 @@ async fn read_address<R: AsyncRead + Unpin>(
 /// # Arguments
 /// * `token` — the 56-char hex token string (from `compute_token`)
 /// * `dest`  — the destination address and port
-pub fn encode_request(token: &str, dest: &Address) -> Bytes {
+pub fn encode_request(token: &str, dest: &Address) -> Result<Bytes, ProxyError> {
     let mut buf = BytesMut::with_capacity(128);
 
     // Auth token (56 ASCII hex chars).
@@ -177,34 +131,12 @@ pub fn encode_request(token: &str, dest: &Address) -> Bytes {
     buf.put_u8(CMD_CONNECT);
 
     // Address.
-    encode_address(&mut buf, dest);
+    write_socks5_address(&mut buf, dest)?;
 
     // CRLF after address.
     buf.put_slice(b"\r\n");
 
-    buf.freeze()
-}
-
-/// Encode a SOCKS5-style address into the buffer.
-fn encode_address(buf: &mut BytesMut, dest: &Address) {
-    match dest {
-        Address::Ipv4(ip, port) => {
-            buf.put_u8(ATYP_IPV4);
-            buf.put_slice(&ip.octets());
-            buf.put_u16(*port);
-        }
-        Address::Ipv6(ip, port) => {
-            buf.put_u8(ATYP_IPV6);
-            buf.put_slice(&ip.octets());
-            buf.put_u16(*port);
-        }
-        Address::Domain(name, port) => {
-            buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(name.len() as u8);
-            buf.put_slice(name.as_bytes());
-            buf.put_u16(*port);
-        }
-    }
+    Ok(buf.freeze())
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -242,7 +174,7 @@ mod tests {
     async fn roundtrip_ipv4() {
         let token = compute_token("test-pass");
         let dest = Address::Ipv4(Ipv4Addr::new(1, 2, 3, 4), 8080);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.token, token.as_bytes());
@@ -254,7 +186,7 @@ mod tests {
     async fn roundtrip_domain() {
         let token = compute_token("hello");
         let dest = Address::Domain("example.com".into(), 443);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.dest, dest);
@@ -265,7 +197,7 @@ mod tests {
     async fn roundtrip_ipv6() {
         let token = compute_token("ipv6test");
         let dest = Address::Ipv6("::1".parse().unwrap(), 9090);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.dest, dest);

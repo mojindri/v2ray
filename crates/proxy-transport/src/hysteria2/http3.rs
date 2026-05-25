@@ -34,9 +34,17 @@ pub async fn serve_connection(
     };
 
     handle_h3_auth_request(resolver, &config.password, server_rx_bps, true).await?;
-    // Do not drop the HTTP/3 driver (sends GOAWAY). Leak it so raw QUIC streams work for TCP.
-    std::mem::forget(h3_conn);
+    // Keep the HTTP/3 server driver alive for the QUIC session without calling
+    // `accept()` again. Official hysteria uses http3.StreamDispatcher to hijack
+    // proxy streams (varint 0x401); the Rust `h3` crate has no equivalent, so we
+    // take proxy streams via `conn.accept_bi()` below. A competing `h3_conn.accept()`
+    // would treat 0x401 TCPRequest bytes as HTTP/3 and reset the connection.
+    tokio::spawn(async move {
+        let _h3_conn = h3_conn;
+        std::future::pending::<()>().await
+    });
 
+    let inbound_tag = config.tag.clone();
     loop {
         let (mut send, mut recv) = conn
             .accept_bi()
@@ -44,6 +52,7 @@ pub async fn serve_connection(
             .context("accept Hysteria2 TCP stream")?;
 
         let dispatcher = Arc::clone(&dispatcher);
+        let tag = inbound_tag.clone();
         tokio::spawn(async move {
             let dest = match tcp::server_read_request(&mut recv).await {
                 Ok(d) => d,
@@ -62,7 +71,7 @@ pub async fn serve_connection(
             let stream: BoxedStream = Box::new(ReunionStream::new(recv, send));
             let ctx = Context {
                 source: None,
-                inbound_tag: "hysteria2".to_string(),
+                inbound_tag: tag,
                 user: None,
                 sniffed_protocol: None,
             };

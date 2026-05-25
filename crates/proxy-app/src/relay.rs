@@ -28,7 +28,7 @@ pub async fn relay_bidirectional(
 ) -> io::Result<(u64, u64)> {
     #[cfg(target_os = "linux")]
     {
-        use proxy_common::{try_into_tcp_stream, BoxedStream};
+        use proxy_common::try_into_tcp_stream;
 
         // Wrapped streams (TLS/WS/REALITY) cannot splice — use async copy.
         let inbound = match try_into_tcp_stream(inbound) {
@@ -49,7 +49,7 @@ pub async fn relay_bidirectional(
             return Ok(result);
         }
         // splice can fail on exotic socket types — fall back safely.
-        return tokio_copy_bidirectional(Box::new(inbound), Box::new(outbound)).await;
+        tokio_copy_bidirectional(Box::new(inbound), Box::new(outbound)).await
     }
 
     #[cfg(not(target_os = "linux"))]

@@ -482,9 +482,10 @@ impl AsyncWrite for V3Stream {
     ) -> Poll<io::Result<usize>> {
         if !self.write_buf.is_empty() {
             while self.write_pos < self.write_buf.len() {
-                let write_pos = self.write_pos;
-                let pending = self.write_buf[write_pos..].to_vec();
-                let n = ready!(Pin::new(&mut self.inner).poll_write(cx, &pending))?;
+                let this = self.as_mut().get_mut();
+                let n =
+                    ready!(Pin::new(this.inner.as_mut())
+                        .poll_write(cx, &this.write_buf[this.write_pos..]))?;
                 if n == 0 {
                     return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
                 }
@@ -511,9 +512,8 @@ impl AsyncWrite for V3Stream {
         self.write_chunk_len = chunk_len;
 
         while self.write_pos < self.write_buf.len() {
-            let write_pos = self.write_pos;
-            let pending = self.write_buf[write_pos..].to_vec();
-            match Pin::new(&mut self.inner).poll_write(cx, &pending) {
+            let this = self.as_mut().get_mut();
+            match Pin::new(this.inner.as_mut()).poll_write(cx, &this.write_buf[this.write_pos..]) {
                 Poll::Ready(Ok(0)) => {
                     return Poll::Ready(Err(io::Error::from(io::ErrorKind::WriteZero)));
                 }

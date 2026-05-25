@@ -29,6 +29,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -37,7 +38,9 @@ use tracing::debug;
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
-use proxy_common::{Address, BoxedStream, Network, ProxyError};
+use proxy_common::{
+    with_handshake_timeout, Address, BoxedStream, Network, PrependedStream, ProxyError,
+};
 
 // ── Constants ──────────────────────────────────────────────────────────────────
 
@@ -53,12 +56,17 @@ const MAX_HEADER_BYTES: usize = 8192;
 pub struct HttpConnectInbound {
     /// Unique tag from config.
     tag: String,
+    /// Optional limit for reading the HTTP request headers (Xray `Handshake`).
+    handshake_timeout: Option<Duration>,
 }
 
 impl HttpConnectInbound {
     /// Create a new HTTP CONNECT inbound handler.
-    pub fn new(tag: impl Into<String>) -> Arc<Self> {
-        Arc::new(Self { tag: tag.into() })
+    pub fn new(tag: impl Into<String>, handshake_timeout: Option<Duration>) -> Arc<Self> {
+        Arc::new(Self {
+            tag: tag.into(),
+            handshake_timeout,
+        })
     }
 }
 
@@ -74,14 +82,17 @@ impl InboundHandler for HttpConnectInbound {
 
     async fn handle(
         &self,
-        mut stream: BoxedStream,
+        stream: BoxedStream,
         source: SocketAddr,
         dispatcher: Arc<dyn Dispatcher>,
     ) -> Result<(), ProxyError> {
-        let dest = parse_connect_request(&mut stream).await.map_err(|e| {
-            debug!(source = %source, error = %e, "HTTP CONNECT parse failed");
-            e
-        })?;
+        let (dest, mut stream) =
+            with_handshake_timeout(self.handshake_timeout, parse_connect_request(stream))
+                .await
+                .map_err(|e| {
+                    debug!(source = %source, error = %e, "HTTP CONNECT parse failed");
+                    e
+                })?;
 
         debug!(source = %source, dest = %dest, "HTTP CONNECT tunnel established");
 
@@ -101,12 +112,14 @@ impl InboundHandler for HttpConnectInbound {
 /// Parse an HTTP CONNECT request from the stream.
 ///
 /// Reads the request line and all headers, validates that the method is
-/// CONNECT, extracts the target host:port, and returns the parsed `Address`.
-/// The stream is left positioned immediately after the blank line (i.e. at the
-/// start of the tunnelled data, which for CONNECT should be empty until the
-/// client starts sending).
-pub async fn parse_connect_request(stream: &mut BoxedStream) -> Result<Address, ProxyError> {
-    let mut reader = BufReader::new(stream.as_mut());
+/// CONNECT, extracts the target host:port, and returns the parsed `Address`
+/// plus a stream positioned at the first byte after the header block. Any bytes
+/// already buffered by the reader (e.g. coalesced TLS ClientHello) are
+/// preserved via [`PrependedStream`], matching Xray's `BufferedReader` behavior.
+pub async fn parse_connect_request(
+    stream: BoxedStream,
+) -> Result<(Address, BoxedStream), ProxyError> {
+    let mut reader = BufReader::new(stream);
     let mut total_bytes = 0usize;
     let mut first_line = String::new();
 
@@ -140,7 +153,18 @@ pub async fn parse_connect_request(stream: &mut BoxedStream) -> Result<Address, 
         }
     }
 
-    parse_request_line(first_line.trim())
+    let dest = parse_request_line(first_line.trim())?;
+
+    // Preserve any bytes already read past the header block (Xray BufferedReader).
+    let remainder = reader.buffer().to_vec();
+    let inner = reader.into_inner();
+    let stream = if remainder.is_empty() {
+        inner
+    } else {
+        Box::new(PrependedStream::new(inner, remainder)) as BoxedStream
+    };
+
+    Ok((dest, stream))
 }
 
 /// Parse the request line `CONNECT host:port HTTP/1.1` into an `Address`.
@@ -198,6 +222,7 @@ pub fn parse_connect_request_sync(request_line: &str) -> Result<Address, ProxyEr
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tokio::io::AsyncReadExt;
 
     fn addr(host: &str, port: u16) -> Address {
         Address::Domain(host.to_string(), port)
@@ -243,30 +268,30 @@ mod tests {
 
     // ── parse_connect_request integration tests ───────────────────────────────
 
-    async fn parse_from_bytes(data: &[u8]) -> Result<Address, ProxyError> {
+    async fn parse_from_bytes(data: &[u8]) -> Result<(Address, BoxedStream), ProxyError> {
         let cursor = std::io::Cursor::new(data.to_vec());
-        let mut stream: BoxedStream = Box::new(cursor);
-        parse_connect_request(&mut stream).await
+        let stream: BoxedStream = Box::new(cursor);
+        parse_connect_request(stream).await
     }
 
     #[tokio::test]
     async fn full_request_domain() {
         let req = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\n";
-        let a = parse_from_bytes(req).await.unwrap();
+        let (a, _) = parse_from_bytes(req).await.unwrap();
         assert_eq!(a, addr("example.com", 443));
     }
 
     #[tokio::test]
     async fn full_request_ipv4() {
         let req = b"CONNECT 93.184.216.34:443 HTTP/1.1\r\nHost: 93.184.216.34\r\n\r\n";
-        let a = parse_from_bytes(req).await.unwrap();
+        let (a, _) = parse_from_bytes(req).await.unwrap();
         assert_eq!(a, Address::Ipv4("93.184.216.34".parse().unwrap(), 443));
     }
 
     #[tokio::test]
     async fn full_request_multiple_headers() {
         let req = b"CONNECT proxy.example.com:8443 HTTP/1.1\r\nHost: proxy.example.com:8443\r\nProxy-Connection: keep-alive\r\nUser-Agent: curl/7.79\r\n\r\n";
-        let a = parse_from_bytes(req).await.unwrap();
+        let (a, _) = parse_from_bytes(req).await.unwrap();
         assert_eq!(a, addr("proxy.example.com", 8443));
     }
 
@@ -283,5 +308,14 @@ mod tests {
         let req = b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n";
         let result = parse_from_bytes(req).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn preserves_post_header_bytes() {
+        let req = b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\n\r\nCLIENT_HELLO";
+        let (_, mut stream) = parse_from_bytes(req).await.unwrap();
+        let mut tail = vec![0u8; 12];
+        stream.read_exact(&mut tail).await.unwrap();
+        assert_eq!(&tail, b"CLIENT_HELLO");
     }
 }

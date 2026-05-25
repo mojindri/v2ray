@@ -114,43 +114,89 @@ fn parse_ipv4(buf: &[u8]) -> Option<IpPacket> {
 }
 
 fn parse_ipv6(buf: &[u8]) -> Option<IpPacket> {
-    if buf.len() < 44 {
+    if buf.len() < 40 {
         return None;
     }
-    let next_hdr = buf[6];
     let payload_len = u16::from_be_bytes([buf[4], buf[5]]) as usize;
     let total_length = 40usize.checked_add(payload_len)?;
     if buf.len() < total_length {
         return None;
     }
-    let transport_len = payload_len;
+
+    let src = Ipv6Addr::from(<[u8; 16]>::try_from(&buf[8..24]).ok()?);
+    let dst = Ipv6Addr::from(<[u8; 16]>::try_from(&buf[24..40]).ok()?);
+
+    // Walk extension headers until we reach a transport-layer header.
+    let mut next_hdr = buf[6];
+    let mut offset = 40usize;
+    loop {
+        match next_hdr {
+            6 | 17 | 58 => break, // TCP / UDP / ICMPv6 — transport header found
+            // Extension headers with variable length (RFC 2460 §4.2):
+            // each has next_hdr(1) + ext_len(1) + data; ext_len is in 8-octet units excluding first unit.
+            0 | 43 | 60 | 135 | 139 | 140 | 253 | 254 => {
+                if offset + 2 > total_length {
+                    return None;
+                }
+                next_hdr = buf[offset];
+                let ext_len = (buf[offset + 1] as usize + 1) * 8;
+                offset = offset.checked_add(ext_len)?;
+            }
+            // Fragment header (44) is always 8 bytes.
+            44 => {
+                if offset + 8 > total_length {
+                    return None;
+                }
+                next_hdr = buf[offset];
+                offset += 8;
+            }
+            // Unknown next header — report as Other, no port info.
+            other => {
+                return Some(IpPacket {
+                    src: src.into(),
+                    dst: dst.into(),
+                    src_port: 0,
+                    dst_port: 0,
+                    protocol: TransportProtocol::Other(other),
+                    header_len: 40,
+                    payload_offset: offset,
+                    payload_len: total_length.saturating_sub(offset),
+                });
+            }
+        }
+    }
+
+    let transport_len = total_length.saturating_sub(offset);
     let payload_offset = match next_hdr {
         6 => {
-            if transport_len < 20 {
+            if transport_len < 20 || offset + 13 > buf.len() {
                 return None;
             }
-            let data_offset = ((buf[40 + 12] >> 4) as usize) * 4;
+            let data_offset = ((buf[offset + 12] >> 4) as usize) * 4;
             if data_offset < 20 || transport_len < data_offset {
                 return None;
             }
-            40 + data_offset
+            offset + data_offset
         }
         17 => {
-            if transport_len < 8 {
+            if transport_len < 8 || offset + 6 > buf.len() {
                 return None;
             }
-            let udp_len = u16::from_be_bytes([buf[40 + 4], buf[40 + 5]]) as usize;
+            let udp_len = u16::from_be_bytes([buf[offset + 4], buf[offset + 5]]) as usize;
             if udp_len < 8 || udp_len > transport_len {
                 return None;
             }
-            40 + 8
+            offset + 8
         }
-        _ => 44,
+        _ => offset + 4,
     };
-    let src = Ipv6Addr::from(<[u8; 16]>::try_from(&buf[8..24]).ok()?);
-    let dst = Ipv6Addr::from(<[u8; 16]>::try_from(&buf[24..40]).ok()?);
-    let src_port = u16::from_be_bytes([buf[40], buf[41]]);
-    let dst_port = u16::from_be_bytes([buf[42], buf[43]]);
+
+    if offset + 4 > buf.len() {
+        return None;
+    }
+    let src_port = u16::from_be_bytes([buf[offset], buf[offset + 1]]);
+    let dst_port = u16::from_be_bytes([buf[offset + 2], buf[offset + 3]]);
+
     Some(IpPacket {
         src: src.into(),
         dst: dst.into(),

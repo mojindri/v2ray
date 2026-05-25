@@ -125,7 +125,8 @@ pub async fn ws_accept(tcp_stream: BoxedStream) -> Result<BoxedStream, ProxyErro
     Ok(Box::new(WsStream::new(ws_stream)))
 }
 
-// ── WsStream: AsyncRead + AsyncWrite wrapper ─────────────────────────────────
+/// Gorilla write buffer size used by Xray (`WriteBufferSize: 4 * 1024`).
+const WS_WRITE_BUFFER_SIZE: usize = 4 * 1024;
 
 type InnerWsStream<S> = tokio_tungstenite::WebSocketStream<S>;
 
@@ -224,12 +225,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsStream<S> {
 impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        // Buffer the bytes; they will be sent as a frame on flush.
-        self.write_buf.extend_from_slice(buf);
-        Poll::Ready(Ok(buf.len()))
+        if self.write_buf.len() >= WS_WRITE_BUFFER_SIZE {
+            match self.as_mut().poll_flush(cx) {
+                Poll::Ready(Ok(())) => {}
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Pending => return Poll::Pending,
+            }
+        }
+
+        let space = WS_WRITE_BUFFER_SIZE.saturating_sub(self.write_buf.len());
+        let n = buf.len().min(space);
+        self.write_buf.extend_from_slice(&buf[..n]);
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

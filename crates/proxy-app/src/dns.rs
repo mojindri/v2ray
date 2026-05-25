@@ -31,7 +31,7 @@
 //!     assert!(!ips.is_empty());
 //!
 //!     // FakeIP:
-//!     let fake = module.resolve_fake("example.com");
+//!     let fake = module.resolve_fake("example.com").expect("fake IP enabled");
 //!     let domain = module.reverse_fake(fake);
 //!     assert_eq!(domain.as_deref(), Some("example.com"));
 //!     assert!(module.is_fake_ip(IpAddr::V4(fake)));
@@ -126,19 +126,11 @@ impl DnsModule {
 
     /// Assign or retrieve the FakeIP for a domain.
     ///
-    /// Always returns the same IP for the same domain. If the domain is in the
-    /// filter list, returns `None` (caller should use real resolution instead).
-    ///
-    /// # Panics
-    ///
-    /// Does not panic. If FakeIP is not enabled, always returns `None`.
-    pub fn resolve_fake(&self, domain: &str) -> Ipv4Addr {
-        if let Some(pool) = &self.fakeip {
-            pool.allocate(domain)
-        } else {
-            // FakeIP disabled — return a zero IP as a sentinel.
-            Ipv4Addr::UNSPECIFIED
-        }
+    /// Returns `Some(ip)` when FakeIP is enabled, or `None` when FakeIP is
+    /// disabled. Callers must check `is_filtered` before calling this; the
+    /// filter is not enforced internally (same architecture as xray).
+    pub fn resolve_fake(&self, domain: &str) -> Option<Ipv4Addr> {
+        self.fakeip.as_ref().map(|pool| pool.allocate(domain))
     }
 
     /// Look up the domain name that was assigned a given fake IP.
@@ -179,11 +171,11 @@ mod tests {
         };
         let module = DnsModule::new(cfg).await.unwrap();
 
-        let ip1 = module.resolve_fake("example.com");
-        let ip2 = module.resolve_fake("example.com");
+        let ip1 = module.resolve_fake("example.com").unwrap();
+        let ip2 = module.resolve_fake("example.com").unwrap();
         assert_eq!(ip1, ip2);
 
-        let ip3 = module.resolve_fake("other.com");
+        let ip3 = module.resolve_fake("other.com").unwrap();
         assert_ne!(ip1, ip3);
     }
 
@@ -196,7 +188,7 @@ mod tests {
         };
         let module = DnsModule::new(cfg).await.unwrap();
 
-        let ip = module.resolve_fake("mysite.net");
+        let ip = module.resolve_fake("mysite.net").unwrap();
         let domain = module.reverse_fake(ip).unwrap();
         assert_eq!(domain, "mysite.net");
     }
@@ -210,7 +202,7 @@ mod tests {
         };
         let module = DnsModule::new(cfg).await.unwrap();
 
-        let ip = module.resolve_fake("test.example.com");
+        let ip = module.resolve_fake("test.example.com").unwrap();
         assert!(module.is_fake_ip(IpAddr::V4(ip)));
 
         // 1.1.1.1 is outside the 198.18.0.0/15 range

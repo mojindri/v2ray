@@ -16,6 +16,7 @@
 //! is what the protocol layer receives. The protocol layer never knows which
 //! transport is underneath.
 
+mod pem;
 pub mod reality;
 pub mod tcp;
 
@@ -51,6 +52,7 @@ pub use mkcp::{
 };
 pub use quic::{
     build_client_endpoint, build_server_endpoint, dev_self_signed, dev_self_signed_for_names,
+    ensure_crypto_provider,
 };
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{

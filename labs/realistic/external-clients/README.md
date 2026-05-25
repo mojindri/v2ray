@@ -49,12 +49,9 @@ labs/realistic/reports/external-clients/
 
 The automated matrix is driven by `external-clients/scenarios.env`.
 
-At the moment that file contains one scenario:
-
-1. VLESS REALITY
-
-As more scenarios are added to `scenarios.env`, the same runner will pick them
-up automatically for both Docker and VPS execution.
+`scenarios.env` drives the matrix (VLESS REALITY/TCP/WS, VMess gRPC, Trojan TLS,
+SS-2022, Hysteria2). Add or comment out rows there to change coverage; both Docker
+and VPS runners read the same file.
 
 Hiddify remains a manual validation target using generated import artifacts
 after the automated scenarios pass.

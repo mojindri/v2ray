@@ -32,22 +32,21 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use rand::RngCore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
+
+use super::variable_header::build_request_variable_header;
 
 use super::{password_to_psk, stream::Ss2022Stream, subkey::derive_subkey};
 
-/// ATYP constants.
-const ATYP_IPV4: u8 = 0x01;
-const ATYP_DOMAIN: u8 = 0x03;
-const ATYP_IPV6: u8 = 0x04;
-
 /// SS-2022 TCP connection type byte.
 const TYPE_TCP: u8 = 0x00;
+
+/// Backward-compatible alias for [`Ss2022Outbound`].
+pub type Ss2022ChunkedOutbound = Ss2022Outbound;
 
 /// SS-2022 outbound handler.
 pub struct Ss2022Outbound {
@@ -75,41 +74,7 @@ impl OutboundHandler for Ss2022Outbound {
 
     async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         debug!(server = %self.server, dest = %dest, "SS-2022 outbound connecting");
-        let tcp = TcpStream::connect(self.server).await?;
-        tcp.set_nodelay(true)?;
-        Ok(Box::new(
-            open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
-        ))
-    }
-}
-
-/// Outbound that returns an `Ss2022Stream`-wrapped connection.
-pub struct Ss2022ChunkedOutbound {
-    tag: String,
-    server: SocketAddr,
-    psk: [u8; 32],
-}
-
-impl Ss2022ChunkedOutbound {
-    /// Create a new SS-2022 chunked outbound.
-    pub fn new(tag: impl Into<String>, server: SocketAddr, password: &str) -> Arc<Self> {
-        Arc::new(Self {
-            tag: tag.into(),
-            server,
-            psk: password_to_psk(password),
-        })
-    }
-}
-
-#[async_trait]
-impl OutboundHandler for Ss2022ChunkedOutbound {
-    fn tag(&self) -> &str {
-        &self.tag
-    }
-
-    async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
-        debug!(server = %self.server, dest = %dest, "SS-2022 chunked outbound connecting");
-        let tcp = TcpStream::connect(self.server).await?;
+        let tcp = tcp_connect(self.server).await?;
         tcp.set_nodelay(true)?;
         Ok(Box::new(
             open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
@@ -139,7 +104,7 @@ pub async fn open_ss2022_stream(
 
     let req_subkey = derive_subkey(psk, &req_salt);
     let req_cipher = Aes256Gcm::new(GenericArray::from_slice(&req_subkey));
-    let variable = build_request_variable_header(dest);
+    let variable = build_request_variable_header(dest)?;
 
     let mut fixed = [0u8; 11];
     fixed[0] = TYPE_TCP;
@@ -215,35 +180,6 @@ pub async fn open_ss2022_stream(
         BytesMut::from(initial_pt.as_slice()),
         None,
     ))
-}
-
-/// Build the SIP022 request variable header plaintext.
-///
-/// ```text
-/// atyp(1) | addr | port(2 BE) | padding_len(2 BE)=0 | initial_payload(empty)
-/// ```
-fn build_request_variable_header(dest: &Address) -> Vec<u8> {
-    let mut buf = Vec::with_capacity(32);
-    match dest {
-        Address::Ipv4(ip, port) => {
-            buf.push(ATYP_IPV4);
-            buf.extend_from_slice(&ip.octets());
-            buf.extend_from_slice(&port.to_be_bytes());
-        }
-        Address::Ipv6(ip, port) => {
-            buf.push(ATYP_IPV6);
-            buf.extend_from_slice(&ip.octets());
-            buf.extend_from_slice(&port.to_be_bytes());
-        }
-        Address::Domain(name, port) => {
-            buf.push(ATYP_DOMAIN);
-            buf.push(name.len() as u8);
-            buf.extend_from_slice(name.as_bytes());
-            buf.extend_from_slice(&port.to_be_bytes());
-        }
-    }
-    buf.extend_from_slice(&0u16.to_be_bytes()); // padding_len = 0
-    buf
 }
 
 fn make_nonce(counter: u64) -> [u8; 12] {

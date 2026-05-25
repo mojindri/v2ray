@@ -1,7 +1,7 @@
 use std::net::IpAddr;
 
 use serde::{Deserialize, Serialize};
-use validator::Validate;
+use validator::{Validate, ValidationError, ValidationErrors};
 
 use super::{Protocol, SniffingConfig, StreamSettingsConfig};
 
@@ -44,7 +44,7 @@ pub struct InboundConfig {
 }
 
 /// An outbound handler: a protocol used to forward traffic to the destination.
-#[derive(Debug, Clone, Serialize, Deserialize, Validate)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OutboundConfig {
     /// Unique name referenced by routing rules.
     pub tag: String,
@@ -64,6 +64,32 @@ pub struct OutboundConfig {
         skip_serializing_if = "Option::is_none"
     )]
     pub stream_settings: Option<StreamSettingsConfig>,
+}
+
+impl Validate for OutboundConfig {
+    fn validate(&self) -> Result<(), ValidationErrors> {
+        let mut errors = ValidationErrors::new();
+
+        if let Some(port) = self.settings.get("port") {
+            let invalid = port
+                .as_u64()
+                .map(|p| p == 0 || p > u16::MAX as u64)
+                .or_else(|| port.as_i64().map(|p| p <= 0 || p > u16::MAX as i64))
+                .unwrap_or(false);
+
+            if invalid {
+                let mut error = ValidationError::new("range");
+                error.message = Some("outbound settings.port must be between 1 and 65535".into());
+                errors.add("settings.port", error);
+            }
+        }
+
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
 }
 
 /// Per-inbound runtime safety limits.

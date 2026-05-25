@@ -46,7 +46,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use proxy_common::{Address, ProxyError};
+use proxy_common::{domain_wire_len, Address, ProxyError};
 
 use super::kdf::kdf;
 
@@ -104,6 +104,15 @@ impl TryFrom<u8> for Security {
 const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x02;
 const ATYP_IPV6: u8 = 0x03;
+
+/// VMess request command: TCP (Xray `RequestCommandTCP`).
+const CMD_TCP: u8 = 0x01;
+/// VMess request command: UDP (Xray `RequestCommandUDP`).
+const CMD_UDP: u8 = 0x02;
+/// VMess request command: Mux (Xray `RequestCommandMux`).
+const CMD_MUX: u8 = 0x03;
+/// Domain used for Mux requests (Xray `MuxCoolAddress`).
+const MUX_DOMAIN: &str = "v1.mux.cool";
 
 // ── Request header ────────────────────────────────────────────────────────────
 
@@ -169,39 +178,30 @@ pub fn encode_header(
     let v_byte = v[0];
 
     let pad_len: u8 = (rng.next_u32() % 16) as u8;
-    let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest);
+    let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest)?;
 
     // Encrypt header with connection_nonce in KDF.
     let hdr_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, &connection_nonce]);
     let hdr_nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, &connection_nonce]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-    let enc_header = cipher
-        .encrypt(
-            GenericArray::from_slice(&hdr_nonce),
-            Payload {
-                msg: &plaintext,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: header ciphertext encrypt failed".into()))?;
+    let enc_header = vmess_aead_encrypt(
+        &hdr_key,
+        &hdr_nonce,
+        &plaintext,
+        auth_id,
+        "VMess: header ciphertext encrypt failed",
+    )?;
 
-    // Encrypt header length with connection_nonce in KDF.
     let len_key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, &connection_nonce]);
     let len_nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, &connection_nonce]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-    let enc_len = cipher
-        .encrypt(
-            GenericArray::from_slice(&len_nonce),
-            Payload {
-                // VMess AEAD length is the plaintext header length.
-                // Encrypted header on wire is plaintext_len + 16-byte GCM tag.
-                msg: &(plaintext.len() as u16).to_be_bytes(),
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: header length encrypt failed".into()))?;
+    let enc_len = vmess_aead_encrypt(
+        &len_key,
+        &len_nonce,
+        &(plaintext.len() as u16).to_be_bytes(),
+        auth_id,
+        "VMess: header length encrypt failed",
+    )?;
 
     Ok((iv, key, v_byte, connection_nonce, enc_len, enc_header))
 }
@@ -220,16 +220,13 @@ pub fn decrypt_length_field(
     let key: [u8; 16] = kdf(cmd_key, &[PATH_LEN_KEY, auth_id, connection_nonce.as_ref()]);
     let nonce: [u8; 12] = kdf(cmd_key, &[PATH_LEN_IV, auth_id, connection_nonce.as_ref()]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
-    let plaintext = cipher
-        .decrypt(
-            GenericArray::from_slice(&nonce),
-            Payload {
-                msg: enc,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: length field decryption failed".into()))?;
+    let plaintext = vmess_aead_decrypt(
+        &key,
+        &nonce,
+        enc,
+        auth_id,
+        "VMess: length field decryption failed",
+    )?;
 
     if plaintext.len() < 2 {
         return Err(ProxyError::Protocol("VMess: length field too short".into()));
@@ -251,16 +248,13 @@ pub async fn decode_header<R: AsyncRead + Unpin>(
     let key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, connection_nonce.as_ref()]);
     let nonce: [u8; 12] = kdf(cmd_key, &[PATH_HDR_IV, auth_id, connection_nonce.as_ref()]);
 
-    let cipher = Aes128Gcm::new(GenericArray::from_slice(&key));
-    let plaintext = cipher
-        .decrypt(
-            GenericArray::from_slice(&nonce),
-            Payload {
-                msg: &ciphertext,
-                aad: auth_id,
-            },
-        )
-        .map_err(|_| ProxyError::Protocol("VMess: AEAD header decryption failed".into()))?;
+    let plaintext = vmess_aead_decrypt(
+        &key,
+        &nonce,
+        &ciphertext,
+        auth_id,
+        "VMess: AEAD header decryption failed",
+    )?;
 
     decode_plaintext(&plaintext)
 }
@@ -282,28 +276,24 @@ pub async fn send_response_header<W: AsyncWrite + Unpin>(
     let len_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_LEN_KEY]);
     let len_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_LEN_IV]);
 
-    let enc_len = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-        cipher
-            .encrypt(
-                GenericArray::from_slice(&len_nonce),
-                Payload {
-                    msg: &(plaintext.len() as u16).to_be_bytes(),
-                    aad: &[],
-                },
-            )
-            .map_err(|_| ProxyError::Protocol("VMess: resp header len encrypt failed".into()))?
-    };
+    let enc_len = vmess_aead_encrypt(
+        &len_key,
+        &len_nonce,
+        &(plaintext.len() as u16).to_be_bytes(),
+        &[],
+        "VMess: resp header len encrypt failed",
+    )?;
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
     let hdr_nonce: [u8; 12] = kdf(resp_body_iv, &[PATH_RESP_HDR_IV]);
 
-    let enc_hdr = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-        cipher
-            .encrypt(GenericArray::from_slice(&hdr_nonce), plaintext.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp header encrypt failed".into()))?
-    };
+    let enc_hdr = vmess_aead_encrypt(
+        &hdr_key,
+        &hdr_nonce,
+        &plaintext,
+        &[],
+        "VMess: resp header encrypt failed",
+    )?;
 
     writer.write_all(&enc_len).await?;
     writer.write_all(&enc_hdr).await?;
@@ -325,12 +315,13 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     let mut enc_len = [0u8; 18];
     reader.read_exact(&mut enc_len).await?;
 
-    let len_pt = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&len_key));
-        cipher
-            .decrypt(GenericArray::from_slice(&len_nonce), enc_len.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp len decrypt failed".into()))?
-    };
+    let len_pt = vmess_aead_decrypt(
+        &len_key,
+        &len_nonce,
+        enc_len.as_ref(),
+        &[],
+        "VMess: resp len decrypt failed",
+    )?;
     let payload_len = u16::from_be_bytes([len_pt[0], len_pt[1]]) as usize;
 
     let hdr_key: [u8; 16] = kdf(resp_body_key, &[PATH_RESP_HDR_KEY]);
@@ -339,12 +330,13 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
     let mut enc_hdr = vec![0u8; payload_len + 16];
     reader.read_exact(&mut enc_hdr).await?;
 
-    let hdr_pt = {
-        let cipher = Aes128Gcm::new(GenericArray::from_slice(&hdr_key));
-        cipher
-            .decrypt(GenericArray::from_slice(&hdr_nonce), enc_hdr.as_ref())
-            .map_err(|_| ProxyError::Protocol("VMess: resp header decrypt failed".into()))?
-    };
+    let hdr_pt = vmess_aead_decrypt(
+        &hdr_key,
+        &hdr_nonce,
+        enc_hdr.as_ref(),
+        &[],
+        "VMess: resp header decrypt failed",
+    )?;
 
     let got_v = hdr_pt.first().copied().unwrap_or(0);
     if got_v != expected_v {
@@ -358,6 +350,38 @@ pub async fn read_response_header<R: AsyncRead + Unpin>(
 
 // ── Internal ──────────────────────────────────────────────────────────────────
 
+fn vmess_aead_encrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    msg: &[u8],
+    aad: &[u8],
+    err: &str,
+) -> Result<Vec<u8>, ProxyError> {
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
+    cipher
+        .encrypt(GenericArray::from_slice(nonce), Payload { msg, aad })
+        .map_err(|_| ProxyError::Protocol(err.into()))
+}
+
+fn vmess_aead_decrypt(
+    key: &[u8; 16],
+    nonce: &[u8; 12],
+    ciphertext: &[u8],
+    aad: &[u8],
+    err: &str,
+) -> Result<Vec<u8>, ProxyError> {
+    let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
+    cipher
+        .decrypt(
+            GenericArray::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
+        .map_err(|_| ProxyError::Protocol(err.into()))
+}
+
 fn build_request_plaintext(
     iv: &[u8; 16],
     key: &[u8; 16],
@@ -365,7 +389,7 @@ fn build_request_plaintext(
     pad_len: u8,
     security: Security,
     dest: &Address,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ProxyError> {
     let mut buf = BytesMut::new();
     buf.put_u8(0x01); // version
     buf.put_slice(iv);
@@ -390,7 +414,7 @@ fn build_request_plaintext(
         Address::Domain(name, port) => {
             buf.put_u16(*port);
             buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(name.len() as u8);
+            buf.put_u8(domain_wire_len(name)?);
             buf.put_slice(name.as_bytes());
         }
     }
@@ -402,7 +426,7 @@ fn build_request_plaintext(
     let checksum = fnv32a(buf.as_ref());
     buf.put_u32(checksum);
 
-    buf.to_vec()
+    Ok(buf.to_vec())
 }
 
 fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
@@ -428,7 +452,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     let pad_sec = data[35];
     let pad_len = (pad_sec >> 4) as usize;
     let security = Security::try_from(pad_sec & 0x0F)?;
-    let _cmd = data[37]; // data[36] = reserved
+    let cmd = data[37];
 
     let mut pos = 38;
 
@@ -438,49 +462,27 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
     pos += 2;
 
-    if pos >= data.len() {
-        return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
-    }
-    let atyp = data[pos];
-    pos += 1;
-
-    let dest = match atyp {
-        ATYP_IPV4 => {
-            if pos + 4 > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
-            }
-            let ip =
-                std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
-            pos += 4;
-            Address::Ipv4(ip, port)
-        }
-        ATYP_IPV6 => {
-            if pos + 16 > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated IPv6".into()));
-            }
-            let mut ip6 = [0u8; 16];
-            ip6.copy_from_slice(&data[pos..pos + 16]);
-            pos += 16;
-            Address::Ipv6(std::net::Ipv6Addr::from(ip6), port)
-        }
-        ATYP_DOMAIN => {
+    let dest = match cmd {
+        CMD_TCP | CMD_UDP => {
             if pos >= data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated domain len".into()));
+                return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
             }
-            let dlen = data[pos] as usize;
+            let atyp = data[pos];
             pos += 1;
-            if pos + dlen > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated domain".into()));
+            read_vmess_address(data, &mut pos, atyp, port)?
+        }
+        CMD_MUX => {
+            if pos >= data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
             }
-            let domain = std::str::from_utf8(&data[pos..pos + dlen])
-                .map_err(|_| ProxyError::Protocol("VMess: domain not UTF-8".into()))?
-                .to_string();
-            pos += dlen;
-            Address::Domain(domain, port)
+            let atyp = data[pos];
+            pos += 1;
+            let _ = read_vmess_address(data, &mut pos, atyp, port)?;
+            Address::Domain(MUX_DOMAIN.to_string(), port)
         }
         other => {
             return Err(ProxyError::Protocol(format!(
-                "VMess: unknown ATYP {other:#x}"
+                "VMess: unknown command {other:#x}"
             )));
         }
     };
@@ -506,6 +508,52 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         security,
         dest,
     })
+}
+
+fn read_vmess_address(
+    data: &[u8],
+    pos: &mut usize,
+    atyp: u8,
+    port: u16,
+) -> Result<Address, ProxyError> {
+    match atyp {
+        ATYP_IPV4 => {
+            if *pos + 4 > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
+            }
+            let ip =
+                std::net::Ipv4Addr::new(data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3]);
+            *pos += 4;
+            Ok(Address::Ipv4(ip, port))
+        }
+        ATYP_IPV6 => {
+            if *pos + 16 > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated IPv6".into()));
+            }
+            let mut ip6 = [0u8; 16];
+            ip6.copy_from_slice(&data[*pos..*pos + 16]);
+            *pos += 16;
+            Ok(Address::Ipv6(std::net::Ipv6Addr::from(ip6), port))
+        }
+        ATYP_DOMAIN => {
+            if *pos >= data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated domain len".into()));
+            }
+            let dlen = data[*pos] as usize;
+            *pos += 1;
+            if *pos + dlen > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated domain".into()));
+            }
+            let domain = std::str::from_utf8(&data[*pos..*pos + dlen])
+                .map_err(|_| ProxyError::Protocol("VMess: domain not UTF-8".into()))?
+                .to_string();
+            *pos += dlen;
+            Ok(Address::Domain(domain, port))
+        }
+        other => Err(ProxyError::Protocol(format!(
+            "VMess: unknown ATYP {other:#x}"
+        ))),
+    }
 }
 
 fn read_u32_be(data: &[u8], pos: usize) -> Result<u32, ProxyError> {

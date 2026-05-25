@@ -23,7 +23,7 @@
 
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::version::TLS13;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -62,6 +62,7 @@ pub async fn tls_connect(
 
 /// Build a rustls `ClientConfig` for outbound TLS.
 fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig, ProxyError> {
+    crate::quic::ensure_crypto_provider();
     let mut config = if skip_verify {
         ClientConfig::builder()
             .dangerous()
@@ -137,8 +138,9 @@ pub fn build_server_config(
     key_pem: &str,
     alpn: &[&str],
 ) -> Result<ServerConfig, ProxyError> {
-    let certs = parse_certs(cert_pem)?;
-    let key = parse_private_key(key_pem)?;
+    crate::quic::ensure_crypto_provider();
+    let certs = crate::pem::parse_certs(cert_pem)?;
+    let key = crate::pem::parse_private_key(key_pem)?;
 
     let mut config = ServerConfig::builder()
         .with_no_client_auth()
@@ -154,8 +156,9 @@ fn build_tls13_server_config(
     key_pem: &str,
     alpn: &[&str],
 ) -> Result<ServerConfig, ProxyError> {
-    let certs = parse_certs(cert_pem)?;
-    let key = parse_private_key(key_pem)?;
+    crate::quic::ensure_crypto_provider();
+    let certs = crate::pem::parse_certs(cert_pem)?;
+    let key = crate::pem::parse_private_key(key_pem)?;
 
     let mut config = ServerConfig::builder_with_protocol_versions(&[&TLS13])
         .with_no_client_auth()
@@ -164,78 +167,6 @@ fn build_tls13_server_config(
 
     config.alpn_protocols = alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
     Ok(config)
-}
-
-// ── PEM parsing ───────────────────────────────────────────────────────────────
-
-/// Parse PEM-encoded certificates into DER format.
-fn parse_certs(pem: &str) -> Result<Vec<CertificateDer<'static>>, ProxyError> {
-    let mut certs = Vec::new();
-    for block in pem_blocks(pem) {
-        if block.label == "CERTIFICATE" {
-            certs.push(CertificateDer::from(block.contents));
-        }
-    }
-    if certs.is_empty() {
-        return Err(ProxyError::Tls("no CERTIFICATE blocks found in PEM".into()));
-    }
-    Ok(certs)
-}
-
-/// Parse a PEM-encoded private key into DER format.
-fn parse_private_key(pem: &str) -> Result<PrivateKeyDer<'static>, ProxyError> {
-    for block in pem_blocks(pem) {
-        match block.label.as_str() {
-            "PRIVATE KEY" | "EC PRIVATE KEY" | "RSA PRIVATE KEY" => {
-                let der = PrivatePkcs8KeyDer::from(block.contents);
-                return Ok(PrivateKeyDer::Pkcs8(der));
-            }
-            _ => {}
-        }
-    }
-    Err(ProxyError::Tls("no private key block found in PEM".into()))
-}
-
-struct PemBlock {
-    label: String,
-    contents: Vec<u8>,
-}
-
-/// Minimal PEM block parser.
-fn pem_blocks(pem: &str) -> Vec<PemBlock> {
-    let mut blocks = Vec::new();
-    let mut in_block = false;
-    let mut label = String::new();
-    let mut b64 = String::new();
-
-    for line in pem.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("-----BEGIN ") {
-            label = rest.trim_end_matches('-').trim_end_matches(' ').to_string();
-            b64.clear();
-            in_block = true;
-        } else if line.starts_with("-----END ") {
-            if in_block {
-                if let Ok(bytes) = base64_decode(&b64) {
-                    blocks.push(PemBlock {
-                        label: label.clone(),
-                        contents: bytes,
-                    });
-                }
-            }
-            in_block = false;
-        } else if in_block {
-            b64.push_str(line);
-        }
-    }
-    blocks
-}
-
-fn base64_decode(s: &str) -> anyhow::Result<Vec<u8>> {
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD
-        .decode(s)
-        .map_err(|e| anyhow::anyhow!("base64 decode failed: {e}"))
 }
 
 // ── Certificate verification bypass (dev only) ────────────────────────────────

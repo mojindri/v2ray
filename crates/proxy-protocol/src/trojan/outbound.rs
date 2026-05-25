@@ -101,7 +101,7 @@ pub async fn connect_trojan_on_stream(
     token: &str,
     dest: &Address,
 ) -> Result<BoxedStream, ProxyError> {
-    let header = encode_request(token, dest);
+    let header = encode_request(token, dest)?;
     stream.write_all(&header).await?;
     // No server-to-client handshake in Trojan — payload follows immediately.
     Ok(stream)

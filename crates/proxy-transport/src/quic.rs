@@ -18,14 +18,18 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{CertificateDer, PrivateKeyDer};
 use rustls::RootCertStore;
 
 /// Install the rustls crypto provider used by this workspace.
 ///
 /// Several dependencies may enable different rustls provider features. Calling
 /// this before building TLS configs makes QUIC startup deterministic.
-pub(crate) fn ensure_crypto_provider() {
+/// Install the workspace rustls crypto provider (idempotent).
+///
+/// Required before any `ClientConfig::builder()` / `ServerConfig::builder()` use when
+/// tests or callers have not already gone through `tls_connect` / `tls_accept`.
+pub fn ensure_crypto_provider() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
@@ -162,95 +166,7 @@ fn parse_cert_and_key(
     cert_pem: &str,
     key_pem: &str,
 ) -> Result<(Vec<CertificateDer<'static>>, PrivateKeyDer<'static>)> {
-    // Parse certificates: each PEM block becomes a DER byte sequence.
-    let certs = rustls_pem_certs(cert_pem).context("failed to parse certificate PEM")?;
-
-    // Parse the private key.
-    let key = rustls_pem_key(key_pem).context("failed to parse private key PEM")?;
-
-    Ok((certs, key))
-}
-
-/// Extract DER certificates from a PEM string.
-///
-/// Each `-----BEGIN CERTIFICATE-----` block becomes a `CertificateDer`.
-fn rustls_pem_certs(pem: &str) -> Result<Vec<CertificateDer<'static>>> {
-    // Walk all PEM blocks and collect the ones that are certificates.
-    let mut certs = Vec::new();
-    for block in pem_blocks(pem) {
-        if block.label == "CERTIFICATE" {
-            certs.push(CertificateDer::from(block.contents));
-        }
-    }
-    anyhow::ensure!(!certs.is_empty(), "no CERTIFICATE blocks found in PEM");
-    Ok(certs)
-}
-
-/// Extract a private key from a PEM string.
-///
-/// Accepts PKCS#8 (`BEGIN PRIVATE KEY`) or PKCS#8 EC (`BEGIN EC PRIVATE KEY`)
-/// blocks. Returns the first one found.
-fn rustls_pem_key(pem: &str) -> Result<PrivateKeyDer<'static>> {
-    for block in pem_blocks(pem) {
-        match block.label.as_str() {
-            "PRIVATE KEY" | "EC PRIVATE KEY" | "RSA PRIVATE KEY" => {
-                let der = PrivatePkcs8KeyDer::from(block.contents);
-                return Ok(PrivateKeyDer::Pkcs8(der));
-            }
-            _ => {}
-        }
-    }
-    anyhow::bail!("no private key block found in PEM")
-}
-
-/// Minimal PEM block.
-struct PemBlock {
-    label: String,
-    contents: Vec<u8>,
-}
-
-/// Very small PEM parser — only handles base64-encoded blocks.
-///
-/// This avoids adding `rustls-pemfile` as a workspace dependency just for cert
-/// loading. The format is well-defined and our use case (one cert + one key) is
-/// simple enough that a hand-rolled parser is reliable and easy to audit.
-fn pem_blocks(pem: &str) -> Vec<PemBlock> {
-    let mut blocks = Vec::new();
-    let mut in_block = false;
-    let mut label = String::new();
-    let mut b64 = String::new();
-
-    for line in pem.lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("-----BEGIN ") {
-            let lbl = rest.trim_end_matches('-').trim_end_matches(' ');
-            label = lbl.to_string();
-            b64.clear();
-            in_block = true;
-        } else if line.starts_with("-----END ") {
-            if in_block {
-                // Decode base64 and store.
-                if let Ok(bytes) = base64_decode(&b64) {
-                    blocks.push(PemBlock {
-                        label: label.clone(),
-                        contents: bytes,
-                    });
-                }
-            }
-            in_block = false;
-        } else if in_block {
-            b64.push_str(line);
-        }
-    }
-    blocks
-}
-
-/// Decode standard base64 (with padding).
-fn base64_decode(s: &str) -> Result<Vec<u8>> {
-    use base64::Engine as _;
-    base64::engine::general_purpose::STANDARD
-        .decode(s)
-        .context("base64 decode failed")
+    crate::pem::parse_cert_and_key(cert_pem, key_pem).map_err(|e| anyhow::Error::msg(e.to_string()))
 }
 
 /// Build a client TLS config that accepts any server certificate.
