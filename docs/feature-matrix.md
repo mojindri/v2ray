@@ -82,7 +82,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | QUIC (`network: quic` for VLESS/VMess) | **Unsupported** | `NetworkType::Quic` in schema only; QUIC used inside Hysteria2, not generic stream stack |
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
-| HTTPUpgrade | **Partial** | `blackwire-transport/httpupgrade.rs` outbound dial; interop lab pending |
+| HTTPUpgrade | **Partial** | Inbound `accept_httpupgrade` + outbound dial; lab row `vless-httpupgrade` (external-client proof pending) |
 | SplitHTTP / xHTTP | **Unsupported** | `NetworkType::SplitHttp` in schema only; no transport implementation |
 
 ---

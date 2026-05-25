@@ -55,6 +55,7 @@ port_for_protocol() {
         vless-tcp) echo 10080 ;;
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
+        vless-httpupgrade) echo 8446 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
         hysteria2) echo 4433 ;;

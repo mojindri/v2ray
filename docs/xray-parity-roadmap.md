@@ -10,7 +10,7 @@ Implementation tracker for closing parity gaps. **Source of truth:** [xray-parit
 | 1 | VLESS UDP framing + inbound relay | Initial (lab row pending) |
 | 2 | Sniffing, destOverride, protocol routing rules | Initial |
 | 3 | DoH/DoT/udp:// DNS upstream URLs | Done |
-| 4 | HTTPUpgrade dial path; SplitHTTP/xHTTP / QUIC stream TBD | HTTPUpgrade initial |
+| 4 | HTTPUpgrade inbound + external-client row; SplitHTTP/xHTTP / QUIC TBD | In progress |
 | 5 | XTLS Vision splice | TCP passthrough only |
 | 6 | Hot-reload listener diff helper | Partial |
 | 7 | blackwire-api gRPC, pcap CI artifacts | Stub |

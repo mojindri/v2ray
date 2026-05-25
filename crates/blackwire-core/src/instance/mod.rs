@@ -64,7 +64,9 @@ use helpers::{
     select_balancer_outbounds, InboundConnectionHandler,
 };
 
-use crate::ws_tls::{build_conn_handler, uses_grpc, uses_shadowtls, uses_tls, uses_ws};
+use crate::ws_tls::{
+    build_conn_handler, uses_grpc, uses_httpupgrade, uses_shadowtls, uses_tls, uses_ws,
+};
 
 /// Running proxy instance plus reload handles for live config updates.
 pub struct Instance {
@@ -345,8 +347,9 @@ impl Instance {
                 || uses_shadowtls(&in_cfg.stream_settings)
                 || uses_ws(&in_cfg.stream_settings)
                 || uses_grpc(&in_cfg.stream_settings)
+                || uses_httpupgrade(&in_cfg.stream_settings)
             {
-                // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
+                // Phase 4/5: TLS, WebSocket, HTTPUpgrade, and/or gRPC layering.
                 build_conn_handler(
                     handler,
                     dispatcher_for_handler,

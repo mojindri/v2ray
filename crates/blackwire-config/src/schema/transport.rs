@@ -37,6 +37,14 @@ pub struct StreamSettingsConfig {
     )]
     pub ws_settings: Option<WsConfig>,
 
+    /// HTTPUpgrade-specific settings (same shape as WebSocket path/headers).
+    #[serde(
+        default,
+        rename = "httpupgradeSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub httpupgrade_settings: Option<WsConfig>,
+
     /// gRPC-specific settings.
     #[serde(
         default,
