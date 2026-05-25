@@ -27,9 +27,8 @@
 //! ```
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::TcpStream;
 
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{tcp_connect_to, BoxedStream, ProxyError};
 
 use super::v3::{
     residual_handshake_mac, taint_backend_application_data, verify_client_hello_session_id,
@@ -57,7 +56,7 @@ pub async fn relay_handshake(
     client: &mut BoxedStream,
     backend_addr: &str,
 ) -> Result<([u8; 32], bool), ProxyError> {
-    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+    let mut backend = tcp_connect_to(backend_addr).await.map_err(|e| {
         ProxyError::Transport(format!(
             "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
         ))
@@ -78,7 +77,7 @@ pub async fn relay_v3_handshake(
     psk: &[u8],
     backend_addr: &str,
 ) -> Result<([u8; 32], Vec<u8>), ProxyError> {
-    let mut backend = TcpStream::connect(backend_addr).await.map_err(|e| {
+    let mut backend = tcp_connect_to(backend_addr).await.map_err(|e| {
         ProxyError::Transport(format!(
             "ShadowTLS: cannot connect to backend {backend_addr}: {e}"
         ))

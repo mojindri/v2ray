@@ -279,7 +279,7 @@ async fn udp_nat_forward_and_response_roundtrip() {
     let (tun_tx, mut tun_rx) = tokio::sync::mpsc::channel::<Vec<u8>>(16);
 
     // bypass_mark = 0 → SO_MARK syscall is skipped on Linux (mark=0 means no mark).
-    let mut nat = UdpNatTable::new(0, Duration::from_secs(60));
+    let mut nat = UdpNatTable::new(0, Duration::from_secs(60), 4096);
 
     // Build a fake inbound UDP packet: 10.0.0.2:55000 → echo_addr.
     let pkt = udp_ipv4_packet(
@@ -359,7 +359,7 @@ async fn vps_udp_nat_real_dns_query() {
     // bypass_mark must be set so the bypass socket doesn't loop through TUN.
     // On a real VPS this should match the configured bypass_mark.
     let bypass_mark: u32 = 0x1234;
-    let mut nat = UdpNatTable::new(bypass_mark, Duration::from_secs(30));
+    let mut nat = UdpNatTable::new(bypass_mark, Duration::from_secs(30), 4096);
 
     // Fake source: any routable IP the VPS has on its TUN interface.
     let fake_src: Ipv4Addr = "198.18.0.2".parse().unwrap();

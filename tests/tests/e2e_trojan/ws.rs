@@ -50,9 +50,16 @@ async fn ws_transport_large_payload() {
     tokio::spawn(async move {
         let (tcp, _) = listener.accept().await.unwrap();
         let mut ws = ws_accept(Box::new(tcp)).await.unwrap();
-        let mut buf = vec![0u8; 128 * 1024];
-        let n = ws.read(&mut buf).await.unwrap();
-        ws.write_all(&buf[..n]).await.unwrap();
+        let mut buf = vec![0u8; 16 * 1024];
+        let mut received = Vec::with_capacity(64 * 1024);
+        while received.len() < 64 * 1024 {
+            let n = ws.read(&mut buf).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            received.extend_from_slice(&buf[..n]);
+        }
+        ws.write_all(&received).await.unwrap();
         ws.flush().await.unwrap();
     });
 

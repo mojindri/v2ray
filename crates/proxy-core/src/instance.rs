@@ -37,7 +37,7 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use dashmap::DashMap;
 use tokio::task::JoinHandle;
-use tracing::{debug, error, info};
+use tracing::{error, info};
 
 use proxy_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use proxy_app::dns::{DnsModule, DnsModuleConfig};
@@ -248,15 +248,19 @@ impl Instance {
                 continue;
             }
 
+            let handshake_timeout = handshake_timeout_for(in_cfg, &config.limits);
+
             let handler: Arc<dyn InboundHandler> = match in_cfg.protocol {
                 Protocol::Socks => Socks5Inbound::new(&in_cfg.tag),
-                Protocol::Vless => build_vless_inbound(in_cfg, &vless_registries)
-                    .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?,
+                Protocol::Vless => {
+                    build_vless_inbound(in_cfg, &vless_registries, handshake_timeout)
+                        .with_context(|| format!("building VLESS inbound '{}'", in_cfg.tag))?
+                }
                 Protocol::Trojan => build_trojan_inbound(in_cfg)
                     .with_context(|| format!("building Trojan inbound '{}'", in_cfg.tag))?,
                 Protocol::Vmess => build_vmess_inbound(in_cfg)
                     .with_context(|| format!("building VMess inbound '{}'", in_cfg.tag))?,
-                Protocol::Http => build_http_inbound(in_cfg)
+                Protocol::Http => build_http_inbound(in_cfg, handshake_timeout)
                     .with_context(|| format!("building HTTP CONNECT inbound '{}'", in_cfg.tag))?,
                 Protocol::Shadowsocks => build_ss2022_inbound(in_cfg)
                     .with_context(|| format!("building SS-2022 inbound '{}'", in_cfg.tag))?,
@@ -269,16 +273,10 @@ impl Instance {
 
             let dispatcher_for_handler = Arc::clone(&dispatcher) as Arc<dyn Dispatcher>;
 
-            let handshake_timeout = handshake_timeout_for(in_cfg, &config.limits);
-
             if uses_kcp(&in_cfg.stream_settings) {
-                // Handshake timeout wraps the whole inbound stack (mKCP session + VLESS).
-                let conn_handler = Arc::new(HandshakeTimeoutHandler {
-                    inner: Arc::new(InboundConnectionHandler {
-                        inbound: Arc::clone(&handler),
-                        dispatcher: dispatcher_for_handler,
-                    }),
-                    timeout: handshake_timeout,
+                let conn_handler = Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
                 });
                 let cfg = build_mkcp_server_config(addr, &in_cfg.stream_settings)
                     .with_context(|| format!("building mKCP inbound '{}'", in_cfg.tag))?;
@@ -306,52 +304,53 @@ impl Instance {
             }
 
             // Choose the connection handler stack based on stream settings.
-            let conn_handler: Arc<dyn ConnectionHandler> = {
-                let inner: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings) {
-                    // REALITY: unwrap REALITY TLS camouflage first.
-                    let reality = build_reality_server(in_cfg)
-                        .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
-                    let cover_sni = in_cfg
-                        .stream_settings
-                        .as_ref()
-                        .and_then(|s| s.reality_settings.as_ref())
-                        .map(|r| r.server_name.as_str())
-                        .unwrap_or("localhost");
-                    RealityConnectionHandler::new(
-                        reality,
-                        cover_sni,
-                        Arc::clone(&handler),
-                        dispatcher_for_handler,
+            let conn_handler: Arc<dyn ConnectionHandler> = if uses_reality(&in_cfg.stream_settings)
+            {
+                // REALITY: unwrap REALITY TLS camouflage first.
+                let reality = build_reality_server(in_cfg)
+                    .with_context(|| format!("building REALITY inbound '{}'", in_cfg.tag))?;
+                let cover_sni = in_cfg
+                    .stream_settings
+                    .as_ref()
+                    .and_then(|s| s.reality_settings.as_ref())
+                    .map(|r| r.server_name.as_str())
+                    .unwrap_or("localhost");
+                RealityConnectionHandler::new(
+                    reality,
+                    cover_sni,
+                    handshake_timeout,
+                    Arc::clone(&handler),
+                    dispatcher_for_handler,
+                )
+                .with_context(|| {
+                    format!(
+                        "building REALITY connection handler for inbound '{}'",
+                        in_cfg.tag
                     )
-                    .with_context(|| {
-                        format!(
-                            "building REALITY connection handler for inbound '{}'",
-                            in_cfg.tag
-                        )
-                    })?
-                } else if uses_tls(&in_cfg.stream_settings)
-                    || uses_shadowtls(&in_cfg.stream_settings)
-                    || uses_ws(&in_cfg.stream_settings)
-                    || uses_grpc(&in_cfg.stream_settings)
-                {
-                    // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
-                    build_conn_handler(handler, dispatcher_for_handler, &in_cfg.stream_settings)
-                        .with_context(|| {
-                            format!(
-                                "building TLS/WS connection handler for inbound '{}'",
-                                in_cfg.tag
-                            )
-                        })?
-                } else {
-                    // Plain TCP: no transport wrapping.
-                    Arc::new(InboundConnectionHandler {
-                        inbound: Arc::clone(&handler),
-                        dispatcher: dispatcher_for_handler,
-                    })
-                };
-                Arc::new(HandshakeTimeoutHandler {
-                    inner,
-                    timeout: handshake_timeout,
+                })?
+            } else if uses_tls(&in_cfg.stream_settings)
+                || uses_shadowtls(&in_cfg.stream_settings)
+                || uses_ws(&in_cfg.stream_settings)
+                || uses_grpc(&in_cfg.stream_settings)
+            {
+                // Phase 4/5: TLS, WebSocket, and/or gRPC layering.
+                build_conn_handler(
+                    handler,
+                    dispatcher_for_handler,
+                    &in_cfg.stream_settings,
+                    handshake_timeout,
+                )
+                .with_context(|| {
+                    format!(
+                        "building TLS/WS connection handler for inbound '{}'",
+                        in_cfg.tag
+                    )
+                })?
+            } else {
+                // Plain TCP: no transport wrapping.
+                Arc::new(InboundConnectionHandler {
+                    inbound: Arc::clone(&handler),
+                    dispatcher: dispatcher_for_handler,
                 })
             };
 
@@ -582,38 +581,6 @@ struct InboundConnectionHandler {
     dispatcher: Arc<dyn Dispatcher>,
 }
 
-/// Optional wall-clock limit for inbound handshake phases only.
-///
-/// Wraps REALITY/TLS/WebSocket/mKCP/plain TCP handlers. Once I/O is still in the
-/// handshake when the timer fires, the connection is dropped with `Timeout`.
-/// Once the inner handler returns, the relay runs without this limit.
-struct HandshakeTimeoutHandler {
-    inner: Arc<dyn ConnectionHandler>,
-    timeout: Option<Duration>,
-}
-
-#[async_trait::async_trait]
-impl ConnectionHandler for HandshakeTimeoutHandler {
-    async fn handle_connection(
-        &self,
-        stream: BoxedStream,
-        source: SocketAddr,
-    ) -> Result<(), ProxyError> {
-        if let Some(timeout) = self.timeout {
-            match tokio::time::timeout(timeout, self.inner.handle_connection(stream, source)).await
-            {
-                Ok(result) => result,
-                Err(_) => {
-                    debug!(?source, ?timeout, "inbound handshake timed out");
-                    Err(ProxyError::Timeout)
-                }
-            }
-        } else {
-            self.inner.handle_connection(stream, source).await
-        }
-    }
-}
-
 fn handshake_timeout_for(
     in_cfg: &proxy_config::schema::InboundConfig,
     global: &proxy_config::schema::LimitsConfig,
@@ -690,6 +657,7 @@ fn build_vless_outbound(
 fn build_vless_inbound(
     cfg: &proxy_config::schema::InboundConfig,
     registries: &Arc<DashMap<String, Arc<VlessUserRegistry>>>,
+    handshake_timeout: Option<Duration>,
 ) -> Result<Arc<dyn InboundHandler>> {
     #[allow(clippy::unwrap_or_default)]
     let registry = registries
@@ -702,7 +670,12 @@ fn build_vless_inbound(
         .as_str()
         .and_then(|s| s.parse::<SocketAddr>().ok());
 
-    Ok(VlessInbound::new(&cfg.tag, registry, fallback))
+    Ok(VlessInbound::new(
+        &cfg.tag,
+        registry,
+        fallback,
+        handshake_timeout,
+    ))
 }
 
 pub(crate) fn populate_vless_registry(

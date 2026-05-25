@@ -14,12 +14,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
 
 use super::auth::{cmd_key, generate_auth_id};
 use super::codec::{
@@ -71,7 +70,7 @@ impl OutboundHandler for VmessOutbound {
     async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         debug!(server = %self.server, dest = %dest, "VMess outbound connecting");
 
-        let tcp = TcpStream::connect(self.server).await?;
+        let tcp = tcp_connect(self.server).await?;
         tcp.set_nodelay(true)?;
 
         connect_vmess_on_stream(Box::new(tcp), &self.uuid, &self.cmd_key, dest).await

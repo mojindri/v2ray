@@ -35,7 +35,7 @@ use bytes::{BufMut, Bytes, BytesMut};
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use proxy_common::{Address, ProxyError};
+use proxy_common::{domain_wire_len, Address, ProxyError};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -164,7 +164,7 @@ async fn read_address<R: AsyncRead + Unpin>(
 /// # Arguments
 /// * `token` — the 56-char hex token string (from `compute_token`)
 /// * `dest`  — the destination address and port
-pub fn encode_request(token: &str, dest: &Address) -> Bytes {
+pub fn encode_request(token: &str, dest: &Address) -> Result<Bytes, ProxyError> {
     let mut buf = BytesMut::with_capacity(128);
 
     // Auth token (56 ASCII hex chars).
@@ -177,16 +177,16 @@ pub fn encode_request(token: &str, dest: &Address) -> Bytes {
     buf.put_u8(CMD_CONNECT);
 
     // Address.
-    encode_address(&mut buf, dest);
+    encode_address(&mut buf, dest)?;
 
     // CRLF after address.
     buf.put_slice(b"\r\n");
 
-    buf.freeze()
+    Ok(buf.freeze())
 }
 
 /// Encode a SOCKS5-style address into the buffer.
-fn encode_address(buf: &mut BytesMut, dest: &Address) {
+fn encode_address(buf: &mut BytesMut, dest: &Address) -> Result<(), ProxyError> {
     match dest {
         Address::Ipv4(ip, port) => {
             buf.put_u8(ATYP_IPV4);
@@ -200,11 +200,12 @@ fn encode_address(buf: &mut BytesMut, dest: &Address) {
         }
         Address::Domain(name, port) => {
             buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(name.len() as u8);
+            buf.put_u8(domain_wire_len(name)?);
             buf.put_slice(name.as_bytes());
             buf.put_u16(*port);
         }
     }
+    Ok(())
 }
 
 // ── Unit tests ────────────────────────────────────────────────────────────────
@@ -242,7 +243,7 @@ mod tests {
     async fn roundtrip_ipv4() {
         let token = compute_token("test-pass");
         let dest = Address::Ipv4(Ipv4Addr::new(1, 2, 3, 4), 8080);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.token, token.as_bytes());
@@ -254,7 +255,7 @@ mod tests {
     async fn roundtrip_domain() {
         let token = compute_token("hello");
         let dest = Address::Domain("example.com".into(), 443);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.dest, dest);
@@ -265,7 +266,7 @@ mod tests {
     async fn roundtrip_ipv6() {
         let token = compute_token("ipv6test");
         let dest = Address::Ipv6("::1".parse().unwrap(), 9090);
-        let encoded = encode_request(&token, &dest);
+        let encoded = encode_request(&token, &dest).unwrap();
         let req = decode_from_bytes(&encoded).await.unwrap();
 
         assert_eq!(req.dest, dest);

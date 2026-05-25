@@ -23,16 +23,19 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tracing::{debug, warn};
 
 use proxy_app::context::Context;
 use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::InboundHandler;
-use proxy_common::{BoxedStream, Network, PrependedStream, ProxyError};
+use proxy_common::{
+    copy_bidirectional_with_idle, tcp_connect, with_handshake_timeout, BoxedStream, Network,
+    PrependedStream, ProxyError, CONNECTION_IDLE_TIMEOUT,
+};
 
 use super::codec::{decode_request, encode_response};
 use super::registry::VlessUserRegistry;
@@ -49,6 +52,8 @@ pub struct VlessInbound {
     /// Typically "127.0.0.1:80" (a local Nginx serving a real website).
     /// If `None`, failed connections are silently dropped (not recommended for production).
     fallback: Option<SocketAddr>,
+    /// Optional limit for reading the VLESS request header (Xray `Handshake`).
+    handshake_timeout: Option<Duration>,
 }
 
 impl VlessInbound {
@@ -62,11 +67,13 @@ impl VlessInbound {
         tag: impl Into<String>,
         registry: Arc<VlessUserRegistry>,
         fallback: Option<SocketAddr>,
+        handshake_timeout: Option<Duration>,
     ) -> Arc<Self> {
         Arc::new(Self {
             tag: tag.into(),
             registry,
             fallback,
+            handshake_timeout,
         })
     }
 }
@@ -101,7 +108,7 @@ impl InboundHandler for VlessInbound {
         // as they are read.
         let request = {
             let mut recorder = RecordingReader::new(&mut stream, &mut header_buf);
-            decode_request(&mut recorder).await
+            with_handshake_timeout(self.handshake_timeout, decode_request(&mut recorder)).await
         };
 
         match request {
@@ -175,7 +182,7 @@ impl VlessInbound {
         };
 
         // Connect to the fallback backend.
-        let mut fallback = TcpStream::connect(fallback_addr)
+        let mut fallback = tcp_connect(fallback_addr)
             .await
             .map_err(|e| ProxyError::Transport(format!("fallback connect failed: {e}")))?;
 
@@ -183,12 +190,9 @@ impl VlessInbound {
         // The fallback backend will see the complete original request.
         let prepended: BoxedStream = Box::new(PrependedStream::new(stream, header_bytes));
 
-        // Relay bytes bidirectionally between the client and the fallback backend.
-        // This runs until both sides close. The fallback backend sends back a
-        // real web page, which the prober receives.
-        tokio::io::copy_bidirectional(&mut { prepended }, &mut fallback)
-            .await
-            .ok(); // ignore relay errors — the connection is already compromised
+        // Relay with Xray default connection idle timeout (300s).
+        copy_bidirectional_with_idle(&mut { prepended }, &mut fallback, CONNECTION_IDLE_TIMEOUT)
+            .await;
 
         Ok(())
     }

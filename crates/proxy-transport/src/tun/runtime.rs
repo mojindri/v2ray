@@ -83,7 +83,7 @@ impl TunRuntime {
     ) -> Result<()> {
         let (mut reader, mut writer) = tokio::io::split(device);
         let (tun_tx, mut tun_rx) = mpsc::channel::<Vec<u8>>(WRITE_CHAN_CAP);
-        let mut nat = UdpNatTable::new(self.config.bypass_mark, UDP_IDLE_TIMEOUT);
+        let mut nat = UdpNatTable::with_defaults(self.config.bypass_mark, UDP_IDLE_TIMEOUT);
         let mut read_buf = vec![0u8; 65536];
         let mut evict_tick = tokio::time::interval(EVICT_INTERVAL);
         // Skip the immediate first tick so eviction doesn't run before any

@@ -14,12 +14,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
 use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
 use proxy_protocol::vless::connect_vless_on_stream;
@@ -161,7 +160,7 @@ async fn connect_transport(
         return Ok(Box::new(stream));
     }
 
-    let tcp = TcpStream::connect(server).await?;
+    let tcp = tcp_connect(server).await?;
     tcp.set_nodelay(true)?;
     let mut stream: BoxedStream = Box::new(tcp);
 

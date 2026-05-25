@@ -1,10 +1,7 @@
 //! DNS resolution cache with per-entry TTL.
 //!
 //! `DnsCache` stores resolved IP addresses keyed by domain name. Each entry
-//! has an expiry timestamp. Stale entries are evicted on the next access.
-//!
-//! The cache is backed by `DashMap` (sharded hash map) for wait-free reads
-//! under concurrent access.
+//! has an expiry timestamp. Stale entries are removed on lookup.
 
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
@@ -19,35 +16,32 @@ struct CacheEntry {
     expires: Instant,
 }
 
-/// A thread-safe DNS cache with per-entry TTL.
+/// A thread-safe DNS cache with per-entry TTL and a hard entry cap.
 pub struct DnsCache {
     /// The underlying storage. Key = domain name.
     entries: DashMap<String, CacheEntry>,
-    /// Maximum number of entries before old ones are evicted.
-    _capacity: usize,
+    /// Maximum number of live entries before eviction runs on insert.
+    capacity: usize,
 }
 
 impl DnsCache {
     /// Create a new cache with the given maximum capacity.
-    ///
-    /// `capacity` is a soft limit — the cache may temporarily exceed it during
-    /// concurrent inserts, but will evict stale entries on the next `get`.
     pub fn new(capacity: usize) -> Self {
         Self {
             entries: DashMap::new(),
-            _capacity: capacity,
+            capacity: capacity.max(1),
         }
     }
 
     /// Look up a domain name in the cache.
     ///
     /// Returns `Some(ips)` if the entry exists and has not expired.
-    /// Returns `None` if the entry is missing or stale.
+    /// Expired entries are removed during lookup.
     pub fn get(&self, domain: &str) -> Option<Vec<IpAddr>> {
         let entry = self.entries.get(domain)?;
         if entry.expires < Instant::now() {
-            // Stale — do not return the value. The expired entry will be
-            // overwritten on the next insert.
+            drop(entry);
+            self.entries.remove(domain);
             return None;
         }
         Some(entry.ips.clone())
@@ -57,19 +51,44 @@ impl DnsCache {
     ///
     /// `ttl_secs` is how many seconds the entry should be considered valid.
     pub fn insert(&self, domain: &str, ips: Vec<IpAddr>, ttl_secs: u64) {
+        if !self.entries.contains_key(domain) {
+            self.evict_expired();
+            while self.entries.len() >= self.capacity {
+                if !self.evict_one_arbitrary() {
+                    break;
+                }
+            }
+        }
+
         let expires = Instant::now() + Duration::from_secs(ttl_secs);
         self.entries
             .insert(domain.to_string(), CacheEntry { ips, expires });
     }
 
     /// Remove all expired entries.
-    ///
-    /// Call this periodically to reclaim memory. In practice the cache is
-    /// small enough that this is not critical, but it is available for
-    /// operators who want to aggressively bound memory usage.
     pub fn evict_expired(&self) {
         let now = Instant::now();
         self.entries.retain(|_, v| v.expires >= now);
+    }
+
+    /// Returns the number of entries currently stored (including expired).
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    /// Returns `true` if the cache has no entries.
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn evict_one_arbitrary(&self) -> bool {
+        let key = self.entries.iter().next().map(|e| e.key().clone());
+        if let Some(key) = key {
+            self.entries.remove(&key);
+            true
+        } else {
+            false
+        }
     }
 }
 
@@ -97,14 +116,13 @@ mod tests {
     }
 
     #[test]
-    fn expired_entry_returns_none() {
+    fn expired_entry_returns_none_and_is_removed() {
         let cache = DnsCache::new(100);
         let ips = vec![ip(8, 8, 8, 8)];
-        // TTL = 0 means the entry expires immediately.
         cache.insert("old.example.com", ips, 0);
-        // Sleep 1ms to ensure the Instant has passed.
         std::thread::sleep(std::time::Duration::from_millis(1));
         assert!(cache.get("old.example.com").is_none());
+        assert_eq!(cache.len(), 0);
     }
 
     #[test]
@@ -126,5 +144,15 @@ mod tests {
         cache.insert("example.com", vec![ip(1, 1, 1, 1)], 60);
         cache.insert("example.com", vec![ip(2, 2, 2, 2)], 60);
         assert_eq!(cache.get("example.com").unwrap(), vec![ip(2, 2, 2, 2)]);
+    }
+
+    #[test]
+    fn capacity_is_enforced() {
+        let cache = DnsCache::new(2);
+        cache.insert("a.com", vec![ip(1, 0, 0, 1)], 60);
+        cache.insert("b.com", vec![ip(1, 0, 0, 2)], 60);
+        cache.insert("c.com", vec![ip(1, 0, 0, 3)], 60);
+        assert!(cache.len() <= 2);
+        assert!(cache.get("c.com").is_some());
     }
 }

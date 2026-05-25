@@ -15,12 +15,11 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
 
 /// The freedom outbound: connects directly to the destination.
 pub struct FreedomOutbound {
@@ -47,7 +46,7 @@ impl OutboundHandler for FreedomOutbound {
 
         debug!(dest = %dest, resolved = %socket_addr, "freedom: connecting");
 
-        let stream = TcpStream::connect(socket_addr).await?;
+        let stream = tcp_connect(socket_addr).await?;
 
         // Disable Nagle's algorithm for lower latency.
         stream.set_nodelay(true)?;
