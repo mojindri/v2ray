@@ -23,5 +23,5 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Host-only validation gate
+      - name: Run workspace checks
         run: make verify-local

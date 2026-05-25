@@ -1,4 +1,4 @@
-name: Dependency Security Audit
+name: Security
 
 on:
   workflow_dispatch:
@@ -6,7 +6,8 @@ on:
     - cron: "30 2 * * 1"
 
 jobs:
-  deps:
+  audit:
+    name: Dependency audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -18,5 +19,5 @@ jobs:
           cargo install cargo-outdated --locked
           cargo install cargo-geiger --locked
           cargo install cargo-udeps --locked
-      - name: Run dependency/security checks
+      - name: Run dependency and license checks
         run: bash ci/security/run_dependency_audit.sh

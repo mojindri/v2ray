@@ -1,4 +1,4 @@
-name: Perf And Soak
+name: Performance
 
 on:
   workflow_dispatch:
@@ -6,7 +6,8 @@ on:
     - cron: "0 2 * * *"
 
 jobs:
-  perf-smoke-gate:
+  perf-smoke:
+    name: Perf smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -24,7 +25,8 @@ jobs:
       - name: Enforce perf regression baseline
         run: python3 ci/scripts/check_perf_regression.py ci/perf-baselines/smoke.json reports/perf/perf-smoke-ci.json
 
-  criterion-benches:
+  benchmarks:
+    name: Benchmarks
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -33,7 +35,8 @@ jobs:
       - name: Run criterion benchmarks
         run: cargo bench -p proxy-benches
 
-  soak-campaign:
+  soak:
+    name: Soak
     if: github.event_name == 'schedule'
     runs-on: ubuntu-latest
     steps:
