@@ -98,6 +98,8 @@ pub struct VisionStream<S> {
     uuid: [u8; 16],
     read_state: UnpaddingState,
     read_buf: Vec<u8>,
+    /// First downlink write includes the 16-byte UUID prefix (Xray `XtlsPadding`).
+    write_uuid_once: bool,
 }
 
 impl<S> VisionStream<S> {
@@ -107,6 +109,7 @@ impl<S> VisionStream<S> {
             uuid,
             read_state: UnpaddingState::new(),
             read_buf: Vec::new(),
+            write_uuid_once: true,
         }
     }
 
@@ -155,13 +158,41 @@ impl<S: AsyncRead + Unpin> AsyncRead for VisionStream<S> {
     }
 }
 
+/// Vision padding block: optional UUID + 5-byte header + content (Xray `XtlsPadding`).
+fn pad_chunk(uuid: &[u8; 16], content: &[u8], command: u8, include_uuid: bool) -> Vec<u8> {
+    let mut out = Vec::with_capacity(21 + content.len());
+    if include_uuid {
+        out.extend_from_slice(uuid);
+    }
+    let cl = content.len();
+    out.push(command);
+    out.push((cl >> 8) as u8);
+    out.push((cl & 0xff) as u8);
+    out.push(0);
+    out.push(0);
+    out.extend_from_slice(content);
+    out
+}
+
 impl<S: AsyncWrite + Unpin> AsyncWrite for VisionStream<S> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
+        if buf.is_empty() {
+            return Pin::new(&mut self.inner).poll_write(cx, buf);
+        }
+        let include_uuid = self.write_uuid_once;
+        if include_uuid {
+            self.write_uuid_once = false;
+        }
+        // Command 1 = padding end (Xray); passthrough content inside the frame.
+        let framed = pad_chunk(&self.uuid, buf, 1, include_uuid);
+        match Pin::new(&mut self.inner).poll_write(cx, &framed) {
+            Poll::Ready(Ok(_)) => Poll::Ready(Ok(buf.len())),
+            other => other,
+        }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

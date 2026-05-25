@@ -8,7 +8,17 @@
       "port": 10082,
       "settings": {
         "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "xtls-rprx-vision" }],
-        "fallback": { "dest": "127.0.0.1:80" }
+        "fallback": { "dest": "${REALITY_DEST}" }
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "${REALITY_DEST}",
+          "serverName": "${REALITY_SERVER_NAME}",
+          "privateKey": "${REALITY_PRIVATE_KEY}",
+          "shortIds": ["${REALITY_SHORT_ID}"]
+        }
       }
     }
   ],
