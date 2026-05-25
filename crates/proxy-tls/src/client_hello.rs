@@ -8,7 +8,7 @@ mod extensions;
 mod wire;
 
 use bytes::{BufMut, BytesMut};
-use rand::{Rng, RngExt};
+use rand::Rng;
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::grease::grease_u16;
