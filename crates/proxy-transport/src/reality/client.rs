@@ -8,7 +8,7 @@ use hkdf::Hkdf;
 use p256::ecdh::EphemeralSecret as P256EphemeralSecret;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
