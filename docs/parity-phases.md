@@ -32,14 +32,23 @@ make -C labs/realistic finalize
 | **Handler gRPC** | Stats only; no add/remove inbound API |
 | **VLESS MUX (0x03)** | Not decoded; probes fall through to fallback |
 
+## Implemented in code (upstream-aligned)
+
+| Phase | Status | Upstream reference |
+|-------|--------|-------------------|
+| **9** | Vision unpadding + direct-copy on TLS records | Xray `proxy/vless/encoding`, `vision.rs` |
+| **10** | VLESS `CMD 0x03` decoded; relayed as TCP (Mux.Cool legacy) | Xray VLESS CMD table |
+| **11** | Structural reload rebuilds `Instance` (Xray: listeners not hot-swapped) | Xray `HandlerService` / file reload |
+| **12** | `IPIfNonMatch` + `IPOnDemand` routing | [Xray routing.domainStrategy](https://xtls.github.io/en/config/routing.html) |
+
 ## Remaining (post-merge backlog)
 
 | Phase | Work |
 |-------|------|
-| **9** | Full Vision splice parity audit vs Xray relay layer |
-| **10** | VLESS MUX / XUDP command path |
-| **11** | In-place listener/TLS reload without full instance rebuild |
-| **12** | `IPIfNonMatch`, sniffing external-client rows |
+| **9b** | Full kernel TLS splice audit vs Xray relay |
+| **10b** | Full Mux.Cool session demux (not only TCP relay) |
+| **11b** | In-place listener rebind without full `Instance` rebuild |
+| **12b** | Sniffing-specific external-client lab rows |
 | **13** | ShadowTLS + mKCP mandatory matrix rows |
 | **14** | Hysteria2 / REALITY hostility + promotion to Supported |
 | **15** | Handler API, pcap-on-failure, fingerprint goldens |

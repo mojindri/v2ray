@@ -144,6 +144,12 @@ impl InboundHandler for VlessInbound {
                         if req.command == Command::Udp {
                             return relay_vless_udp(stream).await;
                         }
+                        if req.command == Command::Mux {
+                            tracing::debug!(
+                                source = %source,
+                                "VLESS CMD_MUX (Mux.Cool): relaying as TCP per Xray legacy path"
+                            );
+                        }
 
                         let mut relay_stream = stream;
                         if req.flow == "xtls-rprx-vision" {

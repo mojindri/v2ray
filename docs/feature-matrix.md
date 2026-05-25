@@ -52,7 +52,8 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | HTTP CONNECT | Yes | No | **Supported** | `http_connect.rs`, `blackwire-core/http.rs`; e2e `e2e_http_connect.rs` |
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
-| VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab scenario pending |
+| VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab row `vless-udp` |
+| VLESS MUX command (0x03) | Partial | Partial | **Partial** | Decoded per Xray; relayed as TCP until full Mux.Cool demux |
 | VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
@@ -96,7 +97,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | DoH / DoT upstream URLs | **Supported** | `https://` / `tls://` parsed in `dns/resolver.rs` (hickory) |
 | FakeIP pool + restore on dispatch | **Supported** | `dns/fakeip.rs`, dispatcher; startup rejects invalid pool (`production_readiness`) |
 | DNS response cache | **Supported** | `dns/cache.rs` |
-| `domain_strategy` (routing) | **Partial** | `UseIP`/`UseIpv4`/`UseIpv6` in dispatcher; `AsIs` default; `IPIfNonMatch` backlog (phase 12) |
+| `domain_strategy` (routing) | **Supported** | Xray `AsIs` / `IPIfNonMatch` / `IPOnDemand` in `dispatcher` + `router` (see [routing docs](https://xtls.github.io/en/config/routing.html)) |
 | Sniffing (`http` / `tls` / `fakedns`) | **Partial** | `blackwire-app/sniff.rs` + dispatcher destOverride; protocol routing rules; needs external-client lab |
 
 ---

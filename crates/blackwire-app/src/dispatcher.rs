@@ -39,7 +39,7 @@ use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
 use crate::metrics::{record_connection_accepted, record_connection_closed};
 use crate::runtime_stats;
-use crate::router::Router;
+use crate::router::{normalize_routing_domain_strategy, Router, RoutingDomainStrategy};
 
 /// The dispatcher connects inbounds to outbounds by consulting the router
 /// and relaying bytes.
@@ -159,7 +159,6 @@ impl Dispatcher for DefaultDispatcher {
         }
 
         let dest = self.restore_fakeip_destination(dest);
-        let dest = self.apply_domain_strategy(dest).await;
 
         let protocol_label = ctx
             .sniffed_protocol
@@ -167,16 +166,16 @@ impl Dispatcher for DefaultDispatcher {
             .unwrap_or("tcp");
         record_connection_accepted(&ctx.inbound_tag, protocol_label);
 
-        // Step 1: Ask the router which outbound to use.
-        let routing_ctx = crate::router::RoutingContext {
-            dest: &dest,
-            network: blackwire_common::Network::Tcp,
-            inbound_tag: &ctx.inbound_tag,
-            user: ctx.user.as_deref(),
-            sniffed_protocol: ctx.sniffed_protocol.as_deref(),
-            sniffed_domain: ctx.sniffed_domain.as_deref(),
-        };
-        let route = self.router.pick_route(&routing_ctx)?;
+        // Step 1: Route per Xray `routing.domainStrategy` (AsIs / IPIfNonMatch / IPOnDemand).
+        let route = self
+            .pick_route_xray(
+                &ctx.inbound_tag,
+                &dest,
+                ctx.user.as_deref(),
+                ctx.sniffed_protocol.as_deref(),
+                ctx.sniffed_domain.as_deref(),
+            )
+            .await?;
 
         debug!(outbound = %route.outbound_tag, "route selected");
 
@@ -254,38 +253,111 @@ impl Dispatcher for DefaultDispatcher {
 }
 
 impl DefaultDispatcher {
-    async fn apply_domain_strategy(&self, dest: Address) -> Address {
-        let strategy = self.router.domain_strategy();
-        let use_ip = strategy.as_deref().is_some_and(|s| {
-            s.eq_ignore_ascii_case("useip")
-                || s.eq_ignore_ascii_case("useipv4")
-                || s.eq_ignore_ascii_case("useipv6")
-        });
-        if !use_ip {
-            return dest;
-        }
-        let Address::Domain(name, port) = dest else {
-            return dest;
-        };
-        if let Some(dns) = &self.dns {
-            if let Ok(ips) = dns.resolve(&name).await {
-                if let Some(ip) = ips.first() {
-                    return match ip {
-                        std::net::IpAddr::V4(v4) => Address::Ipv4(*v4, port),
-                        std::net::IpAddr::V6(v6) => Address::Ipv6(*v6, port),
-                    };
+    /// Xray routing: https://xtls.github.io/en/config/routing.html#domainstrategy
+    async fn pick_route_xray(
+        &self,
+        inbound_tag: &str,
+        dest: &Address,
+        user: Option<&str>,
+        sniffed_protocol: Option<&str>,
+        sniffed_domain: Option<&str>,
+    ) -> Result<crate::router::Route, ProxyError> {
+        let strategy =
+            normalize_routing_domain_strategy(self.router.domain_strategy().as_deref());
+
+        if strategy == RoutingDomainStrategy::IpOnDemand
+            && matches!(dest, Address::Domain(..))
+            && self.router.has_ip_rules()
+        {
+            if let Some(ips) = self.resolve_domain_ips(dest).await {
+                for ip_dest in &ips {
+                    let ctx = Self::routing_ctx(
+                        ip_dest,
+                        inbound_tag,
+                        user,
+                        sniffed_protocol,
+                        sniffed_domain,
+                    );
+                    let (route, matched) = self.router.pick_route_match(&ctx);
+                    if matched {
+                        return Ok(route);
+                    }
                 }
             }
         }
-        if let Ok(mut addrs) = tokio::net::lookup_host((name.as_str(), port)).await {
-            if let Some(addr) = addrs.next() {
-                return match addr {
-                    std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), port),
-                    std::net::SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), port),
-                };
+
+        let ctx = Self::routing_ctx(dest, inbound_tag, user, sniffed_protocol, sniffed_domain);
+        let (route, matched) = self.router.pick_route_match(&ctx);
+        if matched || strategy == RoutingDomainStrategy::AsIs {
+            return Ok(route);
+        }
+
+        if strategy == RoutingDomainStrategy::IpIfNonMatch {
+            if let Address::Domain(_, _) = dest {
+                if let Some(ips) = self.resolve_domain_ips(dest).await {
+                    for ip_dest in &ips {
+                        let ctx = Self::routing_ctx(
+                            ip_dest,
+                            inbound_tag,
+                            user,
+                            sniffed_protocol,
+                            sniffed_domain,
+                        );
+                        let (route, matched) = self.router.pick_route_match(&ctx);
+                        if matched {
+                            return Ok(route);
+                        }
+                    }
+                }
             }
         }
-        Address::Domain(name, port)
+
+        Ok(route)
+    }
+
+    fn routing_ctx<'a>(
+        dest: &'a Address,
+        inbound_tag: &'a str,
+        user: Option<&'a str>,
+        sniffed_protocol: Option<&'a str>,
+        sniffed_domain: Option<&'a str>,
+    ) -> crate::router::RoutingContext<'a> {
+        crate::router::RoutingContext {
+            dest,
+            network: blackwire_common::Network::Tcp,
+            inbound_tag,
+            user,
+            sniffed_protocol,
+            sniffed_domain,
+        }
+    }
+
+    async fn resolve_domain_ips(&self, dest: &Address) -> Option<Vec<Address>> {
+        let Address::Domain(name, port) = dest else {
+            return None;
+        };
+        let mut ips = Vec::new();
+        if let Some(dns) = &self.dns {
+            if let Ok(resolved) = dns.resolve(name).await {
+                for ip in resolved {
+                    ips.push(match ip {
+                        std::net::IpAddr::V4(v4) => Address::Ipv4(v4, *port),
+                        std::net::IpAddr::V6(v6) => Address::Ipv6(v6, *port),
+                    });
+                }
+            }
+        }
+        if ips.is_empty() {
+            if let Ok(addrs) = tokio::net::lookup_host((name.as_str(), *port)).await {
+                for addr in addrs {
+                    ips.push(match addr {
+                        std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), *port),
+                        std::net::SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), *port),
+                    });
+                }
+            }
+        }
+        if ips.is_empty() { None } else { Some(ips) }
     }
 
     fn restore_fakeip_destination(&self, dest: Address) -> Address {
@@ -312,10 +384,13 @@ mod tests {
     struct StaticRouter;
 
     impl Router for StaticRouter {
-        fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
-            Ok(Route {
-                outbound_tag: Arc::from("unused"),
-            })
+        fn pick_route_match(&self, _ctx: &RoutingContext<'_>) -> (Route, bool) {
+            (
+                Route {
+                    outbound_tag: Arc::from("unused"),
+                },
+                false,
+            )
         }
     }
 
