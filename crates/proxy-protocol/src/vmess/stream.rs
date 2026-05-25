@@ -30,8 +30,8 @@ use aes_gcm::{
 use bytes::{Bytes, BytesMut};
 use chacha20poly1305::ChaCha20Poly1305;
 use md5::{Digest as Md5Digest, Md5};
-use rand::{Rng, RngExt};
-use sha3_010::{
+use rand::RngExt;
+use shake::{
     digest::{ExtendableOutput, Update, XofReader},
     Shake128,
 };

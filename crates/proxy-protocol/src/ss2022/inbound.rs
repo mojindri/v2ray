@@ -27,7 +27,7 @@ use aes_gcm::{
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 
