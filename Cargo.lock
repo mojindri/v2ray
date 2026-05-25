@@ -1919,8 +1919,11 @@ name = "integration-tests"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "bytes",
  "hex",
  "http",
+ "loom",
  "proxy-app",
  "proxy-common",
  "proxy-config",
@@ -1931,6 +1934,7 @@ dependencies = [
  "rand 0.8.6",
  "rcgen 0.14.8",
  "serde_json",
+ "socket2",
  "tokio",
  "tracing-subscriber",
  "uuid",
