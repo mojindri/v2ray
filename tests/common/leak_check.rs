@@ -120,8 +120,11 @@ fn proc_task_count() -> Option<usize> {
             .ok()
             .map(|it| it.count());
     }
-    // Best effort fallback: use active thread count as approximation.
-    Some(std::thread::available_parallelism().ok()?.get())
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Best effort fallback where /proc/self/task is unavailable.
+        Some(std::thread::available_parallelism().ok()?.get())
+    }
 }
 
 fn proc_rss_kb() -> Option<usize> {
