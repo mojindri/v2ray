@@ -1,13 +1,17 @@
 use std::time::Duration;
 
-use proxy_app::metrics::{record_connection_accepted, record_connection_closed, start_metrics_server};
+use proxy_app::metrics::{
+    record_connection_accepted, record_connection_closed, start_metrics_server,
+};
 
 #[path = "../common/harness.rs"]
 mod harness;
 
 async fn http_get(addr: &str, path: &str) -> String {
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let mut s = tokio::net::TcpStream::connect(addr).await.expect("connect http");
+    let mut s = tokio::net::TcpStream::connect(addr)
+        .await
+        .expect("connect http");
     let req = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     s.write_all(req.as_bytes()).await.expect("write req");
     let mut buf = vec![];

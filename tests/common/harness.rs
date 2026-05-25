@@ -85,9 +85,7 @@ pub async fn spawn_drop_on_connect_server() -> (u16, tokio::task::JoinHandle<()>
         .await
         .expect("bind drop server");
     let port = listener.local_addr().expect("drop addr").port();
-    let task = tokio::spawn(async move {
-        while let Ok((_s, _)) = listener.accept().await {}
-    });
+    let task = tokio::spawn(async move { while let Ok((_s, _)) = listener.accept().await {} });
     (port, task)
 }
 

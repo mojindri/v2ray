@@ -63,7 +63,9 @@ async fn tcp_client_transport_ipv4_and_ipv6_dial() {
     v4.read_exact(&mut out).await.expect("read");
     assert_eq!(&out, b"v4");
 
-    if let Ok((v6_addr, _v6_task)) = tokio::time::timeout(Duration::from_secs(1), spawn_listener_echo("[::1]:0")).await {
+    if let Ok((v6_addr, _v6_task)) =
+        tokio::time::timeout(Duration::from_secs(1), spawn_listener_echo("[::1]:0")).await
+    {
         let mut v6 = transport.dial(v6_addr).await.expect("dial v6");
         v6.write_all(b"v6").await.expect("write");
         let mut out6 = [0u8; 2];

@@ -25,7 +25,9 @@ fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<proxy_config::schema:
 }
 
 async fn spawn_partial_then_drop_server() -> (u16, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind partial");
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind partial");
     let port = listener.local_addr().expect("addr").port();
     let task = tokio::spawn(async move {
         while let Ok((mut s, _)) = listener.accept().await {
@@ -39,7 +41,9 @@ async fn spawn_partial_then_drop_server() -> (u16, tokio::task::JoinHandle<()>) 
 }
 
 async fn spawn_huge_response_server(bytes: usize) -> (u16, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind huge");
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind huge");
     let port = listener.local_addr().expect("addr").port();
     let task = tokio::spawn(async move {
         while let Ok((mut s, _)) = listener.accept().await {
