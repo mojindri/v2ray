@@ -30,9 +30,21 @@ Use the **primary** reference first; validate with the **secondary** when both a
 
 When Xray and sing-box **disagree**, do not pick blackwire’s preference:
 
-1. Document the delta in the phase issue / PR.
+1. Document the delta in the PR and [parity-status.md](parity-status.md).
 2. Gate the scenario with the client named in `labs/realistic/external-clients/scenarios.env`.
 3. Add a second lab row for the other client if both must be supported.
+
+## Matrix SKIP vs server support
+
+A **SKIP** in `reports/external-clients/summary.txt` means the lab did not run that **client** binary/config for the row. It is **not** the same as **Unsupported** in [feature-matrix.md](feature-matrix.md).
+
+| Typical pattern | Meaning |
+|-----------------|--------|
+| Server e2e PASS + matrix client SKIP | blackwire implements the transport; latest Xray/sing-box clients cannot be configured the way the row expects (or we skip by policy). |
+| sing-box PASS + Xray SKIP | Row is proven for interop; document Xray upstream limitation (e.g. QUIC on Xray 26+). |
+| Both clients SKIP, negatives PASS | Server config loads; auth rejection works; no positive client proof in matrix. |
+
+See the SKIP table in [parity-status.md](parity-status.md).
 
 ## Verification ladder (required per gap)
 
@@ -70,6 +82,8 @@ Listed in [feature-matrix.md](feature-matrix.md) intentional deviations (e.g. VM
 ## Related docs
 
 - [feature-matrix.md](feature-matrix.md) — current status (evidence-based)
+- [parity-status.md](parity-status.md) — shipped gates, matrix SKIPs, backlog
+- [xray-parity-roadmap.md](xray-parity-roadmap.md) — gap tracker
 - [reality-interop.md](reality-interop.md) — REALITY upstream links and lab gates
 - [labs/realistic/external-clients/README.md](../labs/realistic/external-clients/README.md) — server-compat lab
 - [11-testing.md](11-testing.md) — verification tiers

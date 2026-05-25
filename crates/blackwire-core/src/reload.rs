@@ -53,6 +53,10 @@ pub struct ReloadState {
     pub vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
     /// Per-inbound sniffing map (hot-swapped on reload).
     pub sniffing: Arc<std::sync::RwLock<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+    /// Inbound tags from the active config (HandlerService ListInbounds).
+    pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
+    /// Outbound tags from the active config (HandlerService ListOutbounds).
+    pub outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
 }
 
 impl ReloadState {
@@ -88,6 +92,13 @@ impl ReloadState {
             info!(count = guard.len(), "sniffing map hot-swapped");
         }
 
+        if let Ok(mut tags) = self.inbound_tags.write() {
+            *tags = config.inbounds.iter().map(|i| i.tag.clone()).collect();
+        }
+        if let Ok(mut tags) = self.outbound_tags.write() {
+            *tags = config.outbounds.iter().map(|o| o.tag.clone()).collect();
+        }
+
         for in_cfg in &config.inbounds {
             if in_cfg.protocol != Protocol::Vless {
                 continue;
@@ -100,7 +111,89 @@ impl ReloadState {
 
         Ok(())
     }
+}
 
+impl blackwire_api::management::InboundManagement for ReloadState {
+    fn list_inbound_tags(&self) -> Vec<String> {
+        self.inbound_tags
+            .read()
+            .map(|t| t.clone())
+            .unwrap_or_default()
+    }
+
+    fn list_outbound_tags(&self) -> Vec<String> {
+        self.outbound_tags
+            .read()
+            .map(|t| t.clone())
+            .unwrap_or_default()
+    }
+
+    fn vless_user_count(&self, inbound_tag: &str) -> Option<i64> {
+        self.vless_registry(inbound_tag)
+            .map(|r| r.len() as i64)
+    }
+
+    fn list_vless_users(&self, inbound_tag: &str, email: &str) -> Result<Vec<blackwire_api::management::VlessUserRecord>, String> {
+        let registry = self
+            .vless_registry(inbound_tag)
+            .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;
+        Ok(registry
+            .list_users(email)
+            .into_iter()
+            .map(|u| blackwire_api::management::VlessUserRecord {
+                email: u.email.clone(),
+                uuid: uuid::Uuid::from_bytes(u.uuid).to_string(),
+                flow: u.flow.clone(),
+                level: 0,
+            })
+            .collect())
+    }
+
+    fn add_vless_user(
+        &self,
+        inbound_tag: &str,
+        email: &str,
+        uuid_str: &str,
+        flow: &str,
+    ) -> Result<(), String> {
+        let registry = self
+            .vless_registry(inbound_tag)
+            .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;
+        let uuid = crate::instance::parse_uuid(uuid_str).map_err(|e| e.to_string())?;
+        registry.add_user(blackwire_protocol::vless::VlessUser {
+            email: email.to_string(),
+            uuid,
+            flow: flow.to_string(),
+        });
+        Ok(())
+    }
+
+    fn remove_vless_user(&self, inbound_tag: &str, email: &str) -> Result<(), String> {
+        let registry = self
+            .vless_registry(inbound_tag)
+            .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;
+        if registry.remove_user_by_email(email) {
+            Ok(())
+        } else {
+            Err(format!("no VLESS user with email '{email}' on inbound '{inbound_tag}'"))
+        }
+    }
+}
+
+impl ReloadState {
+    fn vless_registry(&self, inbound_tag: &str) -> Option<Arc<VlessUserRegistry>> {
+        if !self
+            .inbound_tags
+            .read()
+            .map(|tags| tags.iter().any(|t| t == inbound_tag))
+            .unwrap_or(false)
+        {
+            return None;
+        }
+        self.vless_registries
+            .get(inbound_tag)
+            .map(|r| Arc::clone(r.value()))
+    }
 }
 
 /// Returns inbound tags whose listen address/port changed (requires process restart).

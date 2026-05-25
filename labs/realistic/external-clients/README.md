@@ -31,7 +31,9 @@ invocations.
 
 Tune waits: `MATRIX_PORT_WAIT_TRIES`, `MATRIX_PORT_WAIT_SLEEP`, `MATRIX_SOCKS_WAIT_TRIES`, `MATRIX_SOCKS_WAIT_SLEEP`.
 
-**12 protocols** in `scenarios.env` (48 matrix rows). Some rows **SKIP** Xray when upstream removed a transport (e.g. legacy QUIC in Xray 26+) or client framing differs (SplitHTTP).
+**15 protocols** in `scenarios.env` (60 matrix rows). Some rows **SKIP** when upstream cannot run the client transport (Xray legacy QUIC, SplitHTTP positives, sing-box ShadowTLS on VLESS stream).
+
+Optional failure capture: `MATRIX_PCAP_ON_FAIL=1 make interop-server-docker`.
 
 ## Commands
 
@@ -57,10 +59,11 @@ For the two-VPS promotion gate:
 SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make interop-server-vps
 ```
 
-The VPS runner assumes the normal server/client setup already ran. It does not
-install Docker or packages. It starts one `/usr/local/bin/blackwire` inbound at a
-time on the server VPS, runs Xray/sing-box Docker clients on the client VPS, and
-writes full logs under `labs/realistic/reports/external-clients-vps/`.
+The VPS runner assumes server/client setup already ran (`server-setup.sh` /
+`client-setup.sh`). It mirrors the Docker harness: **one blackwire start per
+protocol**, four sequential client cases (xray, sing-box, negatives), same
+`scenarios.env` and port-wait rules (including ShadowTLS cover on server `:443`).
+Reports: `labs/realistic/reports/external-clients-vps/`.
 
 The runner keeps console output compact and writes full logs under:
 
@@ -72,9 +75,19 @@ labs/realistic/reports/external-clients/
 
 The automated matrix is driven by `external-clients/scenarios.env`.
 
-`scenarios.env` drives the matrix (VLESS REALITY/TCP/WS, VMess gRPC, Trojan TLS,
-SS-2022, Hysteria2). Add or comment out rows there to change coverage; both Docker
-and VPS runners read the same file.
+`scenarios.env` drives the matrix (15 protocols including ShadowTLS, mKCP, sniffing).
+Both Docker and VPS runners read the same file; tune waits with `MATRIX_PORT_WAIT_*`
+and `MATRIX_SOCKS_WAIT_*`.
+
+**SKIP lines** mean that client is not run for the row (upstream config limits), not that
+blackwire lacks the server transport. See [docs/parity-status.md](../../../docs/parity-status.md).
+
+| Row | Typical SKIP reason |
+|-----|---------------------|
+| `vless-quic` | Xray 26+ removed QUIC client transport (sing-box proves row) |
+| `vless-splithttp` | Full xHTTP client framing not in matrix |
+| `vless-shadowtls` | Xray/sing-box client models differ from VLESS+`shadowtls` stream |
+| `vless-mkcp` | sing-box has no mKCP; Xray uses new finalmask — server proven in e2e |
 
 Hiddify remains a manual validation target using generated import artifacts
 after the automated scenarios pass.

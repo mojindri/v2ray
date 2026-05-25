@@ -1,0 +1,17 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "::", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 8451,
+      "uuid": "${VLESS_UUID}",
+      "transport": { "type": "kcp", "mtu": 1350, "tti": 10 }
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

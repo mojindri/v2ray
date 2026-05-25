@@ -5,12 +5,21 @@ services:
       - "-listen=:8080"
       - "-text=blackwire external client target"
 
+  # ShadowTLS v3 cover TLS backend (Xray/sing-box handshake target).
+  tls-cover:
+    image: nginx:alpine
+    hostname: tls-cover
+    volumes:
+      - ./generated/certs:/etc/nginx/certs:ro
+      - ./tls-cover/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+
   # Long-lived probe: nc + curl (no per-check docker run --rm).
   matrix-probe:
     image: alpine:3.20
     command: ["sleep", "infinity"]
     depends_on:
       - target-http
+      - tls-cover
 
   # Debian-based image: idle holder + exec-driven blackwire runs.
   blackwire-server:
@@ -23,6 +32,7 @@ services:
       - ./generated/certs:/etc/blackwire/certs:ro
     depends_on:
       - target-http
+      - tls-cover
 
   # sing-box image includes /bin/sh — idle holder + exec-driven runs.
   sing-box-client:

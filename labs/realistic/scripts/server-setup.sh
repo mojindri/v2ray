@@ -108,6 +108,14 @@ ufw allow 8444/tcp  # VMess gRPC+TLS
 ufw allow 8445/tcp  # Trojan TLS
 ufw allow 8388/tcp  # SS2022
 ufw allow 4433/udp  # Hysteria2 QUIC
+ufw allow 8446/tcp  # VLESS HTTPUpgrade
+ufw allow 8447/udp  # VLESS QUIC
+ufw allow 8448/tcp  # VLESS SplitHTTP
+ufw allow 10081/tcp # VLESS UDP (TCP control)
+ufw allow 10082/tcp # VLESS Vision
+ufw allow 8450/tcp  # VLESS ShadowTLS
+ufw allow 8451/udp  # VLESS mKCP
+ufw allow 8452/tcp  # VLESS + sniffing
 ufw --force enable
 
 echo "==> Setting up weekly cert renewal sync"

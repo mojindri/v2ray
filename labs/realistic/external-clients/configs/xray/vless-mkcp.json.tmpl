@@ -1,0 +1,34 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-in", "listen": "0.0.0.0", "port": 1080, "protocol": "socks", "settings": { "auth": "noauth" } }
+  ],
+  "outbounds": [
+    {
+      "tag": "blackwire-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "${EXTERNAL_SERVER_ADDRESS}",
+            "port": 8451,
+            "users": [{ "id": "${VLESS_UUID}", "encryption": "none", "flow": "" }]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "kcp",
+        "kcpSettings": {
+          "tti": 10,
+          "uplinkCapacity": 5,
+          "downlinkCapacity": 20,
+          "readBufferSize": 32,
+          "writeBufferSize": 32
+        },
+        "finalmask": {
+          "udp": [{ "type": "mkcp-original" }]
+        }
+      }
+    }
+  ]
+}

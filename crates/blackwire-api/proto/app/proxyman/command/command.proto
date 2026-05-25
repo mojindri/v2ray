@@ -1,0 +1,89 @@
+syntax = "proto3";
+
+package xray.app.proxyman.command;
+option go_package = "github.com/xtls/xray-core/app/proxyman/command";
+
+import "proxy/vless/account.proto";
+
+message TypedMessage {
+  string type = 1;
+  bytes value = 2;
+}
+
+message User {
+  uint32 level = 1;
+  string email = 2;
+  TypedMessage account = 3;
+}
+
+message AddUserOperation {
+  User user = 1;
+}
+
+message RemoveUserOperation {
+  string email = 1;
+}
+
+message InboundHandlerConfig {
+  string tag = 1;
+}
+
+message ListInboundsRequest {
+  bool isOnlyTags = 1;
+}
+
+message ListInboundsResponse {
+  repeated InboundHandlerConfig inbounds = 1;
+}
+
+message GetInboundUserRequest {
+  string tag = 1;
+  string email = 2;
+}
+
+message GetInboundUserResponse {
+  repeated User users = 1;
+}
+
+message GetInboundUsersCountResponse {
+  int64 count = 1;
+}
+
+message AlterInboundRequest {
+  string tag = 1;
+  TypedMessage operation = 2;
+}
+
+message AlterInboundResponse {}
+
+message AddInboundRequest {}
+message AddInboundResponse {}
+message RemoveInboundRequest { string tag = 1; }
+message RemoveInboundResponse {}
+message AddOutboundRequest {}
+message AddOutboundResponse {}
+message RemoveOutboundRequest { string tag = 1; }
+message RemoveOutboundResponse {}
+message AlterOutboundRequest { string tag = 1; }
+message AlterOutboundResponse {}
+message ListOutboundsRequest {}
+message ListOutboundsResponse {
+  repeated OutboundHandlerConfig outbounds = 1;
+}
+
+message OutboundHandlerConfig {
+  string tag = 1;
+}
+
+service HandlerService {
+  rpc AddInbound(AddInboundRequest) returns (AddInboundResponse) {}
+  rpc RemoveInbound(RemoveInboundRequest) returns (RemoveInboundResponse) {}
+  rpc AlterInbound(AlterInboundRequest) returns (AlterInboundResponse) {}
+  rpc ListInbounds(ListInboundsRequest) returns (ListInboundsResponse) {}
+  rpc GetInboundUsers(GetInboundUserRequest) returns (GetInboundUserResponse) {}
+  rpc GetInboundUsersCount(GetInboundUserRequest) returns (GetInboundUsersCountResponse) {}
+  rpc AddOutbound(AddOutboundRequest) returns (AddOutboundResponse) {}
+  rpc RemoveOutbound(RemoveOutboundRequest) returns (RemoveOutboundResponse) {}
+  rpc AlterOutbound(AlterOutboundRequest) returns (AlterOutboundResponse) {}
+  rpc ListOutbounds(ListOutboundsRequest) returns (ListOutboundsResponse) {}
+}

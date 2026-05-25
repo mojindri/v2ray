@@ -17,7 +17,7 @@ This document is the single reference for running every test tier in this projec
 | 7. Interop d0 self-consistency | REALITY token + TLS self-consistency (Rust only) | ~5s | Rust toolchain |
 | 8. Interop server-compat | Xray/sing-box clients → our server | ~5 min | Docker |
 | 9. Interop client-compat | Our Rust client → Xray REALITY server (d1) | ~30s | Docker |
-| 10. VPS matrix | All protocols over real public network | ~5 min | Two Ubuntu 24.04 VPS |
+| 10. VPS external-client matrix | Same 15 rows as Docker (`scenarios.env`) over public network | ~10 min | Two Ubuntu 24.04 VPS |
 | 11. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
 
 ## Where You Run Things
@@ -57,11 +57,12 @@ Important:
 - Pass `SSH_KEY=~/.ssh/id_ed25519` (and optionally `SSH_USER` / `SSH_PORT`) for VPS work.
 - SSH directly into a VPS only for debugging, service inspection, or manual recovery.
 
-The external-client Docker lab is the first gate for GUI/app compatibility.
-The exact automated scenario set is defined by
-`labs/realistic/external-clients/scenarios.env`; today that matrix starts with
-VLESS REALITY, and Hiddify profiles are still generated for manual macOS
-validation.
+The external-client lab (Docker and VPS) is the first gate for GUI/app compatibility.
+The automated scenario set is **15 protocol rows × 4 cases** (Xray + sing-box clients,
+plus negative-auth) in `labs/realistic/external-clients/scenarios.env`.
+Eight cases are expected **SKIP** when upstream clients lack that transport (QUIC on
+Xray 26+, SplitHTTP, ShadowTLS, mKCP) — see [parity-status.md](parity-status.md).
+Hiddify profiles are still generated for manual macOS validation.
 
 ---
 
@@ -234,9 +235,29 @@ See [tests/interop/README.md](../tests/interop/README.md) for the full protocol 
 
 ---
 
-## Tier 9 — VPS matrix
+## Tier 9 — VPS external-client matrix
 
-Runs all seven protocols over a real public network between two Ubuntu 24.04 VPS machines. This is the production-realism gate.
+Runs the **same 15 protocol rows** as Tier 8 (`external-clients/scenarios.env`) over a
+real public network between two Ubuntu 24.04 VPS machines. One blackwire server config
+is started per row on the server VPS; Xray and sing-box clients run on the client VPS
+(see [external-clients/README.md](../labs/realistic/external-clients/README.md)).
+
+```sh
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
+  make -C labs/realistic interop-server-vps
+```
+
+Reports land in `labs/realistic/reports/external-clients-vps/`. A green promotion run
+matches Docker: **52 PASS, 8 SKIP, 0 FAIL** (SKIPs are upstream client limits, not
+missing server transports).
+
+Preflight (optional):
+
+```sh
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 make -C labs/realistic vps-preflight
+```
+
+### Prerequisites
 
 ### Prerequisites
 
@@ -297,7 +318,7 @@ SSH_SERVER=1.2.3.4 make -C labs/realistic vps-server-setup
 This will:
 - Install Caddy and obtain a TLS cert for `TEST_DOMAIN`.
 - Create the `blackwire` system user and directory layout.
-- Generate all seven server configs from templates into `/etc/blackwire/generated/`.
+- Generate server configs from templates into `/etc/blackwire/generated/` (base matrix plus advanced rows: QUIC, SplitHTTP, ShadowTLS, mKCP, sniffing).
 - Sync the Caddy cert to `/etc/blackwire/certs/`.
 - Start a simple HTTP target on port 18080 for the matrix tests.
 - Open the required UFW firewall ports.
@@ -315,63 +336,50 @@ Port layout after setup:
 | 8445/tcp | TLS | Trojan |
 | 8388/tcp | TCP | Shadowsocks 2022 |
 | 4433/udp | QUIC | Hysteria2 |
+| 8446–8448/tcp | TLS | Advanced VLESS rows (QUIC/SplitHTTP/ShadowTLS lab) |
+| 8450–8452/tcp | TCP/TLS | Sniffing and extended matrix ports |
+| 10081–10082/tcp | TCP | mKCP / auxiliary |
 
-### Step 4 — Start server-side blackwire instances
+### Step 4 — Run the external-client matrix
 
-On the server VPS, start each protocol inbound:
-
-```sh
-# Run one or all — each config is standalone
-blackwire run -c /etc/blackwire/generated/server-vless-tcp.json &
-blackwire run -c /etc/blackwire/generated/server-vless-reality.json &
-blackwire run -c /etc/blackwire/generated/server-vless-ws.json &
-blackwire run -c /etc/blackwire/generated/server-vmess-grpc.json &
-blackwire run -c /etc/blackwire/generated/server-trojan-tls.json &
-blackwire run -c /etc/blackwire/generated/server-ss2022.json &
-blackwire run -c /etc/blackwire/generated/server-hysteria2.json &
-```
-
-Or use the systemd service for a long-running deployment:
+From your dev machine (after server + client VPS are provisioned):
 
 ```sh
-cp labs/realistic/vps/blackwire-server.service /etc/systemd/system/
-# Edit ExecStart to point at the config you want
-systemctl daemon-reload && systemctl enable --now blackwire-server
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
+  make -C labs/realistic interop-server-vps
 ```
 
-### Step 5 — Provision the client VPS
+`run-vps-matrix.sh` starts one server config per `scenarios.env` row, runs Xray/sing-box
+clients where configured, and records PASS/FAIL/SKIP like Docker.
+
+---
+
+## Tier 9b — Legacy VPS blackwire client matrix (optional)
+
+Separate from the external-client lab: proves **blackwire as client** over SOCKS to the
+server VPS using seven standalone server configs.
+
+### Provision client VPS
 
 ```sh
 SSH_CLIENT=5.6.7.8 make -C labs/realistic vps-client-setup
 ```
 
-This generates all seven client configs into `/etc/blackwire/generated/` on the client VPS.
-
-### Step 6 — Run the matrix
+### Run
 
 ```sh
 SSH_CLIENT=5.6.7.8 make -C labs/realistic vps-test
 ```
 
-This runs `scripts/run-matrix.sh` on the client VPS. For each protocol it:
+This runs `scripts/run-matrix.sh` on the client VPS (SOCKS5 on `127.0.0.1:1080`,
+`curl` to `http://<SERVER_HOST>:18080`). Reports go to `labs/realistic/reports/`.
 
-1. Starts `blackwire` with the client config (SOCKS5 on 127.0.0.1:1080).
-2. Sends `curl` traffic through the SOCKS5 proxy to `http://<SERVER_HOST>:18080`.
-3. Records PASS/FAIL.
-4. Copies the report back to `labs/realistic/reports/`.
+On the server VPS you still start each legacy inbound manually when using only Tier 9b:
 
-Expected output:
-
-```
-PASS vless-tcp
-PASS vless-reality
-PASS vless-ws
-PASS vmess-grpc
-PASS trojan-tls
-PASS ss2022
-PASS hysteria2
-
-==> Results: 7 passed, 0 failed
+```sh
+blackwire run -c /etc/blackwire/generated/server-vless-tcp.json &
+blackwire run -c /etc/blackwire/generated/server-vless-reality.json &
+# ... remaining base protocols
 ```
 
 ---
@@ -423,11 +431,17 @@ make -C labs/realistic report-summary
 cat labs/realistic/reports/summary.txt
 ```
 
-VPS matrix + TUN (requires provisioned VPS):
+Full local ship gate (no VPS):
 
 ```sh
-SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 \
-    make -C labs/realistic vps-test vps-tun
+make -C labs/realistic finalize
+```
+
+VPS external-client matrix + TUN (requires provisioned VPS):
+
+```sh
+SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
+    make -C labs/realistic interop-server-vps vps-tun
 ```
 
 ---
@@ -443,7 +457,7 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 \
 | 7 | REALITY implementation is self-consistent (d0) |
 | 8 | Xray/sing-box clients can use our server (configured scenarios) |
 | 9 | Our REALITY client interoperates with live xray-core (d1) |
-| 10 | All protocols work over a real public network with real TLS certs |
+| 10 | External-client matrix (15 rows) passes over real public network; SKIPs documented |
 | 11 | TUN device, iptables routing, and UDP NAT work on real Linux |
 
 Tiers 1–9 are the mandatory green gate before any merge to main. Tiers 10–11 are required before a protocol or subsystem is marked production-ready.

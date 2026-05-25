@@ -92,6 +92,30 @@ impl VlessUserRegistry {
     pub fn is_empty(&self) -> bool {
         self.users.is_empty()
     }
+
+    /// List registered users, optionally filtered by email (empty = all).
+    pub fn list_users(&self, email: &str) -> Vec<Arc<VlessUser>> {
+        self.users
+            .iter()
+            .filter(|entry| email.is_empty() || entry.value().email == email)
+            .map(|entry| Arc::clone(entry.value()))
+            .collect()
+    }
+
+    /// Remove the user with the given email. Returns true if one was removed.
+    pub fn remove_user_by_email(&self, email: &str) -> bool {
+        let keys: Vec<[u8; 16]> = self
+            .users
+            .iter()
+            .filter(|entry| entry.value().email == email)
+            .map(|entry| *entry.key())
+            .collect();
+        let removed = !keys.is_empty();
+        for key in keys {
+            self.users.remove(&key);
+        }
+        removed
+    }
 }
 
 impl Default for VlessUserRegistry {
@@ -170,6 +194,26 @@ mod tests {
 
         // Both normalise to the same key, so this must succeed.
         assert!(registry.validate(&uuid_v4).is_some());
+    }
+
+    #[test]
+    fn list_and_remove_by_email() {
+        let registry = VlessUserRegistry::new();
+        registry.add_user(VlessUser {
+            email: "a@x".into(),
+            uuid: [0x01; 16],
+            flow: String::new(),
+        });
+        registry.add_user(VlessUser {
+            email: "b@x".into(),
+            uuid: [0x02; 16],
+            flow: String::new(),
+        });
+        assert_eq!(registry.list_users("").len(), 2);
+        assert_eq!(registry.list_users("a@x").len(), 1);
+        assert!(registry.remove_user_by_email("a@x"));
+        assert_eq!(registry.len(), 1);
+        assert!(!registry.remove_user_by_email("missing"));
     }
 
     // Checks that clear() removes all users.
