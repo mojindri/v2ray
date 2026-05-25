@@ -2,6 +2,8 @@
 name = "proxy-benches"
 version.workspace = true
 edition.workspace = true
+license.workspace = true
+authors.workspace = true
 publish = false
 
 [dependencies]
@@ -9,7 +11,7 @@ bytes.workspace = true
 tokio.workspace = true
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.8", features = ["html_reports"] }
 
 [[bench]]
 name = "tcp_relay_throughput"
