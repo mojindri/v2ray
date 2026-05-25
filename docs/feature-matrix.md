@@ -53,7 +53,7 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
 | VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab scenario pending |
-| VLESS flow `xtls-rprx-vision` | Partial | Partial | **Partial** | `vless/vision.rs` unpadding reader; TLS splice/direct-copy not implemented |
+| VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
 | Trojan UDP | No | No | **Unsupported** | No UDP associate path in trojan module |
@@ -96,7 +96,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | DoH / DoT upstream URLs | **Supported** | `https://` / `tls://` parsed in `dns/resolver.rs` (hickory) |
 | FakeIP pool + restore on dispatch | **Supported** | `dns/fakeip.rs`, dispatcher; startup rejects invalid pool (`production_readiness`) |
 | DNS response cache | **Supported** | `dns/cache.rs` |
-| `domain_strategy` (routing) | **Partial** | `UseIP`/`UseIpv4`/`UseIpv6` resolve domain before routing in dispatcher; `IPIfNonMatch` not yet |
+| `domain_strategy` (routing) | **Partial** | `UseIP`/`UseIpv4`/`UseIpv6` in dispatcher; `AsIs` default; `IPIfNonMatch` backlog (phase 12) |
 | Sniffing (`http` / `tls` / `fakedns`) | **Partial** | `blackwire-app/sniff.rs` + dispatcher destOverride; protocol routing rules; needs external-client lab |
 
 ---
@@ -130,7 +130,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Hot-reload **routing rules** | **Supported** | `blackwire-core/reload.rs` — `LiveRouter::swap` |
 | Hot-reload **VLESS user UUIDs** | **Supported** | Per-inbound registry refresh |
 | Hot-reload **GeoIP/geosite data** | **Supported** | Reloaded with router rebuild |
-| Hot-reload listeners / new tags / TLS keys | **Unsupported** | Documented in `reload.rs` — requires restart |
+| Hot-reload listeners / new tags / TLS keys | **Partial** | `requires_instance_restart` + CLI rebuilds `Instance` on structural change (no separate `reload` subcommand) |
 | Per-inbound / global `max_connections` | **Partial** | TCP accept path in `transport/tcp.rs` + config limits; not all protocols share the same limit surface |
 | Prometheus HTTP (`metricsAddr`) | **Supported** | `metrics.rs` — `/metrics`, `/healthz`, `/readyz`, `/version` |
 | Per-connection Prometheus counters | **Supported** | `record_connection_*` called from `dispatcher` after each relay |
