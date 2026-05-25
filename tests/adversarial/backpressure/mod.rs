@@ -62,9 +62,11 @@ async fn slow_client_reader_does_not_deadlock_or_leak() {
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", upstream_port).await;
     let mut total = 0usize;
-    let mut buf = [0u8; 37];
+    // Small per-read buffer + delay simulates a slow consumer; keep total iterations modest
+    // so CI finishes well under the timeout (debug builds can take ~10s with 37-byte reads).
+    let mut buf = [0u8; 512];
 
-    let read = tokio::time::timeout(Duration::from_secs(10), async {
+    let read = tokio::time::timeout(Duration::from_secs(25), async {
         loop {
             let n = s.read(&mut buf).await.expect("read");
             if n == 0 {

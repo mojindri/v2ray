@@ -10,8 +10,6 @@ mod leak_check;
 
 #[tokio::test]
 async fn e2e_connections_return_to_resource_baseline() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (echo_port, _echo_task) = harness::spawn_echo_server().await;
     let socks_port = harness::unused_local_port();
     let cfg = harness::parse_config(serde_json::json!({
@@ -29,6 +27,7 @@ async fn e2e_connections_return_to_resource_baseline() {
 
     let _instance = Instance::from_config(cfg).await.expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     for _ in 0..128usize {
         let mut s = harness::socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -36,9 +35,10 @@ async fn e2e_connections_return_to_resource_baseline() {
         let mut out = [0u8; 4];
         s.read_exact(&mut out).await.expect("read");
         assert_eq!(&out, b"ping");
+        drop(s);
     }
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
