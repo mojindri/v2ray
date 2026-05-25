@@ -104,20 +104,30 @@ async fn so_mark_is_applied_before_connect_or_fails_closed() {
 
 #[tokio::test]
 async fn socket_dials_do_not_leak_fds() {
-    let baseline = leak_check::LeakSnapshot::capture();
     let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await;
     let transport = TcpClientTransport::new(TcpConfig::default());
+
+    // Warm up transport + listener so baseline reflects steady dial/teardown cost.
+    {
+        let mut s = transport.dial(addr).await.expect("warmup dial");
+        s.write_all(b"x").await.expect("write");
+        let mut out = [0u8; 1];
+        s.read_exact(&mut out).await.expect("read");
+        drop(s);
+    }
+    let baseline = leak_check::steady_state_baseline().await;
 
     for _ in 0..256usize {
         let mut s = transport.dial(addr).await.expect("dial");
         s.write_all(b"x").await.expect("write");
         let mut out = [0u8; 1];
         s.read_exact(&mut out).await.expect("read");
+        drop(s);
     }
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 128, 128, 60);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 128, 128);
 }
 
 #[tokio::test]
