@@ -6,6 +6,11 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+default = []
+heavy-tests = []
+loom-tests = []
+
 # This crate only contains tests — the binary is empty.
 # `cargo test -p integration-tests` runs all tests in this crate.
 
@@ -28,6 +33,10 @@ x25519-dalek.workspace = true
 rand.workspace         = true
 uuid.workspace         = true
 http.workspace         = true
+loom = "0.7"
+async-trait.workspace = true
+bytes.workspace = true
+socket2.workspace = true
 
 [lib]
 name = "integration_tests"

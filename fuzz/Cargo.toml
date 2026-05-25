@@ -13,6 +13,8 @@ members = ["."]
 [dependencies]
 libfuzzer-sys = "0.4"
 tokio = { version = "1.52", features = ["rt", "io-util"] }
+bytes = "1"
+proxy-common = { path = "../crates/proxy-common" }
 proxy-protocol = { path = "../crates/proxy-protocol", features = ["fuzzing"] }
 proxy-transport = { path = "../crates/proxy-transport", features = ["fuzzing"] }
 
@@ -54,6 +56,13 @@ bench = false
 [[bin]]
 name = "ss2022_chunk"
 path = "fuzz_targets/ss2022_chunk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "stateful_sequences"
+path = "fuzz_targets/stateful_sequences.rs"
 test = false
 doc = false
 bench = false
