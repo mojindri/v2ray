@@ -46,7 +46,7 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use proxy_common::{Address, ProxyError};
+use proxy_common::{domain_wire_len, Address, ProxyError};
 
 use super::kdf::kdf;
 
@@ -104,6 +104,15 @@ impl TryFrom<u8> for Security {
 const ATYP_IPV4: u8 = 0x01;
 const ATYP_DOMAIN: u8 = 0x02;
 const ATYP_IPV6: u8 = 0x03;
+
+/// VMess request command: TCP (Xray `RequestCommandTCP`).
+const CMD_TCP: u8 = 0x01;
+/// VMess request command: UDP (Xray `RequestCommandUDP`).
+const CMD_UDP: u8 = 0x02;
+/// VMess request command: Mux (Xray `RequestCommandMux`).
+const CMD_MUX: u8 = 0x03;
+/// Domain used for Mux requests (Xray `MuxCoolAddress`).
+const MUX_DOMAIN: &str = "v1.mux.cool";
 
 // ── Request header ────────────────────────────────────────────────────────────
 
@@ -169,7 +178,7 @@ pub fn encode_header(
     let v_byte = v[0];
 
     let pad_len: u8 = (rng.next_u32() % 16) as u8;
-    let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest);
+    let plaintext = build_request_plaintext(&iv, &key, v_byte, pad_len, security, dest)?;
 
     // Encrypt header with connection_nonce in KDF.
     let hdr_key: [u8; 16] = kdf(cmd_key, &[PATH_HDR_KEY, auth_id, &connection_nonce]);
@@ -365,7 +374,7 @@ fn build_request_plaintext(
     pad_len: u8,
     security: Security,
     dest: &Address,
-) -> Vec<u8> {
+) -> Result<Vec<u8>, ProxyError> {
     let mut buf = BytesMut::new();
     buf.put_u8(0x01); // version
     buf.put_slice(iv);
@@ -390,7 +399,7 @@ fn build_request_plaintext(
         Address::Domain(name, port) => {
             buf.put_u16(*port);
             buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(name.len() as u8);
+            buf.put_u8(domain_wire_len(name)?);
             buf.put_slice(name.as_bytes());
         }
     }
@@ -402,7 +411,7 @@ fn build_request_plaintext(
     let checksum = fnv32a(buf.as_ref());
     buf.put_u32(checksum);
 
-    buf.to_vec()
+    Ok(buf.to_vec())
 }
 
 fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
@@ -428,7 +437,7 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     let pad_sec = data[35];
     let pad_len = (pad_sec >> 4) as usize;
     let security = Security::try_from(pad_sec & 0x0F)?;
-    let _cmd = data[37]; // data[36] = reserved
+    let cmd = data[37];
 
     let mut pos = 38;
 
@@ -438,49 +447,27 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
     let port = u16::from_be_bytes([data[pos], data[pos + 1]]);
     pos += 2;
 
-    if pos >= data.len() {
-        return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
-    }
-    let atyp = data[pos];
-    pos += 1;
-
-    let dest = match atyp {
-        ATYP_IPV4 => {
-            if pos + 4 > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
-            }
-            let ip =
-                std::net::Ipv4Addr::new(data[pos], data[pos + 1], data[pos + 2], data[pos + 3]);
-            pos += 4;
-            Address::Ipv4(ip, port)
-        }
-        ATYP_IPV6 => {
-            if pos + 16 > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated IPv6".into()));
-            }
-            let mut ip6 = [0u8; 16];
-            ip6.copy_from_slice(&data[pos..pos + 16]);
-            pos += 16;
-            Address::Ipv6(std::net::Ipv6Addr::from(ip6), port)
-        }
-        ATYP_DOMAIN => {
+    let dest = match cmd {
+        CMD_TCP | CMD_UDP => {
             if pos >= data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated domain len".into()));
+                return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
             }
-            let dlen = data[pos] as usize;
+            let atyp = data[pos];
             pos += 1;
-            if pos + dlen > data.len() {
-                return Err(ProxyError::Protocol("VMess: truncated domain".into()));
+            read_vmess_address(data, &mut pos, atyp, port)?
+        }
+        CMD_MUX => {
+            if pos >= data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated at atyp".into()));
             }
-            let domain = std::str::from_utf8(&data[pos..pos + dlen])
-                .map_err(|_| ProxyError::Protocol("VMess: domain not UTF-8".into()))?
-                .to_string();
-            pos += dlen;
-            Address::Domain(domain, port)
+            let atyp = data[pos];
+            pos += 1;
+            let _ = read_vmess_address(data, &mut pos, atyp, port)?;
+            Address::Domain(MUX_DOMAIN.to_string(), port)
         }
         other => {
             return Err(ProxyError::Protocol(format!(
-                "VMess: unknown ATYP {other:#x}"
+                "VMess: unknown command {other:#x}"
             )));
         }
     };
@@ -506,6 +493,52 @@ fn decode_plaintext(data: &[u8]) -> Result<VmessRequest, ProxyError> {
         security,
         dest,
     })
+}
+
+fn read_vmess_address(
+    data: &[u8],
+    pos: &mut usize,
+    atyp: u8,
+    port: u16,
+) -> Result<Address, ProxyError> {
+    match atyp {
+        ATYP_IPV4 => {
+            if *pos + 4 > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated IPv4".into()));
+            }
+            let ip =
+                std::net::Ipv4Addr::new(data[*pos], data[*pos + 1], data[*pos + 2], data[*pos + 3]);
+            *pos += 4;
+            Ok(Address::Ipv4(ip, port))
+        }
+        ATYP_IPV6 => {
+            if *pos + 16 > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated IPv6".into()));
+            }
+            let mut ip6 = [0u8; 16];
+            ip6.copy_from_slice(&data[*pos..*pos + 16]);
+            *pos += 16;
+            Ok(Address::Ipv6(std::net::Ipv6Addr::from(ip6), port))
+        }
+        ATYP_DOMAIN => {
+            if *pos >= data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated domain len".into()));
+            }
+            let dlen = data[*pos] as usize;
+            *pos += 1;
+            if *pos + dlen > data.len() {
+                return Err(ProxyError::Protocol("VMess: truncated domain".into()));
+            }
+            let domain = std::str::from_utf8(&data[*pos..*pos + dlen])
+                .map_err(|_| ProxyError::Protocol("VMess: domain not UTF-8".into()))?
+                .to_string();
+            *pos += dlen;
+            Ok(Address::Domain(domain, port))
+        }
+        other => Err(ProxyError::Protocol(format!(
+            "VMess: unknown ATYP {other:#x}"
+        ))),
+    }
 }
 
 fn read_u32_be(data: &[u8], pos: usize) -> Result<u32, ProxyError> {

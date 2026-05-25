@@ -3,7 +3,7 @@
 //! # How it works
 //!
 //! When a routing balancer references several outbounds, `HealthChecker` runs
-//! periodic HTTP probes through each member. Results update `HealthStates`, which
+//! periodic HTTP-style probes through each member. Results update `HealthStates`, which
 //! the balancer reads to skip dead nodes.
 
 use std::sync::Arc;
@@ -107,34 +107,7 @@ impl HealthChecker {
 
     async fn probe(&self, tag: String, outbound: Arc<dyn OutboundHandler>) {
         let start = Instant::now();
-        let ctx = Context::default();
-
-        let result = timeout(
-            Duration::from_secs(self.config.timeout_secs),
-            outbound.connect(&ctx, &self.probe.dest),
-        )
-        .await;
-
-        let success = match result {
-            Ok(Ok(mut stream)) => {
-                let req = format!(
-                    "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-                    self.probe.path, self.probe.host_header
-                );
-                async {
-                    stream.write_all(req.as_bytes()).await?;
-                    let mut resp = [0u8; 32];
-                    let n = stream.read(&mut resp).await?;
-                    if n == 0 {
-                        anyhow::bail!("health probe connection closed before response");
-                    }
-                    Ok::<bool, anyhow::Error>(resp.starts_with(b"HTTP"))
-                }
-                .await
-                .unwrap_or(false)
-            }
-            _ => false,
-        };
+        let success = self.run_probe(&outbound).await;
 
         let mut entry = self.states.entry(tag.clone()).or_default();
         entry.last_check = Instant::now();
@@ -152,6 +125,51 @@ impl HealthChecker {
             if entry.consecutive_failures >= self.config.max_failures && entry.alive {
                 entry.alive = false;
                 warn!(tag = %tag, failures = entry.consecutive_failures, "outbound marked dead");
+            }
+        }
+    }
+
+    /// Connect, send a minimal HTTP GET, and read the response — all under one timeout.
+    async fn run_probe(&self, outbound: &Arc<dyn OutboundHandler>) -> bool {
+        let ctx = Context::default();
+        let req = format!(
+            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            self.probe.path, self.probe.host_header
+        );
+        let probe_timeout = Duration::from_secs(self.config.timeout_secs);
+
+        match timeout(probe_timeout, async {
+            let mut stream = outbound
+                .connect(&ctx, &self.probe.dest)
+                .await
+                .map_err(|e| anyhow::anyhow!("connect: {e}"))?;
+            stream
+                .write_all(req.as_bytes())
+                .await
+                .map_err(|e| anyhow::anyhow!("write: {e}"))?;
+            let mut resp = [0u8; 32];
+            let n = stream
+                .read(&mut resp)
+                .await
+                .map_err(|e| anyhow::anyhow!("read: {e}"))?;
+            if n == 0 {
+                anyhow::bail!("connection closed before response");
+            }
+            if !resp.starts_with(b"HTTP") {
+                anyhow::bail!("response is not HTTP");
+            }
+            Ok(())
+        })
+        .await
+        {
+            Ok(Ok(())) => true,
+            Ok(Err(e)) => {
+                warn!(error = %e, "health probe failed");
+                false
+            }
+            Err(_) => {
+                warn!(?probe_timeout, "health probe timed out");
+                false
             }
         }
     }
@@ -217,6 +235,55 @@ fn parse_port(port: &str) -> Result<u16, ProxyError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use async_trait::async_trait;
+    use proxy_common::BoxedStream;
+    use proxy_config::schema::HealthCheckConfig;
+    use tokio::io::AsyncWriteExt;
+
+    struct StallReadOutbound;
+
+    #[async_trait]
+    impl OutboundHandler for StallReadOutbound {
+        fn tag(&self) -> &str {
+            "stall"
+        }
+
+        async fn connect(
+            &self,
+            _ctx: &Context,
+            _dest: &Address,
+        ) -> Result<BoxedStream, ProxyError> {
+            let (client, server) = tokio::io::duplex(64);
+            tokio::spawn(async move {
+                let _ = server;
+                tokio::time::sleep(Duration::from_secs(3600)).await;
+            });
+            Ok(Box::new(client))
+        }
+    }
+
+    #[tokio::test]
+    async fn probe_times_out_when_peer_never_responds() {
+        let checker = Arc::new(HealthChecker {
+            outbounds: vec![(
+                "stall".into(),
+                Arc::new(StallReadOutbound) as Arc<dyn OutboundHandler>,
+            )],
+            states: HealthStates::default(),
+            config: HealthCheckConfig {
+                url: "http://127.0.0.1:1/".into(),
+                interval_secs: 60,
+                timeout_secs: 1,
+                max_failures: 3,
+            },
+            probe: HealthProbe::parse("http://127.0.0.1:1/").unwrap(),
+        });
+
+        let start = Instant::now();
+        let ok = checker.run_probe(&checker.outbounds[0].1).await;
+        assert!(!ok);
+        assert!(start.elapsed() < Duration::from_secs(3));
+    }
 
     #[test]
     fn health_probe_parses_http_url_with_default_port() {
@@ -237,5 +304,43 @@ mod tests {
     #[test]
     fn health_probe_rejects_unsupported_scheme() {
         assert!(HealthProbe::parse("https://example.com/healthz").is_err());
+    }
+
+    #[tokio::test]
+    async fn probe_succeeds_on_http_response() {
+        struct HttpOkOutbound;
+
+        #[async_trait]
+        impl OutboundHandler for HttpOkOutbound {
+            fn tag(&self) -> &str {
+                "ok"
+            }
+
+            async fn connect(
+                &self,
+                _ctx: &Context,
+                _dest: &Address,
+            ) -> Result<BoxedStream, ProxyError> {
+                let (client, mut server) = tokio::io::duplex(128);
+                tokio::spawn(async move {
+                    let _ = server.write_all(b"HTTP/1.1 204 No Content\r\n\r\n").await;
+                });
+                Ok(Box::new(client))
+            }
+        }
+
+        let checker = Arc::new(HealthChecker {
+            outbounds: vec![("ok".into(), Arc::new(HttpOkOutbound))],
+            states: HealthStates::default(),
+            config: HealthCheckConfig {
+                url: "http://127.0.0.1:1/".into(),
+                interval_secs: 60,
+                timeout_secs: 2,
+                max_failures: 3,
+            },
+            probe: HealthProbe::parse("http://127.0.0.1:1/").unwrap(),
+        });
+
+        assert!(checker.run_probe(&checker.outbounds[0].1).await);
     }
 }

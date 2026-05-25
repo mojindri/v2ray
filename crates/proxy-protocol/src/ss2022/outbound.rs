@@ -32,12 +32,11 @@ use async_trait::async_trait;
 use bytes::BytesMut;
 use rand::RngCore;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use proxy_common::{domain_wire_len, tcp_connect, Address, BoxedStream, ProxyError};
 
 use super::{password_to_psk, stream::Ss2022Stream, subkey::derive_subkey};
 
@@ -75,7 +74,7 @@ impl OutboundHandler for Ss2022Outbound {
 
     async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         debug!(server = %self.server, dest = %dest, "SS-2022 outbound connecting");
-        let tcp = TcpStream::connect(self.server).await?;
+        let tcp = tcp_connect(self.server).await?;
         tcp.set_nodelay(true)?;
         Ok(Box::new(
             open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
@@ -109,7 +108,7 @@ impl OutboundHandler for Ss2022ChunkedOutbound {
 
     async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
         debug!(server = %self.server, dest = %dest, "SS-2022 chunked outbound connecting");
-        let tcp = TcpStream::connect(self.server).await?;
+        let tcp = tcp_connect(self.server).await?;
         tcp.set_nodelay(true)?;
         Ok(Box::new(
             open_ss2022_stream(Box::new(tcp), &self.psk, dest).await?,
@@ -139,7 +138,7 @@ pub async fn open_ss2022_stream(
 
     let req_subkey = derive_subkey(psk, &req_salt);
     let req_cipher = Aes256Gcm::new(GenericArray::from_slice(&req_subkey));
-    let variable = build_request_variable_header(dest);
+    let variable = build_request_variable_header(dest)?;
 
     let mut fixed = [0u8; 11];
     fixed[0] = TYPE_TCP;
@@ -222,7 +221,7 @@ pub async fn open_ss2022_stream(
 /// ```text
 /// atyp(1) | addr | port(2 BE) | padding_len(2 BE)=0 | initial_payload(empty)
 /// ```
-fn build_request_variable_header(dest: &Address) -> Vec<u8> {
+fn build_request_variable_header(dest: &Address) -> Result<Vec<u8>, ProxyError> {
     let mut buf = Vec::with_capacity(32);
     match dest {
         Address::Ipv4(ip, port) => {
@@ -237,13 +236,13 @@ fn build_request_variable_header(dest: &Address) -> Vec<u8> {
         }
         Address::Domain(name, port) => {
             buf.push(ATYP_DOMAIN);
-            buf.push(name.len() as u8);
+            buf.push(domain_wire_len(name)?);
             buf.extend_from_slice(name.as_bytes());
             buf.extend_from_slice(&port.to_be_bytes());
         }
     }
     buf.extend_from_slice(&0u16.to_be_bytes()); // padding_len = 0
-    buf
+    Ok(buf)
 }
 
 fn make_nonce(counter: u64) -> [u8; 12] {

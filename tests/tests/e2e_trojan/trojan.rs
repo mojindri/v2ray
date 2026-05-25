@@ -84,7 +84,7 @@ async fn trojan_wrong_password_is_rejected() {
         .unwrap();
     let bad_token = compute_token("wrong-password-12345");
     let dest = Address::Domain("example.com".into(), 80);
-    let header = encode_request(&bad_token, &dest);
+    let header = encode_request(&bad_token, &dest).unwrap();
     stream.write_all(&header).await.unwrap();
     stream.flush().await.unwrap();
 

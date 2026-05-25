@@ -222,14 +222,13 @@ impl CompiledRule {
                     let literal_ok = self
                         .domain_matcher
                         .as_ref()
-                        .is_none_or(|dm| dm.matches(name));
-                    let geosite_ok = self.geosite_codes.is_empty()
-                        || self.geosite_codes.iter().any(|code| {
-                            geosite
-                                .get(code.as_str())
-                                .is_some_and(|m| m.match_domain(name))
-                        });
-                    if !(literal_ok && geosite_ok) {
+                        .is_some_and(|dm| dm.matches(name));
+                    let geosite_ok = self.geosite_codes.iter().any(|code| {
+                        geosite
+                            .get(code.as_str())
+                            .is_some_and(|m| m.match_domain(name))
+                    });
+                    if !(literal_ok || geosite_ok) {
                         return false;
                     }
                 }
@@ -242,13 +241,12 @@ impl CompiledRule {
         if has_ip_restriction {
             match ctx.dest.ip() {
                 Some(ip) => {
-                    let literal_ok = self.ip_matcher.as_ref().is_none_or(|im| im.matches(ip));
-                    let geoip_ok = self.geoip_codes.is_empty()
-                        || self
-                            .geoip_codes
-                            .iter()
-                            .any(|code| geoip.get(code.as_str()).is_some_and(|m| m.match_ip(ip)));
-                    if !(literal_ok && geoip_ok) {
+                    let literal_ok = self.ip_matcher.as_ref().is_some_and(|im| im.matches(ip));
+                    let geoip_ok = self
+                        .geoip_codes
+                        .iter()
+                        .any(|code| geoip.get(code.as_str()).is_some_and(|m| m.match_ip(ip)));
+                    if !(literal_ok || geoip_ok) {
                         return false;
                     }
                 }
@@ -305,14 +303,16 @@ impl DomainMatcher {
             return true;
         }
 
-        // 2. Suffix match: check each level of the domain hierarchy.
-        // For "sub.example.com", check "sub.example.com", "example.com", "com".
+        // 2. Suffix match: walk domain labels without allocating.
         {
-            let parts: Vec<&str> = domain.split('.').collect();
-            for i in 0..parts.len() {
-                let suffix = parts[i..].join(".");
-                if self.suffix.contains_key(&suffix) {
+            let mut start = 0;
+            while start < domain.len() {
+                if self.suffix.contains_key(&domain[start..]) {
                     return true;
+                }
+                match domain[start..].find('.') {
+                    Some(dot) => start += dot + 1,
+                    None => break,
                 }
             }
         }
@@ -415,6 +415,46 @@ mod tests {
         assert!(matcher.matches(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 1))));
         assert!(matcher.matches(IpAddr::V4(Ipv4Addr::new(192, 168, 255, 255))));
         assert!(!matcher.matches(IpAddr::V4(Ipv4Addr::new(10, 0, 0, 1))));
+    }
+
+    // Checks that domain and geosite restrictions in one rule are OR'd (v2ray semantics).
+    #[test]
+    fn domain_and_geosite_are_or_alternatives() {
+        use crate::geo::proto::{Domain, DomainType, GeoSite};
+        use crate::geo::GeoSiteMatcher;
+        use std::collections::HashMap;
+
+        let rule = CompiledRule {
+            outbound_tag: "proxy".into(),
+            domain_matcher: Some(
+                DomainMatcher::new(vec!["never-match.example".into()], vec![], vec![], vec![])
+                    .unwrap(),
+            ),
+            geosite_codes: vec!["TEST".into()],
+            ip_matcher: None,
+            geoip_codes: vec![],
+            port_ranges: vec![],
+            inbound_tags: vec![],
+        };
+
+        let geosite_entry = GeoSite {
+            country_code: "TEST".into(),
+            domain: vec![Domain {
+                r#type: DomainType::Full as i32,
+                value: "google.com".into(),
+            }],
+        };
+        let mut geosite = HashMap::new();
+        geosite.insert("TEST".into(), GeoSiteMatcher::from_proto(&geosite_entry));
+
+        let ctx = RoutingContext {
+            dest: &Address::Domain("google.com".into(), 443),
+            network: Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+        };
+
+        assert!(rule.matches_with_geo(&ctx, &HashMap::new(), &geosite));
     }
 
     // Checks that an invalid CIDR string returns an error rather than panicking.

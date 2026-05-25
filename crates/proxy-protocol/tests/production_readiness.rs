@@ -179,7 +179,7 @@ fn ss2022_subkey_uses_sip022_context_string() {
 fn trojan_encoder_includes_command_byte_after_token_crlf() {
     let token = trojan_codec::compute_token("correct horse battery staple");
     let dest = Address::Domain("example.com".to_string(), 443);
-    let encoded = trojan_codec::encode_request(&token, &dest);
+    let encoded = trojan_codec::encode_request(&token, &dest).unwrap();
 
     let pos = trojan_codec::TOKEN_LEN + 2;
     assert_eq!(
@@ -216,7 +216,8 @@ async fn vless_roundtrips_ipv4_ipv6_domain_and_flow() {
             "xtls-rprx-vision",
             vless_codec::Command::Tcp,
             &dest,
-        );
+        )
+        .unwrap();
         let decoded = vless_decode(&encoded).await.unwrap();
         assert_eq!(decoded.uuid, uuid);
         assert_eq!(decoded.command, vless_codec::Command::Tcp);
@@ -233,7 +234,8 @@ async fn vless_rejects_malformed_fixed_fixtures_without_panic() {
         "",
         vless_codec::Command::Tcp,
         &Address::Domain("example.com".to_string(), 443),
-    );
+    )
+    .unwrap();
 
     for cut in 0..good.len() {
         let _ = vless_decode(&good[..cut]).await;
@@ -274,11 +276,9 @@ fn vless_encoder_must_not_silently_truncate_long_domain_or_flow() {
     let long_domain = "a".repeat(300);
     let dest = Address::Domain(long_domain.clone(), 443);
     let encoded = vless_codec::encode_request(&uuid, "", vless_codec::Command::Tcp, &dest);
-
-    assert_ne!(
-        encoded[22] as usize,
-        long_domain.len(),
-        "Production API should return Result and reject >255-byte domains"
+    assert!(
+        encoded.is_err(),
+        "domains longer than 256 bytes must be rejected"
     );
 }
 
@@ -299,7 +299,8 @@ fn trojan_token_is_lowercase_hex_only() {
 async fn trojan_rejects_bad_crlf_and_truncations_without_panic() {
     let token = trojan_codec::compute_token("pw");
     let good =
-        trojan_codec::encode_request(&token, &Address::Ipv4("1.2.3.4".parse().unwrap(), 443));
+        trojan_codec::encode_request(&token, &Address::Ipv4("1.2.3.4".parse().unwrap(), 443))
+            .unwrap();
 
     for cut in 0..good.len() {
         let _ = trojan_decode(&good[..cut]).await;
@@ -314,7 +315,8 @@ async fn trojan_rejects_bad_crlf_and_truncations_without_panic() {
 fn trojan_encoder_must_reject_invalid_token_length_in_production_api() {
     let bad = "short";
     let encoded =
-        trojan_codec::encode_request(bad, &Address::Domain("example.com".to_string(), 443));
+        trojan_codec::encode_request(bad, &Address::Domain("example.com".to_string(), 443))
+            .unwrap();
 
     assert_ne!(
         encoded.len(),

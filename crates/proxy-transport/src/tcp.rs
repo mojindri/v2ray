@@ -35,7 +35,7 @@ use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
 use proxy_app::features::ConnectionHandler;
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, BoxedStream, ProxyError};
 
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone, Default)]
@@ -204,7 +204,7 @@ impl TcpClientTransport {
     /// # Arguments
     /// * `addr` — the remote address to connect to
     pub async fn dial(&self, addr: SocketAddr) -> Result<BoxedStream, ProxyError> {
-        let stream = TcpStream::connect(addr).await?;
+        let stream = tcp_connect(addr).await?;
 
         // Apply socket options.
         let sock = SockRef::from(&stream);

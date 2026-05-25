@@ -10,11 +10,10 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::elliptic_curve::sec1::ToEncodedPoint;
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
-use tokio::net::TcpStream;
 use tracing::debug;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{BoxedStream, ProxyError};
+use proxy_common::{tcp_connect, BoxedStream, ProxyError};
 use proxy_tls::ClientHelloBuilder;
 
 use super::{
@@ -58,7 +57,7 @@ impl RealityClient {
     /// so that `hs.c.isHandshakeComplete` is true on the Xray side.  The
     /// returned stream is ready for application-data I/O.
     pub async fn dial(&self) -> Result<BoxedStream, ProxyError> {
-        let mut tcp = TcpStream::connect(self.config.server).await?;
+        let mut tcp = tcp_connect(self.config.server).await?;
         tcp.set_nodelay(true)?;
 
         debug!(server = %self.config.server, sni = %self.config.sni, "REALITY dial");

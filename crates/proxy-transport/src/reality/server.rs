@@ -8,11 +8,13 @@ use anyhow::Result;
 use hkdf::Hkdf;
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
 use tracing::{debug, warn};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{BoxedStream, PrependedStream, ProxyError};
+use proxy_common::{
+    copy_bidirectional_with_idle, tcp_connect, BoxedStream, PrependedStream, ProxyError,
+    CONNECTION_IDLE_TIMEOUT,
+};
 
 use super::parser::{parse_client_hello, reality_auth_peer_public_keys, ClientHelloFields};
 use super::{MAX_TIME_DIFF_SECS, REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
@@ -219,15 +221,13 @@ impl RealityServer {
     ) -> Result<(BoxedStream, [u8; 32]), ProxyError> {
         warn!(fallback = %self.config.fallback, "forwarding to fallback");
 
-        let mut fallback = TcpStream::connect(self.config.fallback)
+        let mut fallback = tcp_connect(self.config.fallback)
             .await
             .map_err(|e| ProxyError::Transport(format!("fallback connect: {e}")))?;
 
         // Replay the bytes we consumed before proxying both directions.
         fallback.write_all(&already_read).await?;
-        tokio::io::copy_bidirectional(&mut stream, &mut fallback)
-            .await
-            .ok();
+        copy_bidirectional_with_idle(&mut stream, &mut fallback, CONNECTION_IDLE_TIMEOUT).await;
 
         Err(ProxyError::FallbackRequired)
     }

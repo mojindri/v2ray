@@ -42,7 +42,7 @@ const TEST_UUID: [u8; 16] = [
 #[test]
 fn encode_vless_tcp_ipv4_golden() {
     let dest = Address::Ipv4(Ipv4Addr::new(127, 0, 0, 1), 443);
-    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest);
+    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest).unwrap();
 
     // Expected: VER | UUID (16) | ADDONS_LEN=0 | CMD=TCP | PORT=443 | ATYP=IPv4 | 127.0.0.1
     let mut expected = vec![0x00]; // VER
@@ -75,7 +75,7 @@ fn encode_vless_tcp_ipv4_golden() {
 #[test]
 fn encode_vless_tcp_domain_golden() {
     let dest = Address::Domain("example.com".into(), 443);
-    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest);
+    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest).unwrap();
 
     let mut expected = vec![0x00];
     expected.extend_from_slice(&TEST_UUID);
@@ -102,7 +102,7 @@ fn encode_vless_tcp_domain_golden() {
 #[tokio::test]
 async fn encode_decode_roundtrip_ipv4() {
     let dest = Address::Ipv4(Ipv4Addr::new(1, 2, 3, 4), 8080);
-    let bytes = encode_request(&TEST_UUID, "xtls-rprx-vision", Command::Tcp, &dest);
+    let bytes = encode_request(&TEST_UUID, "xtls-rprx-vision", Command::Tcp, &dest).unwrap();
 
     let mut cursor = std::io::Cursor::new(bytes);
     let req = decode_request(&mut cursor).await.expect("decode failed");
@@ -117,7 +117,7 @@ async fn encode_decode_roundtrip_ipv4() {
 #[tokio::test]
 async fn encode_decode_roundtrip_domain() {
     let dest = Address::Domain("proxy.example.org".into(), 443);
-    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest);
+    let bytes = encode_request(&TEST_UUID, "", Command::Tcp, &dest).unwrap();
 
     let mut cursor = std::io::Cursor::new(bytes);
     let req = decode_request(&mut cursor).await.expect("decode failed");
