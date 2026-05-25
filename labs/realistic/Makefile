@@ -11,7 +11,7 @@ SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build build-amd64 build-linux-bin docker-up stable finalize interop-docker interop-server-docker interop-client-reality interop-server-vps \
+.PHONY: help build build-amd64 build-linux-bin docker-up stable ship finalize interop-docker interop-server-docker interop-client-reality interop-server-vps \
 	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
@@ -19,7 +19,10 @@ SSH_EXTRA_OPTS ?=
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
 
+ship: finalize ## Alias: full local parity gate before push/PR
+
 finalize: stable advanced-features-smoke interop-server-docker ## Full local gate: unit/e2e + advanced smoke + external-client matrix
+	@echo "finalize: PASS"
 
 build: ## Build blackwire:latest (native platform; fast local interop on arm64 Mac)
 	@mkdir -p $(REPORTS)
