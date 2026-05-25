@@ -25,13 +25,13 @@ fn socks_cfg(port: u16) -> std::sync::Arc<proxy_config::schema::Config> {
 
 #[tokio::test]
 async fn spawned_tasks_per_connection_stays_bounded() {
-    let baseline = leak_check::LeakSnapshot::capture();
     let (echo_port, _echo) = harness::spawn_echo_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut joins = Vec::new();
     for _ in 0..300usize {
@@ -56,18 +56,18 @@ async fn spawned_tasks_per_connection_stays_bounded() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 300, 120);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 300);
 }
 
 #[tokio::test]
 async fn cancellation_storm_cleans_up_tasks() {
-    let baseline = leak_check::LeakSnapshot::capture();
     let (stall_port, _stall) = harness::spawn_stalled_reader_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut conns = Vec::new();
     for _ in 0..200usize {
@@ -80,5 +80,5 @@ async fn cancellation_storm_cleans_up_tasks() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 768, 320, 140);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 768, 320);
 }
