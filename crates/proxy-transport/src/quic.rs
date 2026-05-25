@@ -196,10 +196,14 @@ fn rustls_pem_key(pem: &str) -> Result<PrivateKeyDer<'static>> {
     for block in pem_blocks(pem) {
         match block.label.as_str() {
             "PRIVATE KEY" => {
-                return Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(block.contents)));
+                return Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(
+                    block.contents,
+                )));
             }
             "RSA PRIVATE KEY" => {
-                return Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(block.contents)));
+                return Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(
+                    block.contents,
+                )));
             }
             "EC PRIVATE KEY" => {
                 return Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(block.contents)));

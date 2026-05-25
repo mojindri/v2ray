@@ -19,11 +19,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
+use tokio::net::TcpStream;
 use tracing::debug;
 
 use proxy_app::context::Context;
 use proxy_app::features::OutboundHandler;
-use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
+use proxy_common::{Address, BoxedStream, ProxyError};
 
 use super::codec::{compute_token, encode_request};
 
@@ -75,7 +76,7 @@ impl OutboundHandler for TrojanOutbound {
             "Trojan outbound connecting"
         );
 
-        let stream = tcp_connect(self.server).await?;
+        let stream = TcpStream::connect(self.server).await?;
         stream.set_nodelay(true)?;
 
         connect_trojan_on_stream(Box::new(stream), &self.token, dest).await

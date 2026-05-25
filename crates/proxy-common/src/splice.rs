@@ -209,10 +209,7 @@ mod linux {
     /// Returns `(a_to_b_bytes, b_to_a_bytes)` when both directions finish.
     /// Each direction sends a TCP half-close when its source reaches EOF.
     pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> std::io::Result<(u64, u64)> {
-        tokio::try_join!(
-            splice_one_direction(a, b),
-            splice_one_direction(b, a),
-        )
+        tokio::try_join!(splice_one_direction(a, b), splice_one_direction(b, a),)
     }
 }
 

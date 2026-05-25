@@ -24,7 +24,14 @@ use proxy_app::dispatcher::Dispatcher;
 use proxy_app::features::OutboundHandler;
 use proxy_common::{Address, BoxedStream, ProxyError, ReunionStream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+use tokio::sync::Semaphore;
 use tracing::{info, warn};
+
+/// Maximum concurrent QUIC connections on a single Hysteria2 server.
+///
+/// The official hysteria2 server defaults to `maxIncomingConnections: 1024`.
+/// sing-quic has no cap, but we follow the reference implementation.
+const MAX_HYSTERIA2_CONNECTIONS: usize = 1024;
 
 use crate::quic::{build_hysteria2_server_endpoint, ensure_crypto_provider, BrutalCCFactory};
 
@@ -87,7 +94,24 @@ impl Hysteria2Server {
 
         info!(addr = %self.config.addr, "Hysteria2 server listening (HTTP/3)");
 
+        // Global connection cap — matches the official hysteria2 server default of
+        // `maxIncomingConnections: 1024`. sing-quic has no cap, but we follow the
+        // reference implementation to bound memory and task count.
+        let conn_limiter = Arc::new(Semaphore::new(MAX_HYSTERIA2_CONNECTIONS));
+
         while let Some(incoming) = endpoint.accept().await {
+            let permit = match Arc::clone(&conn_limiter).try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => {
+                    warn!(
+                        max = MAX_HYSTERIA2_CONNECTIONS,
+                        "Hysteria2 connection limit reached; dropping incoming QUIC connection"
+                    );
+                    // Drop `incoming` without awaiting — rejects the connection.
+                    continue;
+                }
+            };
+
             let conn = match incoming.await {
                 Ok(c) => c,
                 Err(e) => {
@@ -99,6 +123,7 @@ impl Hysteria2Server {
             let config = self.config.clone();
             let dispatcher = Arc::clone(&dispatcher);
             tokio::spawn(async move {
+                let _permit = permit; // hold until connection fully closes
                 if let Err(e) = http3::serve_connection(conn, config, dispatcher).await {
                     warn!("Hysteria2 connection closed: {e}");
                 }
