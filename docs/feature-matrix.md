@@ -3,7 +3,7 @@
 Last updated against the `blackwire-*` workspace crates, `tests/tests/` e2e
 suite, `labs/realistic/` interop lab, and GitHub Actions (CI + cross-platform).
 
-**Source of truth:** Wire behavior and “Supported” labels follow [Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box) implementations plus real clients in the realistic lab — not blackwire’s schema or this table alone. See [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md).
+**Source of truth:** Wire behavior and “Supported” labels follow [Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box) implementations plus real clients in the realistic lab — not blackwire’s schema or this table alone. See [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md) and [parity-status.md](parity-status.md) (matrix **SKIP** ≠ server unsupported).
 
 Status labels:
 
@@ -28,7 +28,7 @@ Docker labs with real upstream clients — not mock peers alone.
 
 | Area | Status | Notes |
 |---|---|---|
-| Xray / sing-box **wire interop** (as server) | **Experimental** | REALITY d1 interop is in `blackwire-transport/tests/interop.rs` (`#[ignore]` without `tests/interop`); mandatory green matrix in `labs/realistic/README.md` lists seven stable paths + REALITY |
+| Xray / sing-box **wire interop** (as server) | **Experimental** | REALITY d1 interop in `blackwire-transport/tests/interop.rs` (`#[ignore]` without `tests/interop`); Docker matrix **52 PASS / 8 SKIP** on 15 rows — see [parity-status.md](parity-status.md) |
 | Native JSON config schema | **Supported** | `blackwire-config` — validated at load; fail-closed schema tests |
 | V2Ray JSON config | **Unsupported** | Not a goal |
 | Xray JSON config | **Unsupported** | Interop is wire-level only; configs must be translated |
@@ -78,13 +78,26 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | WebSocket | **Supported** | `transport/ws.rs`; e2e `e2e_phase4_vless_ws.rs` |
 | gRPC (Gun-style) | **Supported** | `transport/grpc.rs`; e2e `e2e_phase5_http_vmess_grpc.rs` |
 | REALITY | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_phase2_reality.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test |
-| ShadowTLS v3 | **Experimental** | `transport/shadowtls/` (v3 only); e2e `e2e_phase7_shadowtls.rs`; lab advanced-features smoke, not mandatory green |
-| mKCP | **Experimental** | `transport/mkcp/`; e2e `e2e_phase8_mkcp.rs`; lab advanced-features smoke |
-| QUIC (`network: quic` for VLESS/VMess) | **Experimental** | `v2rayquic.rs`; e2e `e2e_phase6_vless_quic.rs`; lab row `vless-quic` (sing-box; Xray 26+ SKIP — QUIC migrated to XHTTP/H3) |
+| ShadowTLS v3 | **Experimental** | Server: `transport/shadowtls/` + e2e. Matrix: both clients **SKIP** (Xray 26+ outbound model; sing-box inbound model) — not “unsupported on server” |
+| mKCP | **Experimental** | Server: `transport/mkcp/` + e2e. Matrix: both clients **SKIP** (sing-box no mKCP; Xray 26 finalmask) — not “unsupported on server” |
+| QUIC (`network: quic` for VLESS/VMess) | **Experimental** | Server: `v2rayquic.rs` + e2e. Matrix: **sing-box PASS**, Xray **SKIP** (Xray 26+ removed legacy QUIC client transport) |
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
 | HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
-| SplitHTTP / xHTTP | **Experimental** | `splithttp.rs` (HTTP/1.1 PUT chunked tunnel); e2e `e2e_phase6_vless_splithttp.rs`; lab `vless-splithttp` (sing-box HTTP transport; Xray SKIP) |
+| SplitHTTP / xHTTP | **Experimental** | Server: minimal PUT tunnel + e2e. Matrix: both clients **SKIP** (full xHTTP framing TBD) |
+
+---
+
+## External-client matrix SKIPs (reference)
+
+Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client run in the lab, not “blackwire lacks the feature.”
+
+| Row | Server in blackwire | Client proof in matrix |
+|-----|---------------------|-------------------------|
+| `vless-quic` | Yes | sing-box only |
+| `vless-splithttp` | Minimal | None (e2e only) |
+| `vless-shadowtls` | Yes | None (e2e only) |
+| `vless-mkcp` | Yes | None (e2e only) |
 
 ---
 
@@ -98,7 +111,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | FakeIP pool + restore on dispatch | **Supported** | `dns/fakeip.rs`, dispatcher; startup rejects invalid pool (`production_readiness`) |
 | DNS response cache | **Supported** | `dns/cache.rs` |
 | `domain_strategy` (routing) | **Supported** | Xray `AsIs` / `IPIfNonMatch` / `IPOnDemand` in `dispatcher` + `router` (see [routing docs](https://xtls.github.io/en/config/routing.html)) |
-| Sniffing (`http` / `tls` / `fakedns`) | **Partial** | `blackwire-app/sniff.rs` + dispatcher destOverride; protocol routing rules; needs external-client lab |
+| Sniffing (`http` / `tls` / `fakedns`) | **Partial** | `blackwire-app/sniff.rs` + dispatcher destOverride; lab row `vless-sniff` (port `8452`, dedicated client tmpls; green in Docker matrix) |
 
 ---
 
@@ -114,7 +127,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | `port` | **Supported** | |
 | `source_ip` | **Supported** | |
 | `inboundTag` | **Supported** | |
-| `protocol` / sniffed domain rules | **Unsupported** | Sniffing not wired |
+| `protocol` / sniffed domain rules | **Partial** | Requires inbound sniffing + `sniffed_protocol` on routing context; lab row `vless-sniff` |
 | GeoIP / geosite (`geoip:`, `geosite:`) | **Supported** | `geo/`; missing data files → empty matchers + warn |
 | Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; latency uses HTTP 204 health checks |
 | Route to balancer tag | **Supported** | `production_readiness` tests |
@@ -135,7 +148,8 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Per-inbound / global `max_connections` | **Partial** | TCP accept path in `transport/tcp.rs` + config limits; not all protocols share the same limit surface |
 | Prometheus HTTP (`metricsAddr`) | **Supported** | `metrics.rs` — `/metrics`, `/healthz`, `/readyz`, `/version` |
 | Per-connection Prometheus counters | **Supported** | `record_connection_*` called from `dispatcher` after each relay |
-| v2ray gRPC Stats API | **Experimental** | `blackwire-api` StatsService + `runtime_stats`; starts when `api` listen set; Handler API still unsupported |
+| v2ray gRPC Stats API | **Experimental** | `blackwire-api` StatsService + `runtime_stats`; starts when `api` listen set |
+| v2ray gRPC Handler API | **Partial** | `ListInbounds`, `ListOutbounds`, `GetInboundUsersCount`, `GetInboundUsers`, `AlterInbound` VLESS add/remove; `AddInbound`/`RemoveInbound`/`AddOutbound`/`RemoveOutbound` return UNIMPLEMENTED (use config reload) |
 
 ---
 
@@ -152,9 +166,10 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | `make deny` / `cargo-deny` | **Supported** | `deny.toml` license/advisory policy |
 | Adversarial integration tests | **Supported** | `tests/tests/adversarial_*.rs` — fragmentation, cancellation, backpressure, etc. |
 | Leak / resource tests | **Partial** | `leak_assertions`, `resource_limits` (some `#[ignore]`) |
-| External-client Docker lab | **Supported** | `labs/realistic/` — 12 protocols × 4 cases (48 rows); fast harness in `run-docker-matrix.sh` |
+| External-client Docker lab | **Supported** | `labs/realistic/` — 15 protocols × 4 cases; `run-docker-matrix.sh` |
+| External-client VPS lab | **Supported** | Same `scenarios.env` as Docker; `run-vps-matrix.sh` (one server start per protocol) |
 | TLS/REALITY byte-level fingerprint diff vs Chrome | **Unsupported** | Functional interop ≠ identical ClientHello bytes |
-| Packet capture on failure | **Unsupported** | `run-pcap-local.sh` helper exists; not automated in CI |
+| Packet capture on failure | **Partial** | Set `MATRIX_PCAP_ON_FAIL=1` in `run-docker-matrix.sh`; not CI-gated |
 
 ---
 
@@ -193,22 +208,18 @@ production certification on all Experimental rows.
 - VMess legacy non-AEAD / alterId — not implemented.
 - DoH/DoT DNS upstreams — skipped at resolver build.
 - XTLS Vision — flow recognized on wire; splice not implemented.
-- `blackwire-api` gRPC management — deferred (stub crate).
+- `blackwire-api` Handler RPCs — VLESS user add/remove via `AlterInbound`; listener/outbound tag RPCs require config reload.
 - Full hot-reload of listeners, outbounds, and TLS material — requires process restart.
 
 ---
 
-## Quick reference: lab mandatory green (local)
+## Quick reference: gates (local)
 
-From `labs/realistic/README.md` — paths expected to pass in `make -C labs/realistic docker-full`:
+| Gate | Command | What it proves |
+|------|---------|----------------|
+| Stable integration | `make -C labs/realistic stable` | In-process protocol matrix |
+| Advanced smoke | `make -C labs/realistic advanced-features-smoke` | ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health/DNS guards |
+| External clients | `make -C labs/realistic interop-server-docker` | Xray/sing-box → blackwire (**52 PASS / 8 SKIP** on 15 rows) |
+| Full finalize | `make -C labs/realistic finalize` | All of the above |
 
-- VLESS TCP  
-- VLESS REALITY  
-- VLESS over WebSocket  
-- VMess over gRPC  
-- Trojan over TLS  
-- Shadowsocks 2022  
-- Hysteria2  
-- Xray REALITY interop  
-
-**Advanced (smoke, not mandatory green):** ShadowTLS, mKCP, health/failover, DNS/geo routing guards.
+See [labs/realistic/README.md](../labs/realistic/README.md) and [parity-status.md](parity-status.md).

@@ -185,6 +185,16 @@ mod tests {
     use super::*;
 
     #[test]
+    fn mkcp_header_accepts_xray_object_form() {
+        let json = r#"{
+            "header": { "type": "none" },
+            "tti": 10
+        }"#;
+        let kcp: super::transport::KcpConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(kcp.header, "none");
+    }
+
+    #[test]
     fn minimal_config_deserialises() {
         let json = r#"{
             "inbounds": [{

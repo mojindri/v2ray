@@ -42,6 +42,9 @@ port_for_protocol() {
         ss2022) echo 8388 ;;
         hysteria2) echo 4433 ;;
         vless-reality) echo 10443 ;;
+        vless-shadowtls) echo 8450 ;;
+        vless-mkcp) echo 8451 ;;
+        vless-sniff) echo 8452 ;;
         *) echo "" ;;
     esac
 }
@@ -55,7 +58,7 @@ matrix_bootstrap() {
     echo "==> Starting long-lived matrix stack (compose up -d)" >> "$REPORT_DIR/compose.log"
     "${COMPOSE[@]}" down -v >> "$REPORT_DIR/compose.log" 2>&1 || true
     # xray-client is defined for compose run only (distroless image).
-    "${COMPOSE[@]}" up -d target-http matrix-probe blackwire-server sing-box-client \
+    "${COMPOSE[@]}" up -d target-http tls-cover matrix-probe blackwire-server sing-box-client \
         >> "$REPORT_DIR/compose.log" 2>&1
 
     "${COMPOSE[@]}" exec -T matrix-probe sh -c \
@@ -151,7 +154,23 @@ wait_for_server_port() {
     local port
     port="$(port_for_protocol "$protocol")"
     [[ -z "$port" ]] && return 0
-    if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-quic" ]]; then
+    if [[ "$protocol" == "vless-shadowtls" ]]; then
+        local i
+        for i in $(seq 1 "$PORT_WAIT_TRIES"); do
+            if "${COMPOSE[@]}" exec -T matrix-probe sh -c \
+                "nc -z -w1 tls-cover 443" </dev/null >/dev/null 2>&1; then
+                sleep 0.5
+                if "${COMPOSE[@]}" exec -T matrix-probe sh -c \
+                    "nc -z -w1 blackwire-server ${port}" </dev/null >/dev/null 2>&1; then
+                    return 0
+                fi
+            fi
+            sleep "$PORT_WAIT_SLEEP"
+        done
+        echo "tls-cover:443 or blackwire-server:${port} not ready for $protocol" >&2
+        return 1
+    fi
+    if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-quic" || "$protocol" == "vless-mkcp" ]]; then
         sleep 2
         return 0
     fi
@@ -181,8 +200,23 @@ wait_for_socks() {
     return 1
 }
 
+capture_pcap_on_fail() {
+    local log="$1"
+    [[ "${MATRIX_PCAP_ON_FAIL:-}" != "1" ]] && return 0
+    mkdir -p "$REPORT_DIR/captures"
+    local cap="$REPORT_DIR/captures/$(basename "$log" .log).pcap"
+    "${COMPOSE[@]}" exec -T matrix-probe sh -c \
+        'command -v tcpdump >/dev/null 2>&1 || apk add --no-cache tcpdump >/dev/null 2>&1; \
+         timeout 8 tcpdump -i any -c 80 -w - 2>/dev/null' \
+        </dev/null > "$cap" 2>/dev/null || true
+    if [[ -s "$cap" ]]; then
+        echo "pcap: $cap" >> "$log"
+    fi
+}
+
 append_logs() {
     local log="$1"
+    capture_pcap_on_fail "$log"
     "${COMPOSE[@]}" logs --no-color blackwire-server >> "$log" 2>&1 || true
     if [[ "${2:-}" == "xray-client" ]]; then
         docker logs xray-client >> "$log" 2>&1 || true

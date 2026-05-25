@@ -52,7 +52,9 @@ use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
 use crate::outbound_transport::uses_quic;
 mod helpers;
 
-pub(crate) use helpers::{build_rules, build_sniffing_map, load_geo_data, populate_vless_registry};
+pub(crate) use helpers::{
+    build_rules, build_sniffing_map, load_geo_data, parse_uuid, populate_vless_registry,
+};
 
 use crate::reality::{build_reality_server, uses_reality, RealityConnectionHandler};
 use crate::reload::ReloadState;
@@ -224,10 +226,18 @@ impl Instance {
         let router = LiveRouter::new(rules, default_tag, geoip, geosite, domain_strategy.clone());
         let sniffing_shared = Arc::new(std::sync::RwLock::new(build_sniffing_map(&config.inbounds)));
         // Shared with the config watcher: router swap + VLESS registry refresh on reload.
+        let inbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
+            config.inbounds.iter().map(|i| i.tag.clone()).collect(),
+        ));
+        let outbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
+            config.outbounds.iter().map(|o| o.tag.clone()).collect(),
+        ));
         let reload = ReloadState {
             router: Arc::clone(&router),
             vless_registries: Arc::new(DashMap::new()),
             sniffing: Arc::clone(&sniffing_shared),
+            inbound_tags: Arc::clone(&inbound_tags),
+            outbound_tags: Arc::clone(&outbound_tags),
         };
         let vless_registries = Arc::clone(&reload.vless_registries);
 
@@ -473,7 +483,9 @@ impl Instance {
             .as_ref()
             .and_then(blackwire_api::server::api_listen_addr)
         {
-            let handle = blackwire_api::server::start_api_server(&api_addr)
+            let management: blackwire_api::management::ManagementHandle =
+                Arc::new(reload.clone());
+            let handle = blackwire_api::server::start_api_server(&api_addr, management)
                 .with_context(|| format!("starting blackwire-api gRPC server on '{api_addr}'"))?;
             info!(addr = %api_addr, "blackwire-api gRPC server started");
             tasks.push(handle);

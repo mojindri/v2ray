@@ -18,6 +18,7 @@ set +a
 
 export EXTERNAL_SERVER_ADDRESS="${EXTERNAL_SERVER_ADDRESS:-blackwire-server}"
 export EXTERNAL_TLS_SERVER_NAME="${EXTERNAL_TLS_SERVER_NAME:-blackwire.local}"
+export SHADOWTLS_DEST="${SHADOWTLS_DEST:-tls-cover:443}"
 
 REALITY_PUBLIC_KEY_XRAY="$REALITY_PUBLIC_KEY"
 if [[ "$REALITY_PUBLIC_KEY" =~ ^[0-9a-fA-F]{64}$ ]]; then
@@ -60,6 +61,7 @@ done
     # reject non-base64 strings at startup, which would mask server-side rejection.
     export SS2022_PASSWORD="AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="
     export HYSTERIA2_PASSWORD="wrong-${HYSTERIA2_PASSWORD}"
+    export SHADOWTLS_PASSWORD="wrong-${SHADOWTLS_PASSWORD}"
     export REALITY_SHORT_ID="0000000000000000"
     for tpl in "$LAB_DIR/configs/xray"/*.json.tmpl; do
         envsubst < "$tpl" > "$OUT_DIR/xray-negative/$(basename "$tpl" .tmpl)"

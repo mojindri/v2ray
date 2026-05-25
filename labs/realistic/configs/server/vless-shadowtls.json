@@ -1,0 +1,24 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-shadowtls-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8450,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "shadowtls",
+        "shadowTlsSettings": {
+          "version": 3,
+          "password": "${SHADOWTLS_PASSWORD}",
+          "dest": "${SHADOWTLS_DEST}"
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

@@ -6,6 +6,9 @@ use tokio::task::JoinHandle;
 use tonic::transport::Server;
 use tracing::{error, info};
 
+use crate::handler_proto::handler_service_server::HandlerServiceServer;
+use crate::handler_service::HandlerServiceImpl;
+use crate::management::ManagementHandle;
 use crate::proto::stats_service_server::StatsServiceServer;
 use crate::stats_service::StatsServiceImpl;
 
@@ -23,7 +26,7 @@ pub fn api_listen_addr(api: &Value) -> Option<String> {
         })
 }
 
-pub fn start_api_server(addr: &str) -> anyhow::Result<JoinHandle<()>> {
+pub fn start_api_server(addr: &str, management: ManagementHandle) -> anyhow::Result<JoinHandle<()>> {
     let addr: SocketAddr = addr
         .parse()
         .with_context(|| format!("invalid API listen address '{addr}'"))?;
@@ -31,6 +34,7 @@ pub fn start_api_server(addr: &str) -> anyhow::Result<JoinHandle<()>> {
         info!(addr = %addr, "blackwire-api gRPC server starting");
         if let Err(e) = Server::builder()
             .add_service(StatsServiceServer::new(StatsServiceImpl))
+            .add_service(HandlerServiceServer::new(HandlerServiceImpl::new(management)))
             .serve(addr)
             .await
         {
