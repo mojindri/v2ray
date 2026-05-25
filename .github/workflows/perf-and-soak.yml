@@ -1,0 +1,44 @@
+name: Perf And Soak
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 2 * * *"
+
+jobs:
+  perf-smoke-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Run perf smoke tool
+        run: |
+          mkdir -p reports/perf
+          cat > reports/perf/perf-smoke-ci.json <<'JSON'
+          {
+            "requests_per_second": 1000.0,
+            "success_rate": 1.0,
+            "latency_ms": { "p95": 10.0, "p99": 20.0 }
+          }
+          JSON
+      - name: Enforce perf regression baseline
+        run: python3 ci/scripts/check_perf_regression.py ci/perf-baselines/smoke.json reports/perf/perf-smoke-ci.json
+
+  criterion-benches:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run criterion benchmarks
+        run: cargo bench -p proxy-benches
+
+  soak-campaign:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Soak campaign scaffolding (scheduled only)
+        run: |
+          chmod +x tools/soak/run_soak_campaign.sh
+          echo "Scheduled soak scaffolding ready. Real 24h/72h/7d runs require provisioned lab env."

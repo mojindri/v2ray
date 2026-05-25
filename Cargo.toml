@@ -14,6 +14,7 @@
 
 [workspace]
 members = [
+    "benches",
     "crates/proxy-cli",
     "crates/proxy-core",
     "crates/proxy-common",

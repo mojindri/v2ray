@@ -1,0 +1,22 @@
+name: Dependency Security Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "30 2 * * 1"
+
+jobs:
+  deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install audit tools
+        run: |
+          cargo install cargo-audit --locked
+          cargo install cargo-deny --locked
+          cargo install cargo-outdated --locked
+          cargo install cargo-geiger --locked
+          cargo install cargo-udeps --locked
+      - name: Run dependency/security checks
+        run: bash ci/security/run_dependency_audit.sh
