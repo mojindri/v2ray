@@ -434,14 +434,14 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-core",
  "clap",
  "hex",
  "metrics-exporter-prometheus",
  "num_cpus",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-core",
  "rand 0.10.1",
  "serde_json",
  "tokio",
@@ -449,6 +449,219 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x25519-dalek",
+]
+
+[[package]]
+name = "blackwire-api"
+version = "0.1.0"
+dependencies = [
+ "blackwire-app",
+ "blackwire-common",
+ "prost",
+ "thiserror 2.0.18",
+ "tokio",
+ "tonic",
+ "tracing",
+]
+
+[[package]]
+name = "blackwire-app"
+version = "0.1.0"
+dependencies = [
+ "aho-corasick",
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "axum",
+ "blackwire-common",
+ "blackwire-config",
+ "bytes",
+ "dashmap",
+ "hickory-resolver",
+ "ipnet",
+ "libc",
+ "lru",
+ "metrics",
+ "metrics-exporter-prometheus",
+ "once_cell",
+ "parking_lot",
+ "prost",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "blackwire-benches"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "criterion",
+ "tokio",
+]
+
+[[package]]
+name = "blackwire-common"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "crossbeam-queue",
+ "libc",
+ "parking_lot",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "blackwire-config"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "blackwire-common",
+ "ipnet",
+ "notify",
+ "once_cell",
+ "regex",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "validator",
+]
+
+[[package]]
+name = "blackwire-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-protocol",
+ "blackwire-transport",
+ "dashmap",
+ "hex",
+ "metrics",
+ "rand 0.10.1",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "blackwire-protocol"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "async-trait",
+ "base64",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-transport",
+ "blake3",
+ "bytes",
+ "chacha20poly1305",
+ "crc32fast",
+ "dashmap",
+ "hex",
+ "hkdf 0.13.0",
+ "hmac 0.13.0",
+ "lru",
+ "md-5",
+ "parking_lot",
+ "pin-project-lite",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "shake",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "blackwire-tls"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "blackwire-common",
+ "bytes",
+ "once_cell",
+ "rand 0.10.1",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "x25519-dalek",
+]
+
+[[package]]
+name = "blackwire-transport"
+version = "0.1.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "arc-swap",
+ "async-trait",
+ "base64",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-tls",
+ "bytes",
+ "dashmap",
+ "ed25519-dalek",
+ "futures",
+ "h2",
+ "h3",
+ "h3-quinn",
+ "hex",
+ "hkdf 0.13.0",
+ "hmac 0.13.0",
+ "http",
+ "libc",
+ "nix",
+ "notify",
+ "p256",
+ "pin-project-lite",
+ "prost",
+ "quinn",
+ "quinn-proto",
+ "rand 0.10.1",
+ "rand_core 0.6.4",
+ "rcgen 0.14.8",
+ "rustls",
+ "rustls-acme",
+ "rustls-native-certs",
+ "sha1 0.11.0",
+ "sha2 0.11.0",
+ "socket2",
+ "subtle",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tokio-tungstenite",
+ "tokio-util",
+ "tonic",
+ "tracing",
+ "tun",
+ "x25519-dalek",
+ "x509-parser 0.18.1",
 ]
 
 [[package]]
@@ -2030,16 +2243,16 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-core",
+ "blackwire-protocol",
+ "blackwire-transport",
  "bytes",
  "hex",
  "http",
  "loom",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-core",
- "proxy-protocol",
- "proxy-transport",
  "quinn",
  "rand 0.10.1",
  "rcgen 0.14.8",
@@ -2921,219 +3134,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
-]
-
-[[package]]
-name = "proxy-api"
-version = "0.1.0"
-dependencies = [
- "prost",
- "proxy-app",
- "proxy-common",
- "thiserror 2.0.18",
- "tokio",
- "tonic",
- "tracing",
-]
-
-[[package]]
-name = "proxy-app"
-version = "0.1.0"
-dependencies = [
- "aho-corasick",
- "anyhow",
- "arc-swap",
- "async-trait",
- "axum",
- "bytes",
- "dashmap",
- "hickory-resolver",
- "ipnet",
- "libc",
- "lru",
- "metrics",
- "metrics-exporter-prometheus",
- "once_cell",
- "parking_lot",
- "prost",
- "proxy-common",
- "proxy-config",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "proxy-benches"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "criterion",
- "tokio",
-]
-
-[[package]]
-name = "proxy-common"
-version = "0.1.0"
-dependencies = [
- "bytes",
- "crossbeam-queue",
- "libc",
- "parking_lot",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
-]
-
-[[package]]
-name = "proxy-config"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "ipnet",
- "notify",
- "once_cell",
- "proxy-common",
- "regex",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "validator",
-]
-
-[[package]]
-name = "proxy-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "arc-swap",
- "async-trait",
- "dashmap",
- "hex",
- "metrics",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-protocol",
- "proxy-transport",
- "rand 0.10.1",
- "serde_json",
- "thiserror 2.0.18",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "proxy-protocol"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "async-trait",
- "base64",
- "blake3",
- "bytes",
- "chacha20poly1305",
- "crc32fast",
- "dashmap",
- "hex",
- "hkdf 0.13.0",
- "hmac 0.13.0",
- "lru",
- "md-5",
- "parking_lot",
- "pin-project-lite",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-transport",
- "rand 0.10.1",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "shake",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "tokio-util",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "proxy-tls"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "bytes",
- "once_cell",
- "proxy-common",
- "rand 0.10.1",
- "serde",
- "serde_json",
- "thiserror 2.0.18",
- "x25519-dalek",
-]
-
-[[package]]
-name = "proxy-transport"
-version = "0.1.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "arc-swap",
- "async-trait",
- "base64",
- "bytes",
- "dashmap",
- "ed25519-dalek",
- "futures",
- "h2",
- "h3",
- "h3-quinn",
- "hex",
- "hkdf 0.13.0",
- "hmac 0.13.0",
- "http",
- "libc",
- "nix",
- "notify",
- "p256",
- "pin-project-lite",
- "prost",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-tls",
- "quinn",
- "quinn-proto",
- "rand 0.10.1",
- "rand_core 0.6.4",
- "rcgen 0.14.8",
- "rustls",
- "rustls-acme",
- "rustls-native-certs",
- "sha1 0.11.0",
- "sha2 0.11.0",
- "socket2",
- "subtle",
- "thiserror 2.0.18",
- "tokio",
- "tokio-rustls",
- "tokio-tungstenite",
- "tokio-util",
- "tonic",
- "tracing",
- "tun",
- "x25519-dalek",
- "x509-parser 0.18.1",
 ]
 
 [[package]]

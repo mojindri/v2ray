@@ -14,7 +14,7 @@ Can be:
 
 Defined in:
 
-- [crates/proxy-common/src/address.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-common/src/address.rs)
+- [crates/blackwire-common/src/address.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-common/src/address.rs)
 
 ## `BoxedStream`
 
@@ -136,7 +136,7 @@ and then:
 
 Defined around:
 
-- [crates/proxy-app/src/dispatcher.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-app/src/dispatcher.rs)
+- [crates/blackwire-app/src/dispatcher.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-app/src/dispatcher.rs)
 
 ## router
 
@@ -216,7 +216,7 @@ Used for auth ID and header encryption logic.
 
 See:
 
-- [crates/proxy-protocol/src/vmess/auth.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vmess/auth.rs)
+- [crates/blackwire-protocol/src/vmess/auth.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vmess/auth.rs)
 
 ## auth ID
 
@@ -359,13 +359,13 @@ Examples:
 
 ## `Instance`
 
-The running assembled proxy runtime built by `proxy-core`.
+The running assembled proxy runtime built by `blackwire-core`.
 
 It owns listener tasks and startup composition.
 
 Defined in:
 
-- [crates/proxy-core/src/instance.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/instance.rs)
+- [crates/blackwire-core/src/instance.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/src/instance.rs)
 
 ## `ConfigManager`
 
@@ -373,7 +373,7 @@ The config owner that loads, validates, and hot-reloads config.
 
 Defined in:
 
-- [crates/proxy-config/src/manager.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-config/src/manager.rs)
+- [crates/blackwire-config/src/manager.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-config/src/manager.rs)
 
 ## `ConnectionHandler`
 

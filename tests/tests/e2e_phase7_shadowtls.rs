@@ -1,6 +1,6 @@
 //! Runnable Phase 7 example test: SOCKS5 -> VLESS -> ShadowTLS v3 -> Freedom.
 //!
-//! This proves ShadowTLS v3 is wired into `proxy-core::Instance`: signed
+//! This proves ShadowTLS v3 is wired into `blackwire-core::Instance`: signed
 //! ClientHello, handshake-server relay/taint, v3 switch, and proxy data frames.
 
 use std::sync::Arc;
@@ -112,11 +112,11 @@ async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> Tcp
     stream
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
-fn server_config(vless_port: u16, shadow_dest: &str) -> Arc<proxy_config::schema::Config> {
+fn server_config(vless_port: u16, shadow_dest: &str) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -148,7 +148,7 @@ fn client_config(
     socks_port: u16,
     vless_port: u16,
     shadow_dest: &str,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -190,11 +190,11 @@ async fn phase7_vless_over_shadowtls_v3_transfers_data() {
     let vless_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(vless_port, &shadow_dest))
+    let _server = blackwire_core::Instance::from_config(server_config(vless_port, &shadow_dest))
         .await
         .expect("server start failed");
     let _client =
-        proxy_core::Instance::from_config(client_config(socks_port, vless_port, &shadow_dest))
+        blackwire_core::Instance::from_config(client_config(socks_port, vless_port, &shadow_dest))
             .await
             .expect("client start failed");
 

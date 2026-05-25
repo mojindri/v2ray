@@ -1,0 +1,45 @@
+[package]
+name        = "blackwire-protocol"
+description = "Proxy protocol implementations: VLESS, VMess, Trojan, Shadowsocks-2022, SOCKS5, HTTP, Freedom, Hysteria2, ShadowTLS."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default = []
+fuzzing = []
+
+[dependencies]
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
+blackwire-transport       = { path = "../blackwire-transport" }
+blackwire-app             = { path = "../blackwire-app" }
+
+tokio.workspace         = true
+tokio-util.workspace    = true
+bytes.workspace         = true
+async-trait.workspace   = true
+pin-project-lite.workspace = true
+dashmap.workspace       = true
+uuid.workspace          = true
+subtle.workspace        = true
+hmac.workspace          = true
+sha2.workspace          = true
+shake.workspace         = true
+md-5.workspace          = true
+hkdf.workspace          = true
+aes-gcm.workspace       = true
+chacha20poly1305.workspace = true
+blake3.workspace        = true
+crc32fast.workspace     = true
+rand.workspace          = true
+hex.workspace           = true
+base64.workspace        = true
+thiserror.workspace     = true
+tracing.workspace       = true
+anyhow.workspace        = true
+serde.workspace         = true
+serde_json.workspace    = true
+lru.workspace           = true
+parking_lot.workspace   = true

@@ -14,9 +14,9 @@ members = ["."]
 libfuzzer-sys = "0.4"
 tokio = { version = "1.52", features = ["rt", "io-util"] }
 bytes = "1"
-proxy-common = { path = "../crates/proxy-common" }
-proxy-protocol = { path = "../crates/proxy-protocol", features = ["fuzzing"] }
-proxy-transport = { path = "../crates/proxy-transport", features = ["fuzzing"] }
+blackwire-common = { path = "../crates/blackwire-common" }
+blackwire-protocol = { path = "../crates/blackwire-protocol", features = ["fuzzing"] }
+blackwire-transport = { path = "../crates/blackwire-transport", features = ["fuzzing"] }
 
 [[bin]]
 name = "reality_client_hello"

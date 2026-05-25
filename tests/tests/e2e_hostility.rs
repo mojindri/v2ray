@@ -22,7 +22,7 @@ fn unused_local_port() -> u16 {
         .port()
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
@@ -176,7 +176,7 @@ async fn spawn_bandwidth_limited_echo(bps: u64) -> (u16, tokio::task::JoinHandle
 
 /// Write a dev self-signed cert+key to temp files. Returns (cert_path, key_path).
 fn dev_cert_files() -> (String, String) {
-    let (cert, key) = proxy_transport::dev_self_signed().unwrap();
+    let (cert, key) = blackwire_transport::dev_self_signed().unwrap();
     let dir = std::env::temp_dir();
     let tag = format!("hostility-{}-{}", std::process::id(), unused_local_port());
     let cp = dir.join(format!("{tag}.cert.pem"));
@@ -191,7 +191,7 @@ fn dev_cert_files() -> (String, String) {
 const UUID: &str = "c0ffee00-dead-4000-beef-000000000099";
 const PASSWORD: &str = "hostility-lab-pass";
 
-fn vless_server(port: u16) -> Arc<proxy_config::schema::Config> {
+fn vless_server(port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{
@@ -205,7 +205,7 @@ fn vless_server(port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn vless_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
+fn vless_client(socks: u16, server: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
@@ -217,7 +217,7 @@ fn vless_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn vless_ws_server(port: u16) -> Arc<proxy_config::schema::Config> {
+fn vless_ws_server(port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{
@@ -232,7 +232,7 @@ fn vless_ws_server(port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn vless_ws_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
+fn vless_ws_client(socks: u16, server: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
@@ -246,7 +246,7 @@ fn vless_ws_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config>
     ))
 }
 
-fn vmess_grpc_server(port: u16) -> Arc<proxy_config::schema::Config> {
+fn vmess_grpc_server(port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{
@@ -261,7 +261,7 @@ fn vmess_grpc_server(port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn vmess_grpc_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
+fn vmess_grpc_client(socks: u16, server: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
@@ -275,7 +275,7 @@ fn vmess_grpc_client(socks: u16, server: u16) -> Arc<proxy_config::schema::Confi
     ))
 }
 
-fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<proxy_config::schema::Config> {
+fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{
@@ -291,7 +291,7 @@ fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<proxy_config::sche
     ))
 }
 
-fn trojan_tls_client_wrong_sni(socks: u16, server: u16) -> Arc<proxy_config::schema::Config> {
+fn trojan_tls_client_wrong_sni(socks: u16, server: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
         "inbounds": [{{"tag": "socks-in", "protocol": "socks",
@@ -309,13 +309,13 @@ fn trojan_tls_client_wrong_sni(socks: u16, server: u16) -> Arc<proxy_config::sch
 
 // ── shared setup ─────────────────────────────────────────────────────────────
 
-async fn vless_pair() -> (u16, proxy_core::Instance, proxy_core::Instance) {
+async fn vless_pair() -> (u16, blackwire_core::Instance, blackwire_core::Instance) {
     let srv_port = unused_local_port();
     let socks_port = unused_local_port();
-    let srv = proxy_core::Instance::from_config(vless_server(srv_port))
+    let srv = blackwire_core::Instance::from_config(vless_server(srv_port))
         .await
         .expect("server start");
-    let cli = proxy_core::Instance::from_config(vless_client(socks_port, srv_port))
+    let cli = blackwire_core::Instance::from_config(vless_client(socks_port, srv_port))
         .await
         .expect("client start");
     tokio::time::sleep(Duration::from_millis(50)).await;
@@ -482,11 +482,11 @@ async fn tls_handshake_failure() {
     let trojan_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _srv = proxy_core::Instance::from_config(trojan_tls_server(trojan_port, &cert, &key))
+    let _srv = blackwire_core::Instance::from_config(trojan_tls_server(trojan_port, &cert, &key))
         .await
         .expect("trojan server start");
     let _cli =
-        proxy_core::Instance::from_config(trojan_tls_client_wrong_sni(socks_port, trojan_port))
+        blackwire_core::Instance::from_config(trojan_tls_client_wrong_sni(socks_port, trojan_port))
             .await
             .expect("trojan client start");
 
@@ -521,10 +521,10 @@ async fn websocket_peer_drops_connection() {
     let ws_srv_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _srv = proxy_core::Instance::from_config(vless_ws_server(ws_srv_port))
+    let _srv = blackwire_core::Instance::from_config(vless_ws_server(ws_srv_port))
         .await
         .expect("vless-ws server start");
-    let _cli = proxy_core::Instance::from_config(vless_ws_client(socks_port, ws_srv_port))
+    let _cli = blackwire_core::Instance::from_config(vless_ws_client(socks_port, ws_srv_port))
         .await
         .expect("vless-ws client start");
 
@@ -568,10 +568,10 @@ async fn grpc_stream_reset() {
     let grpc_srv_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _srv = proxy_core::Instance::from_config(vmess_grpc_server(grpc_srv_port))
+    let _srv = blackwire_core::Instance::from_config(vmess_grpc_server(grpc_srv_port))
         .await
         .expect("vmess-grpc server start");
-    let _cli = proxy_core::Instance::from_config(vmess_grpc_client(socks_port, grpc_srv_port))
+    let _cli = blackwire_core::Instance::from_config(vmess_grpc_client(socks_port, grpc_srv_port))
         .await
         .expect("vmess-grpc client start");
 

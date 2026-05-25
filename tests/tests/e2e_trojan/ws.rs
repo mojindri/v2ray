@@ -3,7 +3,7 @@ use tokio::net::{TcpListener, TcpStream};
 
 #[tokio::test]
 async fn ws_transport_echo() {
-    use proxy_transport::{ws_accept, ws_connect, WsConnectConfig};
+    use blackwire_transport::{ws_accept, ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -40,7 +40,7 @@ async fn ws_transport_echo() {
 
 #[tokio::test]
 async fn ws_transport_large_payload() {
-    use proxy_transport::{ws_accept, ws_connect, WsConnectConfig};
+    use blackwire_transport::{ws_accept, ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -88,7 +88,7 @@ async fn ws_transport_large_payload() {
 
 #[tokio::test]
 async fn ws_transport_custom_path() {
-    use proxy_transport::{ws_accept, ws_connect, WsConnectConfig};
+    use blackwire_transport::{ws_accept, ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 

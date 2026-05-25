@@ -3,16 +3,16 @@
 use std::sync::Arc;
 use std::time::Instant;
 
-use http::header::{HeaderName, HeaderValue};
-use http::HeaderMap;
-use proxy_common::Address;
-use proxy_transport::hysteria2::auth::{verify_auth_request, AuthError};
-use proxy_transport::hysteria2::proto::{
+use blackwire_common::Address;
+use blackwire_transport::hysteria2::auth::{verify_auth_request, AuthError};
+use blackwire_transport::hysteria2::proto::{
     auth_response_from_headers, auth_response_to_headers, decode_tcp_request, decode_tcp_response,
     encode_tcp_request, encode_tcp_response, AuthResponse, TcpResponse, STATUS_AUTH_OK,
 };
-use proxy_transport::hysteria2::tcp::{address_to_hysteria, hysteria_to_address};
-use proxy_transport::BrutalCCFactory;
+use blackwire_transport::hysteria2::tcp::{address_to_hysteria, hysteria_to_address};
+use blackwire_transport::BrutalCCFactory;
+use http::header::{HeaderName, HeaderValue};
+use http::HeaderMap;
 
 #[test]
 fn auth_headers_accept_valid_password() {
@@ -100,7 +100,7 @@ fn hysteria_address_format_roundtrip() {
 
 #[test]
 fn brutal_cc_factory_builds_controller_with_minimum_window() {
-    use proxy_transport::congestion::ControllerFactory;
+    use blackwire_transport::congestion::ControllerFactory;
     let factory = Arc::new(BrutalCCFactory::new(12_500_000));
     let ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
     assert!(ctrl.window() >= 32 * 1024);
@@ -108,7 +108,7 @@ fn brutal_cc_factory_builds_controller_with_minimum_window() {
 
 #[test]
 fn brutal_cc_ignores_congestion_events() {
-    use proxy_transport::congestion::ControllerFactory;
+    use blackwire_transport::congestion::ControllerFactory;
 
     let factory = Arc::new(BrutalCCFactory::new(12_500_000));
     let mut ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
@@ -120,7 +120,7 @@ fn brutal_cc_ignores_congestion_events() {
 
 #[test]
 fn dev_self_signed_produces_valid_pem() {
-    let (cert_pem, key_pem) = proxy_transport::dev_self_signed().unwrap();
+    let (cert_pem, key_pem) = blackwire_transport::dev_self_signed().unwrap();
     assert!(cert_pem.contains("BEGIN CERTIFICATE"));
     assert!(key_pem.contains("PRIVATE KEY"));
 }

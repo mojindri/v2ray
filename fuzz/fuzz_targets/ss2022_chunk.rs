@@ -4,7 +4,7 @@
 mod common;
 
 use libfuzzer_sys::fuzz_target;
-use proxy_protocol::ss2022::try_decrypt_chunk_for_fuzz;
+use blackwire_protocol::ss2022::try_decrypt_chunk_for_fuzz;
 
 const SUBKEY: [u8; 32] = [0x33; 32];
 

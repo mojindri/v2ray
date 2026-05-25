@@ -82,16 +82,16 @@ cargo test --workspace --all-features
 Per-crate if you want faster feedback:
 
 ```sh
-cargo test -p proxy-transport
-cargo test -p proxy-protocol
-cargo test -p proxy-core
+cargo test -p blackwire-transport
+cargo test -p blackwire-protocol
+cargo test -p blackwire-core
 ```
 
 ---
 
 ## Tier 2 — Integration tests
 
-Full end-to-end protocol suite. Each test spins up a real `proxy-core::Instance` pair in-process over loopback. No Docker required.
+Full end-to-end protocol suite. Each test spins up a real `blackwire-core::Instance` pair in-process over loopback. No Docker required.
 
 ```sh
 cargo test -p integration-tests
@@ -114,9 +114,9 @@ Protocols covered:
 Validates config parsing, startup guards, and protocol-level invariants. Runs across all three crates.
 
 ```sh
-cargo test -p proxy-core     --test production_readiness --all-features
-cargo test -p proxy-protocol --test production_readiness --all-features
-cargo test -p proxy-transport --test production_readiness --all-features
+cargo test -p blackwire-core     --test production_readiness --all-features
+cargo test -p blackwire-protocol --test production_readiness --all-features
+cargo test -p blackwire-transport --test production_readiness --all-features
 ```
 
 These are part of the fast local confidence gate before broader lab and VPS
@@ -186,7 +186,7 @@ Writes `reports/stress.log`. A clean run means no flakiness under consecutive sc
 Tests our REALITY implementation against itself: RealityClient talks to RealityServer over loopback. No Xray binary needed.
 
 ```sh
-cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture
+cargo test -p blackwire-transport --test interop d0 -- --ignored --nocapture
 ```
 
 What it proves:

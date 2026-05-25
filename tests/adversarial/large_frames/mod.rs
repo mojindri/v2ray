@@ -1,12 +1,12 @@
-use bytes::BytesMut;
-use proxy_common::Address;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_transport::hysteria2::udp::{
+use blackwire_common::Address;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_transport::hysteria2::udp::{
     decode_udp_datagram, encode_udp_datagram, Destination, UdpDatagram,
 };
-use proxy_transport::{
+use blackwire_transport::{
     decode_grpc_frame, grpc_accept, grpc_connect, ws_accept, ws_connect, WsConnectConfig,
 };
+use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]
@@ -115,7 +115,7 @@ fn mkcp_segment_decode_rejects_truncated_large_payload_packet() {
     let mut packet = vec![];
     // conv + cmd + frg + wnd + ts + sn + una
     packet.extend_from_slice(&1u32.to_le_bytes());
-    packet.push(proxy_transport::mkcp::segment::CMD_PUSH);
+    packet.push(blackwire_transport::mkcp::segment::CMD_PUSH);
     packet.push(0);
     packet.extend_from_slice(&0u16.to_le_bytes());
     packet.extend_from_slice(&0u32.to_le_bytes());
@@ -125,7 +125,7 @@ fn mkcp_segment_decode_rejects_truncated_large_payload_packet() {
     packet.extend_from_slice(&(64u32 * 1024).to_le_bytes());
 
     let mut slice = packet.as_slice();
-    let seg = proxy_transport::mkcp::segment::Segment::decode(&mut slice);
+    let seg = blackwire_transport::mkcp::segment::Segment::decode(&mut slice);
     assert!(
         seg.is_none(),
         "truncated large mKCP payload must fail decode cleanly"

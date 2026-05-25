@@ -1,0 +1,27 @@
+[package]
+name        = "blackwire-core"
+description = "Instance lifecycle and feature registry. Owns the running inbounds, outbounds, dispatcher, and router."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
+blackwire-app             = { path = "../blackwire-app" }
+blackwire-transport       = { path = "../blackwire-transport" }
+blackwire-protocol        = { path = "../blackwire-protocol" }
+
+dashmap.workspace    = true
+tokio.workspace       = true
+async-trait.workspace = true
+arc-swap.workspace    = true
+thiserror.workspace   = true
+tracing.workspace     = true
+anyhow.workspace      = true
+uuid.workspace        = true
+serde_json.workspace  = true
+hex.workspace         = true
+metrics.workspace     = true
+rand.workspace        = true

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_core::Instance;
+use blackwire_core::Instance;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[path = "../../common/harness.rs"]
@@ -8,7 +8,7 @@ mod harness;
 #[path = "../../common/leak_check.rs"]
 mod leak_check;
 
-fn socks_cfg(port: u16) -> std::sync::Arc<proxy_config::schema::Config> {
+fn socks_cfg(port: u16) -> std::sync::Arc<blackwire_config::schema::Config> {
     harness::parse_config(serde_json::json!({
         "inbounds": [{
             "tag": "socks-in",

@@ -6,7 +6,7 @@
   "outbounds": [
     {
       "type": "vmess",
-      "tag": "proxy-out",
+      "tag": "blackwire-out",
       "server": "${EXTERNAL_SERVER_ADDRESS}",
       "server_port": 8444,
       "uuid": "${VMESS_UUID}",
@@ -15,6 +15,6 @@
       "transport": { "type": "grpc", "service_name": "lab.Gun" }
     }
   ],
-  "route": { "final": "proxy-out" }
+  "route": { "final": "blackwire-out" }
 }
 

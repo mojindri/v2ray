@@ -66,11 +66,11 @@ async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> Tcp
     stream
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
-fn server_config(ss_port: u16) -> Arc<proxy_config::schema::Config> {
+fn server_config(ss_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -90,7 +90,7 @@ fn server_config(ss_port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn client_config(socks_port: u16, ss_port: u16) -> Arc<proxy_config::schema::Config> {
+fn client_config(socks_port: u16, ss_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -123,10 +123,10 @@ async fn phase6_ss2022_local_example_transfers_data() {
     let ss_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(ss_port))
+    let _server = blackwire_core::Instance::from_config(server_config(ss_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(client_config(socks_port, ss_port))
+    let _client = blackwire_core::Instance::from_config(client_config(socks_port, ss_port))
         .await
         .expect("client start failed");
 

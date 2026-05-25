@@ -75,12 +75,12 @@ pub(crate) async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: 
     stream
 }
 
-pub(crate) fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+pub(crate) fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
 pub(crate) fn write_dev_cert_files() -> (String, String) {
-    let (cert_pem, key_pem) = proxy_transport::dev_self_signed().unwrap();
+    let (cert_pem, key_pem) = blackwire_transport::dev_self_signed().unwrap();
     let dir = std::env::temp_dir();
     let unique = format!(
         "blackwire-phase4-{}-{}",
@@ -99,7 +99,7 @@ pub(crate) fn write_dev_cert_files() -> (String, String) {
     )
 }
 
-pub(crate) fn trojan_server_plain(trojan_port: u16) -> Arc<proxy_config::schema::Config> {
+pub(crate) fn trojan_server_plain(trojan_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -123,7 +123,7 @@ pub(crate) fn trojan_server_plain(trojan_port: u16) -> Arc<proxy_config::schema:
 pub(crate) fn trojan_client_plain(
     socks_port: u16,
     trojan_port: u16,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -150,7 +150,7 @@ pub(crate) fn trojan_server_tls(
     trojan_port: u16,
     cert_path: &str,
     key_path: &str,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -179,7 +179,7 @@ pub(crate) fn trojan_server_tls(
     ))
 }
 
-pub(crate) fn vless_ws_server(vless_port: u16) -> Arc<proxy_config::schema::Config> {
+pub(crate) fn vless_ws_server(vless_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -211,7 +211,7 @@ pub(crate) fn vless_ws_tls_server(
     vless_port: u16,
     cert_path: &str,
     key_path: &str,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{

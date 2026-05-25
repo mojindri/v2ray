@@ -49,7 +49,7 @@ interop-server-docker: build ## Server-compat: Xray/sing-box clients -> our serv
 interop-client-reality: ## Client-compat: our Rust REALITY client -> live Xray-core (d1)
 	@mkdir -p $(REPORTS)
 	cd $(ROOT)/tests/interop && docker compose up -d nginx-fallback xray-server
-	cd $(ROOT) && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture 2>&1 | tee labs/realistic/$(REPORTS)/interop-client-reality.log
+	cd $(ROOT) && cargo test -p blackwire-transport --test interop d1 -- --ignored --nocapture 2>&1 | tee labs/realistic/$(REPORTS)/interop-client-reality.log
 
 interop-docker: ## Both interop legs: server-compat + client-compat (Docker)
 	@echo "==> [interop-docker 1/2] server-compat (Xray/sing-box -> our server)"
@@ -68,12 +68,12 @@ advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, health/failover, DNS/g
 	@echo "=== [advanced-features-smoke] mKCP ===" | tee -a $(REPORTS)/advanced-features-smoke.log
 	cd $(ROOT) && cargo test -p integration-tests phase8_vless_over_mkcp 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
 	@echo "=== [advanced-features-smoke] health / failover guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_missing_selector_outbound 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness balancer_rejects_unsupported_health_check_scheme 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_rule_can_target_registered_balancer 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness balancer_rejects_missing_selector_outbound 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness balancer_rejects_unsupported_health_check_scheme 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness routing_rule_can_target_registered_balancer 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
 	@echo "=== [advanced-features-smoke] DNS / geo / FakeIP guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p proxy-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
 
 negative-auth: ## Run negative-auth scenarios that should be rejected/fallback
 	@mkdir -p $(REPORTS)
@@ -269,9 +269,9 @@ ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+
 	@echo "=== [2/10] integration tests ===" | tee -a $(REPORTS)/ci.log
 	cd $(ROOT) && cargo test -p integration-tests 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
 	@echo "=== [3/10] production readiness ===" | tee -a $(REPORTS)/ci.log
-	cd $(ROOT) && cargo test -p proxy-core     --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
-	cd $(ROOT) && cargo test -p proxy-protocol --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
-	cd $(ROOT) && cargo test -p proxy-transport --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p blackwire-core     --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p blackwire-protocol --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p blackwire-transport --test production_readiness --all-features 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
 	@echo "=== [4/10] Docker baseline ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) docker-up
 	@echo "=== [5/10] advanced features smoke ===" | tee -a $(REPORTS)/ci.log
@@ -283,7 +283,7 @@ ci: ## Run EVERYTHING local: unit, integration, prod-readiness, Docker, Xray d0+
 	@echo "=== [8/10] restart-smoke ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) restart-smoke
 	@echo "=== [9/10] interop d0 self-consistency ===" | tee -a $(REPORTS)/ci.log
-	cd $(ROOT) && cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
+	cd $(ROOT) && cargo test -p blackwire-transport --test interop d0 -- --ignored --nocapture 2>&1 | tee -a labs/realistic/$(REPORTS)/ci.log
 	@echo "=== [10/10] interop-docker (server + client legs) ===" | tee -a $(REPORTS)/ci.log
 	$(MAKE) interop-docker
 	$(MAKE) docker-down

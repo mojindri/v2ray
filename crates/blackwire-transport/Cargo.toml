@@ -1,0 +1,66 @@
+[package]
+name        = "blackwire-transport"
+description = "Transport layer implementations: TCP, WebSocket, TLS, REALITY, gRPC, QUIC, mKCP, TUN."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[features]
+default  = []
+fuzzing  = []
+# Enables privileged integration tests that require root / CAP_NET_ADMIN and
+# a Linux host.  Run with:
+#   sudo -E cargo test -p blackwire-transport --features priv-test -- --include-ignored
+priv-test = []
+
+[dependencies]
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
+blackwire-tls             = { path = "../blackwire-tls" }
+blackwire-app             = { path = "../blackwire-app" }
+
+tokio.workspace             = true
+tokio-util.workspace        = true
+futures.workspace           = true
+bytes.workspace             = true
+rustls.workspace            = true
+tokio-rustls.workspace      = true
+rustls-acme.workspace       = true
+rcgen.workspace             = true
+tokio-tungstenite.workspace = true
+tonic.workspace             = true
+prost.workspace             = true
+h2.workspace                = true
+http.workspace              = true
+quinn.workspace                 = true
+quinn-proto.workspace           = true
+h3.workspace                    = true
+h3-quinn.workspace              = true
+rustls-native-certs.workspace   = true
+pin-project-lite.workspace      = true
+socket2.workspace           = true
+nix.workspace               = true
+libc.workspace              = true
+async-trait.workspace       = true
+thiserror.workspace         = true
+tracing.workspace           = true
+anyhow.workspace            = true
+arc-swap.workspace          = true
+dashmap.workspace           = true
+notify.workspace            = true
+x25519-dalek.workspace      = true
+ed25519-dalek.workspace     = true
+x509-parser.workspace       = true
+p256.workspace              = true
+aes-gcm.workspace           = true
+hkdf.workspace              = true
+sha2.workspace              = true
+sha1.workspace              = true
+hmac.workspace              = true
+rand.workspace              = true
+rand_core.workspace         = true
+hex.workspace               = true
+base64.workspace            = true
+tun.workspace               = true
+subtle.workspace            = true

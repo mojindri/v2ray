@@ -22,11 +22,11 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_transport::reality::{
+use blackwire_transport::reality::{
     complete_tls13_server_handshake, RealityClient, RealityClientConfig, RealityServer,
     RealityServerConfig,
 };
-use proxy_transport::Tls13Stream;
+use blackwire_transport::Tls13Stream;
 
 /// Bind to port 0 and return the assigned port.
 /// This avoids port conflicts between concurrent tests.

@@ -73,13 +73,13 @@ That port belongs to a SOCKS inbound listener configured in `config.json`.
 
 ### Step 2: TCP transport accepts
 
-`proxy-transport` accepts the raw TCP socket and gives a stream to the configured connection handler.
+`blackwire-transport` accepts the raw TCP socket and gives a stream to the configured connection handler.
 
 In the plain case, there is no TLS or WebSocket wrapper. It is just a raw TCP stream.
 
 ### Step 3: SOCKS5 handshake
 
-`proxy-protocol::socks` reads:
+`blackwire-protocol::socks` reads:
 
 - version
 - auth methods
@@ -281,7 +281,7 @@ That is why REALITY code cares about fallback behavior so much.
 
 ## The Dispatcher Phase In More Detail
 
-The dispatcher lives in `proxy-app`.
+The dispatcher lives in `blackwire-app`.
 
 Its job is:
 
@@ -360,11 +360,11 @@ Those tests are often checking lifecycle safety, not just correctness of a happy
 
 If you want to understand one path in code, use this recipe:
 
-1. Start from `proxy-cli/src/main.rs`.
-2. Jump into `proxy-core/src/instance.rs`.
+1. Start from `blackwire-cli/src/main.rs`.
+2. Jump into `blackwire-core/src/instance.rs`.
 3. See which inbound and outbound are built for your config.
 4. Read that inbound handler.
-5. Read `proxy-app/src/dispatcher.rs`.
+5. Read `blackwire-app/src/dispatcher.rs`.
 6. Read the chosen outbound handler.
 7. If the config adds TLS/WS/REALITY, read the corresponding transport wrapper.
 

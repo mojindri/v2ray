@@ -13,7 +13,7 @@ services:
     ports:
       - "19090:19090"
 
-  proxy-image:
+  blackwire-image:
     image: blackwire:latest
     build:
       context: ../..

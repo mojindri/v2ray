@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_core::Instance;
+use blackwire_core::Instance;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -33,7 +33,7 @@ async fn spawn_push_server(total_bytes: usize) -> (u16, tokio::task::JoinHandle<
     (port, task)
 }
 
-fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<proxy_config::schema::Config> {
+fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<blackwire_config::schema::Config> {
     harness::parse_config(serde_json::json!({
         "inbounds": [{
             "tag": "socks-in",

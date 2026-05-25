@@ -25,7 +25,7 @@ fn unused_local_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
@@ -47,7 +47,7 @@ async fn spawn_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
 }
 
 /// Build a server config: SS-2022 inbound + Freedom outbound.
-fn ss2022_server_config(ss_port: u16) -> Arc<proxy_config::schema::Config> {
+fn ss2022_server_config(ss_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -69,7 +69,10 @@ fn ss2022_server_config(ss_port: u16) -> Arc<proxy_config::schema::Config> {
 }
 
 /// Build a client config: SOCKS5 inbound + SS-2022 outbound.
-fn ss2022_client_config(socks_port: u16, ss_server_port: u16) -> Arc<proxy_config::schema::Config> {
+fn ss2022_client_config(
+    socks_port: u16,
+    ss_server_port: u16,
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -127,10 +130,10 @@ async fn ss2022_full_chain_echo() {
     let socks_port = unused_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
-    let _server = proxy_core::Instance::from_config(ss2022_server_config(ss_port))
+    let _server = blackwire_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
-    let _client = proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
+    let _client = blackwire_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
@@ -154,10 +157,10 @@ async fn ss2022_large_payload_echo() {
     let socks_port = unused_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
-    let _server = proxy_core::Instance::from_config(ss2022_server_config(ss_port))
+    let _server = blackwire_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
-    let _client = proxy_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
+    let _client = blackwire_core::Instance::from_config(ss2022_client_config(socks_port, ss_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
@@ -176,9 +179,9 @@ async fn ss2022_large_payload_echo() {
 /// Subkey derivation is deterministic and produces 32-byte keys.
 #[test]
 fn subkey_derivation_deterministic() {
-    use proxy_protocol::ss2022::subkey::derive_subkey;
+    use blackwire_protocol::ss2022::subkey::derive_subkey;
 
-    let psk = proxy_protocol::ss2022::password_to_psk(SS_PASSWORD);
+    let psk = blackwire_protocol::ss2022::password_to_psk(SS_PASSWORD);
     let salt = [0x42u8; 32];
 
     let k1 = derive_subkey(&psk, &salt);
@@ -190,9 +193,9 @@ fn subkey_derivation_deterministic() {
 /// Different salts produce different subkeys.
 #[test]
 fn subkey_salt_uniqueness() {
-    use proxy_protocol::ss2022::subkey::derive_subkey;
+    use blackwire_protocol::ss2022::subkey::derive_subkey;
 
-    let psk = proxy_protocol::ss2022::password_to_psk(SS_PASSWORD);
+    let psk = blackwire_protocol::ss2022::password_to_psk(SS_PASSWORD);
     let salt1 = [0x01u8; 32];
     let salt2 = [0x02u8; 32];
 
@@ -204,7 +207,7 @@ fn subkey_salt_uniqueness() {
 /// Anti-replay filter accepts first use and rejects duplicate.
 #[tokio::test]
 async fn anti_replay_filter() {
-    use proxy_protocol::ss2022::SaltReplay;
+    use blackwire_protocol::ss2022::SaltReplay;
 
     let replay = SaltReplay::new();
     let salt = [0xABu8; 32];
@@ -222,7 +225,9 @@ async fn anti_replay_filter() {
 /// SS-2022 stream encrypt/decrypt roundtrip (unit level, no TCP).
 #[tokio::test]
 async fn stream_encrypt_decrypt_roundtrip() {
-    use proxy_protocol::ss2022::{password_to_psk, stream::Ss2022Stream, subkey::derive_subkey};
+    use blackwire_protocol::ss2022::{
+        password_to_psk, stream::Ss2022Stream, subkey::derive_subkey,
+    };
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     let psk = password_to_psk(SS_PASSWORD);

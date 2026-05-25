@@ -1,0 +1,16 @@
+[package]
+name        = "blackwire-api"
+description = "gRPC management and statistics API — exposes runtime metrics over the v2ray StatsService protocol."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+blackwire-common    = { path = "../blackwire-common" }
+blackwire-app       = { path = "../blackwire-app" }
+tonic.workspace = true
+prost.workspace = true
+tokio.workspace = true
+thiserror.workspace = true
+tracing.workspace   = true

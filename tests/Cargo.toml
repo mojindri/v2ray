@@ -15,12 +15,12 @@ loom-tests = []
 # `cargo test -p integration-tests` runs all tests in this crate.
 
 [dev-dependencies]
-proxy-common     = { path = "../crates/proxy-common" }
-proxy-config     = { path = "../crates/proxy-config" }
-proxy-app        = { path = "../crates/proxy-app" }
-proxy-protocol   = { path = "../crates/proxy-protocol" }
-proxy-core       = { path = "../crates/proxy-core" }
-proxy-transport  = { path = "../crates/proxy-transport" }
+blackwire-common     = { path = "../crates/blackwire-common" }
+blackwire-config     = { path = "../crates/blackwire-config" }
+blackwire-app        = { path = "../crates/blackwire-app" }
+blackwire-protocol   = { path = "../crates/blackwire-protocol" }
+blackwire-core       = { path = "../crates/blackwire-core" }
+blackwire-transport  = { path = "../crates/blackwire-transport" }
 
 tokio.workspace     = true
 anyhow.workspace    = true

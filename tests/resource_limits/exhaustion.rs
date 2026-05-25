@@ -3,9 +3,9 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use proxy_core::Instance;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_transport::{grpc_accept, grpc_connect, ws_accept, ws_connect, WsConnectConfig};
+use blackwire_core::Instance;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_transport::{grpc_accept, grpc_connect, ws_accept, ws_connect, WsConnectConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -35,7 +35,7 @@ async fn ten_k_bad_auth_attempts_do_not_kill_server() {
         &[0x42; 16],
         "",
         vless_codec::Command::Tcp,
-        &proxy_common::Address::Domain("example.com".into(), 443),
+        &blackwire_common::Address::Domain("example.com".into(), 443),
     )
     .expect("encode");
 
@@ -49,7 +49,7 @@ async fn ten_k_bad_auth_attempts_do_not_kill_server() {
 #[test]
 #[ignore = "heavy resource exhaustion scenario"]
 fn ten_k_fakeip_allocations_remain_bounded() {
-    let pool = proxy_app::dns::FakeIpPool::new("198.18.0.0/15").expect("pool");
+    let pool = blackwire_app::dns::FakeIpPool::new("198.18.0.0/15").expect("pool");
     for i in 0..10_000usize {
         let d = format!("d{i}.example.test");
         let ip = pool.allocate(&d);
@@ -60,7 +60,7 @@ fn ten_k_fakeip_allocations_remain_bounded() {
 #[test]
 #[ignore = "heavy resource exhaustion scenario"]
 fn ten_k_dns_unique_domains_cache_does_not_panic() {
-    let cache = proxy_app::dns::DnsCache::new(4096);
+    let cache = blackwire_app::dns::DnsCache::new(4096);
     for i in 0..10_000usize {
         let d = format!("u{i}.example.test");
         cache.insert(&d, vec!["1.1.1.1".parse().expect("ip")], 5);
@@ -108,14 +108,16 @@ async fn many_websocket_and_grpc_streams_are_handled() {
 #[tokio::test]
 #[ignore = "heavy resource exhaustion scenario"]
 async fn ten_k_mkcp_sessions_smoke() {
-    use proxy_transport::{mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig};
+    use blackwire_transport::{
+        mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
+    };
 
     let listen_addr: std::net::SocketAddr = format!("127.0.0.1:{}", harness::unused_local_port())
         .parse()
         .expect("listen");
     let server_cfg = MkcpServerConfig {
         listen: listen_addr,
-        header: proxy_transport::mkcp::header::HeaderType::None,
+        header: blackwire_transport::mkcp::header::HeaderType::None,
         interval_ms: 10,
         rcv_wnd: 128,
         snd_wnd: 128,

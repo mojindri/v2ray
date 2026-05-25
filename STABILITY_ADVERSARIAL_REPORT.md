@@ -60,12 +60,12 @@ Only tests were added/updated. No runtime feature implementation was performed i
 ### Crate-level tests
 
 - Proxy core fail-closed config tests:
-  - `crates/proxy-core/tests/config_fail_closed.rs`
+  - `crates/blackwire-core/tests/config_fail_closed.rs`
 - Proxy config schema fail-closed tests:
-  - `crates/proxy-config/tests/fail_closed_schema.rs`
+  - `crates/blackwire-config/tests/fail_closed_schema.rs`
 - Proxy protocol fragmentation/stateful parser tests:
-  - `crates/proxy-protocol/tests/fragmentation_parsers.rs`
-  - `crates/proxy-protocol/tests/stateful_parsers.rs`
+  - `crates/blackwire-protocol/tests/fragmentation_parsers.rs`
+  - `crates/blackwire-protocol/tests/stateful_parsers.rs`
 
 ### Fuzz
 
@@ -78,9 +78,9 @@ Only tests were added/updated. No runtime feature implementation was performed i
 Successful compile checks:
 
 - `cargo test -p integration-tests --no-run`
-- `cargo test -p proxy-core --test config_fail_closed --no-run`
-- `cargo test -p proxy-config --test fail_closed_schema --no-run`
-- `cargo test -p proxy-protocol --test fragmentation_parsers --test stateful_parsers --no-run`
+- `cargo test -p blackwire-core --test config_fail_closed --no-run`
+- `cargo test -p blackwire-config --test fail_closed_schema --no-run`
+- `cargo test -p blackwire-protocol --test fragmentation_parsers --test stateful_parsers --no-run`
 - `cargo check --manifest-path fuzz/Cargo.toml --bin stateful_sequences`
 
 Heavy suites are intentionally `#[ignore]` and/or feature-gated (`heavy-tests`, `loom-tests`).
@@ -98,7 +98,7 @@ Passed (targeted execution):
   - `adversarial_task_pressure`
   - `socket_behavior`
   - `observability`
-- `proxy-protocol`:
+- `blackwire-protocol`:
   - `fragmentation_parsers`
   - `stateful_parsers`
 
@@ -115,8 +115,8 @@ Fix verification:
 
 - `cargo test -p integration-tests --test reload_during_traffic -- --nocapture`
 - `cargo test -p integration-tests --test security_boundaries -- --nocapture`
-- `cargo test -p proxy-core --test config_fail_closed -- --nocapture`
-- `cargo test -p proxy-config --test fail_closed_schema -- --nocapture`
+- `cargo test -p blackwire-core --test config_fail_closed -- --nocapture`
+- `cargo test -p blackwire-config --test fail_closed_schema -- --nocapture`
 
 The following tests indicate fail-closed/reload safety problems that should be treated as high priority:
 
@@ -126,16 +126,16 @@ The following tests indicate fail-closed/reload safety problems that should be t
    - Meaning: invalid reload paths are accepted where rejection is expected.
 
 2. **Startup validation too permissive for auth-related config**
-   - `crates/proxy-core/tests/config_fail_closed.rs::empty_vless_clients_must_fail_startup`
-   - `crates/proxy-core/tests/config_fail_closed.rs::empty_vmess_clients_must_fail_startup`
+   - `crates/blackwire-core/tests/config_fail_closed.rs::empty_vless_clients_must_fail_startup`
+   - `crates/blackwire-core/tests/config_fail_closed.rs::empty_vmess_clients_must_fail_startup`
    - Meaning: instance startup currently allows inbounds with empty auth lists.
 
 3. **TLS key material validation gap**
-   - `crates/proxy-core/tests/config_fail_closed.rs::invalid_tls_key_material_must_fail_startup`
+   - `crates/blackwire-core/tests/config_fail_closed.rs::invalid_tls_key_material_must_fail_startup`
    - Meaning: malformed key material can pass a path expected to fail hard at startup.
 
 4. **Schema-layer validation gap**
-   - `crates/proxy-config/tests/fail_closed_schema.rs::invalid_outbound_port_zero_fails_validation`
+   - `crates/blackwire-config/tests/fail_closed_schema.rs::invalid_outbound_port_zero_fails_validation`
    - Meaning: config schema validation does not currently reject this case as expected.
 
 ## Reproduction Commands
@@ -145,8 +145,8 @@ Run these to reproduce key findings:
 ```bash
 cargo test -p integration-tests --test reload_during_traffic -- --nocapture
 cargo test -p integration-tests --test security_boundaries -- --nocapture
-cargo test -p proxy-core --test config_fail_closed -- --nocapture
-cargo test -p proxy-config --test fail_closed_schema -- --nocapture
+cargo test -p blackwire-core --test config_fail_closed -- --nocapture
+cargo test -p blackwire-config --test fail_closed_schema -- --nocapture
 ```
 
 Run implemented stability suites:

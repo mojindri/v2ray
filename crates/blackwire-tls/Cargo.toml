@@ -1,0 +1,18 @@
+[package]
+name        = "blackwire-tls"
+description = "Raw TLS ClientHello builder for browser fingerprint mimicry (Chrome 131). Used by the REALITY client outbound."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+
+[dependencies]
+blackwire-common          = { path = "../blackwire-common" }
+bytes.workspace       = true
+rand.workspace        = true
+serde.workspace       = true
+serde_json.workspace  = true
+thiserror.workspace   = true
+once_cell.workspace   = true
+anyhow.workspace      = true
+x25519-dalek.workspace = true

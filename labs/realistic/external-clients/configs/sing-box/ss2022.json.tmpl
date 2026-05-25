@@ -6,13 +6,13 @@
   "outbounds": [
     {
       "type": "shadowsocks",
-      "tag": "proxy-out",
+      "tag": "blackwire-out",
       "server": "${EXTERNAL_SERVER_ADDRESS}",
       "server_port": 8388,
       "method": "2022-blake3-aes-256-gcm",
       "password": "${SS2022_PASSWORD}"
     }
   ],
-  "route": { "final": "proxy-out" }
+  "route": { "final": "blackwire-out" }
 }
 

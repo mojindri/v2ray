@@ -1,7 +1,7 @@
 use std::time::Duration;
 
-use proxy_core::Instance;
-use proxy_transport::{dev_self_signed_for_names, grpc_accept, tls_accept, ws_accept};
+use blackwire_core::Instance;
+use blackwire_transport::{dev_self_signed_for_names, grpc_accept, tls_accept, ws_accept};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -10,7 +10,7 @@ mod harness;
 #[path = "../../common/leak_check.rs"]
 mod leak_check;
 
-fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<proxy_config::schema::Config> {
+fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<blackwire_config::schema::Config> {
     harness::parse_config(serde_json::json!({
         "inbounds": [{
             "tag": "socks-in",
@@ -153,7 +153,7 @@ async fn tls_handshake_drop_returns_clean_error_without_stuck_task() {
 #[tokio::test]
 async fn dns_resolve_cancellation_does_not_leak_tasks() {
     let baseline = leak_check::steady_state_baseline().await;
-    let dns = proxy_app::dns::DnsModule::new(proxy_app::dns::DnsModuleConfig {
+    let dns = blackwire_app::dns::DnsModule::new(blackwire_app::dns::DnsModuleConfig {
         servers: vec!["127.0.0.1:1".into()],
         ..Default::default()
     })

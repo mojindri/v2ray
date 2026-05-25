@@ -6,13 +6,13 @@
   "outbounds": [
     {
       "type": "trojan",
-      "tag": "proxy-out",
+      "tag": "blackwire-out",
       "server": "${EXTERNAL_SERVER_ADDRESS}",
       "server_port": 8445,
       "password": "${TROJAN_PASSWORD}",
       "tls": { "enabled": true, "server_name": "${EXTERNAL_TLS_SERVER_NAME}", "insecure": true }
     }
   ],
-  "route": { "final": "proxy-out" }
+  "route": { "final": "blackwire-out" }
 }
 
