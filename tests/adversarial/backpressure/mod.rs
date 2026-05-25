@@ -10,7 +10,9 @@ mod harness;
 mod leak_check;
 
 async fn spawn_push_server(total_bytes: usize) -> (u16, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind(("127.0.0.1", 0)).await.expect("bind push");
+    let listener = TcpListener::bind(("127.0.0.1", 0))
+        .await
+        .expect("bind push");
     let port = listener.local_addr().expect("push addr").port();
     let task = tokio::spawn(async move {
         while let Ok((mut s, _)) = listener.accept().await {

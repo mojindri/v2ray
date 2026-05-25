@@ -5,19 +5,19 @@ use std::task::{Context, Poll};
 use proxy_common::{Address, BoxedStream};
 use proxy_core::Instance;
 use proxy_protocol::http_connect::parse_connect_request;
+use proxy_protocol::ss2022::{password_to_psk, Ss2022Stream};
 use proxy_protocol::trojan::codec as trojan_codec;
 use proxy_protocol::vless::codec as vless_codec;
 use proxy_protocol::vmess::auth as vmess_auth;
 use proxy_protocol::vmess::codec as vmess_codec;
 use proxy_protocol::vmess::codec::Security as VmessSecurity;
-use proxy_protocol::ss2022::{password_to_psk, Ss2022Stream};
 use proxy_transport::hysteria2::proto::{decode_tcp_request, encode_tcp_request};
+use proxy_transport::mkcp::segment::{Segment, CMD_PUSH};
+use proxy_transport::WsConnectConfig;
 use proxy_transport::{
     grpc_accept, grpc_connect, shadowtls_marker_accept, shadowtls_marker_connect, ws_accept,
     ws_connect,
 };
-use proxy_transport::WsConnectConfig;
-use proxy_transport::mkcp::segment::{Segment, CMD_PUSH};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::net::{TcpListener, TcpStream};
 
@@ -72,10 +72,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for ChunkedIo<S> {
         Pin::new(&mut self.inner).poll_flush(cx)
     }
 
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-    ) -> Poll<std::io::Result<()>> {
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.inner).poll_shutdown(cx)
     }
 }
@@ -192,8 +189,8 @@ async fn vmess_header_decodes_with_every_boundary_fragmentation() {
 #[tokio::test]
 async fn trojan_header_decodes_with_every_boundary_fragmentation() {
     let token = trojan_codec::compute_token("fragmented-password");
-    let encoded = trojan_codec::encode_request(&token, &Address::Domain("example.com".into(), 443))
-        .unwrap();
+    let encoded =
+        trojan_codec::encode_request(&token, &Address::Domain("example.com".into(), 443)).unwrap();
     for split in 1..encoded.len() {
         let (mut left, right) = tokio::io::duplex(4096);
         let payload = encoded.clone();
@@ -225,7 +222,9 @@ async fn http_connect_parser_handles_byte_by_byte_headers() {
 #[tokio::test]
 async fn hysteria2_request_parser_handles_1_to_32_byte_chunks() {
     let mut frame = vec![];
-    encode_tcp_request(&mut frame, "example.com:443").await.unwrap();
+    encode_tcp_request(&mut frame, "example.com:443")
+        .await
+        .unwrap();
     for max in 1..=32 {
         let (mut a, b) = tokio::io::duplex(4096);
         let payload = frame.clone();

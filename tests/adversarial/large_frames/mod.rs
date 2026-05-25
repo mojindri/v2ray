@@ -1,8 +1,12 @@
 use bytes::BytesMut;
 use proxy_common::Address;
 use proxy_protocol::vless::codec as vless_codec;
-use proxy_transport::hysteria2::udp::{decode_udp_datagram, encode_udp_datagram, Destination, UdpDatagram};
-use proxy_transport::{decode_grpc_frame, grpc_accept, grpc_connect, ws_accept, ws_connect, WsConnectConfig};
+use proxy_transport::hysteria2::udp::{
+    decode_udp_datagram, encode_udp_datagram, Destination, UdpDatagram,
+};
+use proxy_transport::{
+    decode_grpc_frame, grpc_accept, grpc_connect, ws_accept, ws_connect, WsConnectConfig,
+};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[tokio::test]

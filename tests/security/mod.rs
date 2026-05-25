@@ -41,7 +41,12 @@ async fn bad_vless_auth_never_dispatches_outbound() {
         email: "allowed@example".into(),
         flow: String::new(),
     });
-    let inbound = VlessInbound::new("vless-in", Arc::clone(&registry), None, Some(Duration::from_secs(1)));
+    let inbound = VlessInbound::new(
+        "vless-in",
+        Arc::clone(&registry),
+        None,
+        Some(Duration::from_secs(1)),
+    );
     let dispatcher = Arc::new(CountingDispatcher {
         calls: AtomicUsize::new(0),
     });

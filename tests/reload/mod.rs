@@ -124,7 +124,10 @@ async fn reload_changed_dns_and_outbound_does_not_poison_runtime() {
              "settings":{"address":"127.0.0.1","port":9,"users":[{"id":"00000000-0000-4000-8000-000000000002"}]}}
         ]
     }));
-    instance.reload.apply(&changed).expect("reload changed dns/outbound");
+    instance
+        .reload
+        .apply(&changed)
+        .expect("reload changed dns/outbound");
     one_echo_roundtrip(socks_port, echo_port).await;
 }
 
@@ -192,7 +195,10 @@ async fn invalid_reload_does_not_poison_runtime() {
             }]
         }
     }));
-    assert!(instance.reload.apply(&invalid).is_err(), "invalid reload must fail");
+    assert!(
+        instance.reload.apply(&invalid).is_err(),
+        "invalid reload must fail"
+    );
 
     one_echo_roundtrip(socks_port, echo_port).await;
 }

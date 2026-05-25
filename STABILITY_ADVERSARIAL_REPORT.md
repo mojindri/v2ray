@@ -104,6 +104,20 @@ Passed (targeted execution):
 
 ## Critical Findings (Serious Bugs/Gaps)
 
+Update: these findings were fixed after this report was written. The fixes are:
+
+- Reload validation no longer treats a missing `outboundTag` as known.
+- VLESS and VMess inbounds now fail startup/reload when `settings.clients` is missing or empty.
+- TLS inbound setup now validates certificate/key material at startup instead of first connection.
+- Schema validation now rejects outbound `settings.port` values outside `1..=65535`.
+
+Fix verification:
+
+- `cargo test -p integration-tests --test reload_during_traffic -- --nocapture`
+- `cargo test -p integration-tests --test security_boundaries -- --nocapture`
+- `cargo test -p proxy-core --test config_fail_closed -- --nocapture`
+- `cargo test -p proxy-config --test fail_closed_schema -- --nocapture`
+
 The following tests indicate fail-closed/reload safety problems that should be treated as high priority:
 
 1. **Reload accepts unsafe config transitions (fail-open behavior)**

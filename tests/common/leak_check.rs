@@ -76,7 +76,9 @@ fn proc_fd_count() -> Option<usize> {
 fn proc_task_count() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
-        return std::fs::read_dir("/proc/self/task").ok().map(|it| it.count());
+        return std::fs::read_dir("/proc/self/task")
+            .ok()
+            .map(|it| it.count());
     }
     // Best effort fallback: use active thread count as approximation.
     Some(std::thread::available_parallelism().ok()?.get())
