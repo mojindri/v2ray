@@ -107,9 +107,9 @@ fn proc_fd_count() -> Option<usize> {
             .output()
             .ok()?;
         let s = String::from_utf8(out.stdout).ok()?;
-        return s.trim().parse::<usize>().ok();
+        s.trim().parse::<usize>().ok()
     }
-    #[allow(unreachable_code)]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     None
 }
 
