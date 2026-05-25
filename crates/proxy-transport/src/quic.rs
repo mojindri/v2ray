@@ -25,7 +25,11 @@ use rustls::RootCertStore;
 ///
 /// Several dependencies may enable different rustls provider features. Calling
 /// this before building TLS configs makes QUIC startup deterministic.
-pub(crate) fn ensure_crypto_provider() {
+/// Install the workspace rustls crypto provider (idempotent).
+///
+/// Required before any `ClientConfig::builder()` / `ServerConfig::builder()` use when
+/// tests or callers have not already gone through `tls_connect` / `tls_accept`.
+pub fn ensure_crypto_provider() {
     let _ = rustls::crypto::aws_lc_rs::default_provider().install_default();
 }
 
