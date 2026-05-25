@@ -34,15 +34,14 @@ pub async fn serve_connection(
     };
 
     handle_h3_auth_request(resolver, &config.password, server_rx_bps, true).await?;
-    // Drive the HTTP/3 connection in the background to avoid sending GOAWAY on drop.
-    // Raw QUIC bidi streams (accepted below) carry the actual proxy data.
+    // Keep the HTTP/3 server driver alive for the QUIC session without calling
+    // `accept()` again. Official hysteria uses http3.StreamDispatcher to hijack
+    // proxy streams (varint 0x401); the Rust `h3` crate has no equivalent, so we
+    // take proxy streams via `conn.accept_bi()` below. A competing `h3_conn.accept()`
+    // would treat 0x401 TCPRequest bytes as HTTP/3 and reset the connection.
     tokio::spawn(async move {
-        loop {
-            match h3_conn.accept().await {
-                Ok(None) | Err(_) => break,
-                Ok(Some(_)) => {}
-            }
-        }
+        let _h3_conn = h3_conn;
+        std::future::pending::<()>().await
     });
 
     let inbound_tag = config.tag.clone();
