@@ -99,9 +99,9 @@ async fn sleep_until_activity_deadline(last_activity: &Arc<Mutex<Instant>>, idle
     }
 }
 
-/// Reject domain names longer than Xray allows on the wire.
+/// Reject domain names longer than the SOCKS5 wire format allows (1-byte length field).
 pub fn domain_wire_len(name: &str) -> Result<u8, ProxyError> {
-    if name.len() > 256 {
+    if name.len() > 255 {
         return Err(ProxyError::Protocol(format!(
             "domain too long: {} bytes",
             name.len()
@@ -117,8 +117,8 @@ mod tests {
 
     #[test]
     fn domain_wire_len_matches_xray_limit() {
-        assert!(domain_wire_len(&"a".repeat(256)).is_ok());
-        assert!(domain_wire_len(&"a".repeat(257)).is_err());
+        assert!(domain_wire_len(&"a".repeat(255)).is_ok());
+        assert!(domain_wire_len(&"a".repeat(256)).is_err());
     }
 
     #[tokio::test]
