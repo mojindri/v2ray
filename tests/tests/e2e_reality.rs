@@ -42,7 +42,7 @@ async fn free_port() -> u16 {
 /// Generate a fresh X25519 key pair for a test.
 /// Returns (private_key_bytes, public_key_bytes).
 fn gen_keypair() -> ([u8; 32], [u8; 32]) {
-    let secret = StaticSecret::random_from_rng(rand::thread_rng());
+    let secret = StaticSecret::random();
     let public = PublicKey::from(&secret);
     (*secret.as_bytes(), *public.as_bytes())
 }

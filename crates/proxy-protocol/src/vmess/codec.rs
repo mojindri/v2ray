@@ -42,7 +42,7 @@ use aes_gcm::{
     Aes128Gcm, KeyInit,
 };
 use bytes::{BufMut, BytesMut};
-use rand::RngCore;
+use rand::{Rng, RngExt};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -165,16 +165,16 @@ pub fn encode_header(
     dest: &Address,
     security: Security,
 ) -> Result<EncodedHeader, ProxyError> {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
 
     let mut iv = [0u8; 16];
     let mut key = [0u8; 16];
     let mut v = [0u8; 1];
     let mut connection_nonce = [0u8; 8];
-    rng.fill_bytes(&mut iv);
-    rng.fill_bytes(&mut key);
-    rng.fill_bytes(&mut v);
-    rng.fill_bytes(&mut connection_nonce);
+    rng.fill(&mut iv[..]);
+    rng.fill(&mut key[..]);
+    rng.fill(&mut v[..]);
+    rng.fill(&mut connection_nonce[..]);
     let v_byte = v[0];
 
     let pad_len: u8 = (rng.next_u32() % 16) as u8;
@@ -420,7 +420,7 @@ fn build_request_plaintext(
     }
 
     let mut pad = vec![0u8; pad_len as usize];
-    rand::thread_rng().fill_bytes(&mut pad);
+    rand::rng().fill(&mut pad[..]);
     buf.put_slice(&pad);
 
     let checksum = fnv32a(buf.as_ref());

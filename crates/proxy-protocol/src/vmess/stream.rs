@@ -30,7 +30,7 @@ use aes_gcm::{
 use bytes::{Bytes, BytesMut};
 use chacha20poly1305::ChaCha20Poly1305;
 use md5::{Digest as Md5Digest, Md5};
-use rand::RngCore;
+use rand::{Rng, RngExt};
 use sha3_010::{
     digest::{ExtendableOutput, Update, XofReader},
     Shake128,
@@ -334,7 +334,7 @@ impl VmessStream {
         if padding_len > 0 {
             let start = out.len();
             out.resize(start + padding_len, 0);
-            rand::thread_rng().fill_bytes(&mut out[start..]);
+            rand::rng().fill(&mut out[start..]);
         }
         Ok(out)
     }
