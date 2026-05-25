@@ -12,6 +12,7 @@ use blackwire_app::dispatcher::Dispatcher;
 use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
 use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use blackwire_config::schema::{SecurityType, StreamSettingsConfig};
+use blackwire_protocol::vless::codec::Command;
 use blackwire_protocol::vless::connect_vless_on_stream;
 use tracing::warn;
 
@@ -126,7 +127,7 @@ impl OutboundHandler for RealityVlessOutbound {
         dest: &blackwire_common::Address,
     ) -> Result<BoxedStream, ProxyError> {
         let stream = self.reality.dial().await?;
-        connect_vless_on_stream(stream, &self.uuid, &self.flow, dest).await
+        connect_vless_on_stream(stream, &self.uuid, &self.flow, Command::Tcp, dest).await
     }
 }
 

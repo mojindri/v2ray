@@ -22,7 +22,7 @@
 //!
 //! - SOCKS version 5 only (no SOCKS4)
 //! - No authentication (method 0x00)
-//! - CONNECT command only (no BIND or UDP ASSOCIATE in Phase 1)
+//! - CONNECT and UDP ASSOCIATE (no BIND)
 //! - Supports IPv4, IPv6, and domain name destinations
 //!
 //! # References
@@ -38,7 +38,10 @@ use tracing::debug;
 use blackwire_app::context::Context;
 use blackwire_app::dispatcher::Dispatcher;
 use blackwire_app::features::InboundHandler;
-use blackwire_common::{read_socks5_address, Address, BoxedStream, Network, ProxyError, ATYP_IPV4};
+use blackwire_common::{
+    read_socks5_address, write_socks5_address, Address, BoxedStream, Network, ProxyError,
+};
+use bytes::BytesMut;
 
 // ── SOCKS5 protocol constants ─────────────────────────────────────────────────
 
@@ -53,6 +56,9 @@ const METHOD_NO_ACCEPTABLE: u8 = 0xFF;
 
 /// Command: CONNECT (open a TCP connection to the destination).
 const CMD_CONNECT: u8 = 0x01;
+
+/// Command: UDP ASSOCIATE (relay UDP datagrams).
+const CMD_UDP_ASSOCIATE: u8 = 0x03;
 
 /// Reserved byte in the CONNECT request (must be 0x00).
 const RSV: u8 = 0x00;
@@ -92,8 +98,7 @@ impl InboundHandler for Socks5Inbound {
     }
 
     fn networks(&self) -> &[Network] {
-        // SOCKS5 in Phase 1 only handles TCP. UDP ASSOCIATE is not implemented yet.
-        &[Network::Tcp]
+        &[Network::Tcp, Network::Udp]
     }
 
     async fn handle(
@@ -102,15 +107,33 @@ impl InboundHandler for Socks5Inbound {
         source: SocketAddr,
         dispatcher: Arc<dyn Dispatcher>,
     ) -> Result<(), ProxyError> {
-        // Step 1: Read and validate the greeting (version + auth methods).
-        let dest = socks5_handshake(&mut stream).await?;
+        let request = socks5_handshake(&mut stream).await?;
 
-        debug!(source = %source, dest = %dest, "SOCKS5 connection established");
-
-        // Step 2: Hand off to the dispatcher with the destination address.
-        let ctx = Context::new(&self.tag, source);
-        dispatcher.dispatch(ctx, dest, stream).await
+        match request {
+            Socks5Request::Connect(dest) => {
+                debug!(source = %source, dest = %dest, "SOCKS5 CONNECT");
+                let ctx = Context::new(&self.tag, source);
+                dispatcher.dispatch(ctx, dest, stream).await
+            }
+            Socks5Request::UdpAssociate => {
+                debug!(source = %source, "SOCKS5 UDP ASSOCIATE");
+                let udp = tokio::net::UdpSocket::bind("0.0.0.0:0")
+                    .await
+                    .map_err(|e| ProxyError::Transport(format!("SOCKS5 UDP bind: {e}")))?;
+                let bind_addr = udp
+                    .local_addr()
+                    .map_err(|e| ProxyError::Transport(format!("SOCKS5 UDP local_addr: {e}")))?;
+                send_bind_reply(&mut stream, REP_SUCCESS, bind_addr).await?;
+                crate::socks5_udp::relay_socks5_udp(stream, udp, source.ip()).await
+            }
+        }
     }
+}
+
+/// Result of the SOCKS5 request phase after greeting.
+enum Socks5Request {
+    Connect(Address),
+    UdpAssociate,
 }
 
 // ── SOCKS5 handshake logic ────────────────────────────────────────────────────
@@ -119,7 +142,7 @@ impl InboundHandler for Socks5Inbound {
 ///
 /// After this function returns `Ok(dest)`, the stream is positioned at the
 /// start of the proxied data — no more SOCKS5 framing, just raw bytes.
-async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyError> {
+async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Socks5Request, ProxyError> {
     // ── Phase 1: Greeting ────────────────────────────────────────────────────
     //
     // The client sends:
@@ -173,33 +196,22 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
     let cmd = stream.read_u8().await?;
     let _rsv = stream.read_u8().await?; // reserved byte, ignored
 
-    if cmd != CMD_CONNECT {
-        // We only support CONNECT in Phase 1.
-        // Send "command not supported" and return an error.
-        send_reply(stream, REP_CMD_NOT_SUPPORTED).await?;
-        return Err(ProxyError::Protocol(format!(
-            "SOCKS5 CMD {cmd} not supported"
-        )));
-    }
-
     let atyp = stream.read_u8().await?;
-    let dest = read_socks5_address(stream, atyp, "SOCKS5").await?;
+    let _dest = read_socks5_address(stream, atyp, "SOCKS5").await?;
 
-    // ── Phase 3: Reply ───────────────────────────────────────────────────────
-    //
-    // The server replies:
-    //   VER (1)        — 5
-    //   REP (1)        — 0x00 = success
-    //   RSV (1)        — 0x00 reserved
-    //   ATYP (1)       — address type of BND.ADDR
-    //   BND.ADDR (var) — the address the server bound to (we send 0.0.0.0)
-    //   BND.PORT (2)   — the port the server bound to (we send 0)
-    //
-    // We always reply with 0.0.0.0:0 because we do not actually bind
-    // a local port for the client — we just relay bytes.
-    send_reply(stream, REP_SUCCESS).await?;
-
-    Ok(dest)
+    match cmd {
+        CMD_CONNECT => {
+            send_reply(stream, REP_SUCCESS).await?;
+            Ok(Socks5Request::Connect(_dest))
+        }
+        CMD_UDP_ASSOCIATE => Ok(Socks5Request::UdpAssociate),
+        _ => {
+            send_reply(stream, REP_CMD_NOT_SUPPORTED).await?;
+            Err(ProxyError::Protocol(format!(
+                "SOCKS5 CMD {cmd} not supported"
+            )))
+        }
+    }
 }
 
 /// Send a SOCKS5 reply with the given reply code.
@@ -207,15 +219,22 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Address, ProxyErro
 /// The bound address is always 0.0.0.0:0 — we tell the client we succeeded
 /// (or failed) but do not bind a real address on its behalf.
 async fn send_reply(stream: &mut BoxedStream, rep: u8) -> Result<(), ProxyError> {
-    // Reply format:
-    //   VER (1)   = 5
-    //   REP (1)   = reply code
-    //   RSV (1)   = 0
-    //   ATYP (1)  = 1 (IPv4)
-    //   ADDR (4)  = 0.0.0.0
-    //   PORT (2)  = 0
-    let reply = [SOCKS_VERSION, rep, RSV, ATYP_IPV4, 0, 0, 0, 0, 0, 0];
-    stream.write_all(&reply).await?;
+    send_bind_reply(stream, rep, SocketAddr::from(([0, 0, 0, 0], 0))).await
+}
+
+async fn send_bind_reply(
+    stream: &mut BoxedStream,
+    rep: u8,
+    bind: SocketAddr,
+) -> Result<(), ProxyError> {
+    let mut body = BytesMut::with_capacity(32);
+    body.extend_from_slice(&[SOCKS_VERSION, rep, RSV]);
+    let addr = match bind {
+        SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), v4.port()),
+        SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), v6.port()),
+    };
+    write_socks5_address(&mut body, &addr)?;
+    stream.write_all(&body).await?;
     Ok(())
 }
 
@@ -241,7 +260,10 @@ mod tests {
             let _ = client.read(&mut buf).await;
         });
 
-        socks5_handshake(&mut server_stream).await
+        match socks5_handshake(&mut server_stream).await? {
+            Socks5Request::Connect(dest) => Ok(dest),
+            Socks5Request::UdpAssociate => Err(ProxyError::Protocol("expected CONNECT".into())),
+        }
     }
 
     // Checks that a well-formed CONNECT to an IPv4 address succeeds.

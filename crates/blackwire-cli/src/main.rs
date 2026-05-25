@@ -32,7 +32,12 @@ use clap::{Parser, Subcommand};
 use tracing::{error, info};
 
 use blackwire_config::ConfigManager;
-use blackwire_core::Instance;
+use blackwire_core::{requires_instance_restart, Instance};
+
+struct RunningInstance {
+    config: Arc<blackwire_config::schema::Config>,
+    instance: Instance,
+}
 
 // ── Top-level CLI struct ──────────────────────────────────────────────────────
 
@@ -206,22 +211,80 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
     // `Instance::from_config()` reads the current config snapshot, builds
     // all inbound/outbound handlers, and starts all TCP listener tasks.
     let config = manager.get();
-    let instance = Instance::from_config(config)
-        .await
-        .context("building proxy instance from config")?;
+    let instance = Arc::new(tokio::sync::Mutex::new(Some(RunningInstance {
+        config: Arc::clone(&config),
+        instance: Instance::from_config(config)
+            .await
+            .context("building proxy instance from config")?,
+    })));
 
     // Step 4b: Apply hot-reload when config file changes (routing + VLESS users).
     // Listeners keep running; only per-connection lookup tables are refreshed.
     {
-        let reload = instance.reload.clone();
+        let live_instance = Arc::clone(&instance);
         let mut reload_rx = manager.subscribe();
         tokio::spawn(async move {
             loop {
                 if reload_rx.changed().await.is_err() {
                     break;
                 }
-                let config = reload_rx.borrow_and_update().clone();
-                if let Err(e) = reload.apply(&config) {
+                let new_config = reload_rx.borrow_and_update().clone();
+
+                let should_restart = {
+                    let guard = live_instance.lock().await;
+                    let Some(running) = guard.as_ref() else {
+                        break;
+                    };
+                    requires_instance_restart(&running.config, &new_config)
+                };
+
+                if should_restart {
+                    info!("structural config change detected — rebuilding running instance");
+                    let (old_config, old_instance) = {
+                        let mut guard = live_instance.lock().await;
+                        let Some(running) = guard.take() else {
+                            break;
+                        };
+                        (running.config, running.instance)
+                    };
+                    drop(old_instance);
+
+                    let rebuilt = match Instance::from_config(Arc::clone(&new_config)).await {
+                        Ok(instance) => {
+                            info!("instance rebuilt successfully after config change");
+                            Some(RunningInstance {
+                                config: Arc::clone(&new_config),
+                                instance,
+                            })
+                        }
+                        Err(e) => {
+                            error!(error = %e, "instance rebuild failed — attempting rollback to previous config");
+                            match Instance::from_config(Arc::clone(&old_config)).await {
+                                Ok(instance) => Some(RunningInstance {
+                                    config: old_config,
+                                    instance,
+                                }),
+                                Err(rollback_err) => {
+                                    error!(error = %rollback_err, "rollback failed — no running instance remains");
+                                    None
+                                }
+                            }
+                        }
+                    };
+
+                    let mut guard = live_instance.lock().await;
+                    *guard = rebuilt;
+                    continue;
+                }
+
+                let reload = {
+                    let guard = live_instance.lock().await;
+                    let Some(running) = guard.as_ref() else {
+                        break;
+                    };
+                    running.instance.reload.clone()
+                };
+                if let Err(e) = reload.apply(&new_config) {
                     error!(error = %e, "config reload apply failed — keeping prior routing/users");
                 }
             }
@@ -241,12 +304,7 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
 ///
 /// On Unix, listens for both SIGINT (Ctrl-C) and SIGTERM (systemd stop).
 /// On other platforms, only SIGINT.
-async fn shutdown_signal(instance: Instance) {
-    // Pin the futures so they can be polled in select.
-    tokio::pin!(
-        let listeners_done = instance.wait();
-    );
-
+async fn shutdown_signal(instance: Arc<tokio::sync::Mutex<Option<RunningInstance>>>) {
     #[cfg(unix)]
     {
         use tokio::signal::unix::{signal, SignalKind};
@@ -259,9 +317,6 @@ async fn shutdown_signal(instance: Instance) {
         };
 
         tokio::select! {
-            _ = &mut listeners_done => {
-                info!("all listeners have exited — shutting down");
-            }
             _ = tokio::signal::ctrl_c() => {
                 info!("received SIGINT — shutting down");
             }
@@ -280,13 +335,15 @@ async fn shutdown_signal(instance: Instance) {
     #[cfg(not(unix))]
     {
         tokio::select! {
-            _ = &mut listeners_done => {
-                info!("all listeners have exited — shutting down");
-            }
             _ = tokio::signal::ctrl_c() => {
                 info!("received SIGINT — shutting down");
             }
         }
+    }
+
+    let mut guard = instance.lock().await;
+    if let Some(running) = guard.take() {
+        running.instance.shutdown();
     }
 }
 

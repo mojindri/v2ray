@@ -1,0 +1,27 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "::", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 10082,
+      "uuid": "${VLESS_UUID}",
+      "flow": "xtls-rprx-vision",
+      "tls": {
+        "enabled": true,
+        "server_name": "${REALITY_SERVER_NAME}",
+        "utls": { "enabled": true, "fingerprint": "chrome" },
+        "reality": {
+          "enabled": true,
+          "public_key": "${REALITY_PUBLIC_KEY_XRAY}",
+          "short_id": "${REALITY_SHORT_ID}"
+        }
+      }
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

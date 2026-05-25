@@ -1,0 +1,40 @@
+name: Interop smoke
+
+on:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * *"
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  integration-matrix:
+    name: Integration matrix
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Stable integration tests
+        run: cargo test -p integration-tests --locked
+      - name: Advanced feature smoke (ShadowTLS, mKCP)
+        run: make -C labs/realistic advanced-features-smoke
+
+  interop-docker:
+    name: External clients (Docker)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Docker interop server-compat
+        run: make -C labs/realistic interop-server-docker
+      - name: Upload interop logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: interop-logs
+          path: labs/realistic/reports/
+          if-no-files-found: ignore

@@ -59,6 +59,10 @@ pub struct RoutingRule {
     #[serde(default, rename = "inboundTag", skip_serializing_if = "Vec::is_empty")]
     pub inbound_tag: Vec<String>,
 
+    /// Sniffed protocol match (`http`, `tls`, …) — Xray `protocol` field.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub protocol: Vec<String>,
+
     /// Outbound tag to use when this rule matches.
     #[serde(rename = "outboundTag")]
     pub outbound_tag: String,

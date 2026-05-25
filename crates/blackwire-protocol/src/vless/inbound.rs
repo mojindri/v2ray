@@ -37,8 +37,10 @@ use blackwire_common::{
     PrependedStream, ProxyError, CONNECTION_IDLE_TIMEOUT,
 };
 
-use super::codec::{decode_request, encode_response};
+use super::codec::{decode_request, encode_response, Command};
 use super::registry::VlessUserRegistry;
+use super::udp::relay_vless_udp;
+use super::vision::wrap_vision_stream;
 
 /// The VLESS inbound handler.
 pub struct VlessInbound {
@@ -116,6 +118,16 @@ impl InboundHandler for VlessInbound {
                 // Check if the UUID is in the registry.
                 match self.registry.validate(&req.uuid) {
                     Some(user) => {
+                        if !req.flow.is_empty() && req.flow != user.flow {
+                            warn!(
+                                source = %source,
+                                requested_flow = %req.flow,
+                                user_flow = %user.flow,
+                                "VLESS flow mismatch — rejecting"
+                            );
+                            return Ok(());
+                        }
+
                         debug!(
                             source = %source,
                             dest = %req.dest,
@@ -124,30 +136,44 @@ impl InboundHandler for VlessInbound {
                             "VLESS authenticated"
                         );
 
-                        // Check if the client requested XTLS Vision flow.
-                        // Phase 1: log a warning that it is not yet implemented.
-                        // Phase 2: this will enable the splice path.
-                        if req.flow == "xtls-rprx-vision" {
-                            // TODO Phase 2: enable XTLS Vision splice
-                            debug!("XTLS Vision flow requested — splice not yet implemented in Phase 1");
-                        }
-
                         // Send the VLESS response header to the client.
-                        // After this, raw bytes follow — no more VLESS framing.
-                        // Flush explicitly so buffered transports (WebSocket) send
-                        // the response immediately.
                         let resp = encode_response();
                         stream.write_all(&resp).await?;
                         stream.flush().await?;
 
-                        // Hand the stream to the dispatcher to relay to the destination.
-                        let ctx = Context::new(&self.tag, source).with_user(user.email.clone());
-                        dispatcher.dispatch(ctx, req.dest, stream).await
+                        if req.command == Command::Udp {
+                            return relay_vless_udp(stream).await;
+                        }
+                        if req.command == Command::Mux {
+                            tracing::debug!(
+                                source = %source,
+                                "VLESS CMD_MUX (Mux.Cool): relaying as TCP per Xray legacy path"
+                            );
+                        }
+
+                        let mut relay_stream = stream;
+                        if req.flow == "xtls-rprx-vision" {
+                            debug!(
+                                user = %user.email,
+                                "XTLS Vision flow — unpadding reader (Xray-compatible passthrough)"
+                            );
+                            relay_stream = wrap_vision_stream(relay_stream, req.uuid);
+                        }
+
+                        let ctx = Context::new(&self.tag, source)
+                            .with_user(user.email.clone())
+                            .with_vision(req.flow == "xtls-rprx-vision");
+                        dispatcher.dispatch(ctx, req.dest, relay_stream).await
                     }
                     None => {
-                        // UUID not found — forward to fallback.
-                        warn!(source = %source, "VLESS auth failed — forwarding to fallback");
-                        self.do_fallback(stream, header_buf).await
+                        warn!(source = %source, "VLESS auth failed");
+                        if let Some(fallback_addr) = self.fallback {
+                            warn!(fallback = %fallback_addr, "forwarding to fallback");
+                            self.do_fallback(stream, header_buf).await
+                        } else {
+                            // Fail closed when no fallback (lab negative-auth cases).
+                            Ok(())
+                        }
                     }
                 }
             }

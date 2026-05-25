@@ -23,18 +23,23 @@
 //! kernel pipes without copying them into userspace. Non-Linux builds and
 //! non-raw streams keep using `copy_bidirectional`.
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Instant;
 
 use async_trait::async_trait;
 use tracing::{debug, info, instrument, warn};
 
+use std::collections::HashMap;
+
 use blackwire_common::{Address, BoxedStream, ProxyError};
+use blackwire_config::schema::SniffingConfig;
 
 use crate::context::Context;
 use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
-use crate::router::Router;
+use crate::metrics::{record_connection_accepted, record_connection_closed};
+use crate::router::{normalize_routing_domain_strategy, Router, RoutingDomainStrategy};
+use crate::runtime_stats;
 
 /// The dispatcher connects inbounds to outbounds by consulting the router
 /// and relaying bytes.
@@ -62,6 +67,7 @@ pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
+    sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
 }
 
 impl DefaultDispatcher {
@@ -78,6 +84,21 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: None,
+            sniffing: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    /// Create a dispatcher with per-inbound sniffing settings (Xray `sniffing`).
+    pub fn new_with_sniffing(
+        router: Arc<dyn Router>,
+        outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
+        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            router,
+            outbounds,
+            dns: None,
+            sniffing,
         })
     }
 
@@ -94,6 +115,22 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: Some(dns),
+            sniffing: Arc::new(RwLock::new(HashMap::new())),
+        })
+    }
+
+    /// Dispatcher with DNS and sniffing.
+    pub fn new_with_dns_and_sniffing(
+        router: Arc<dyn Router>,
+        outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
+        dns: Arc<DnsModule>,
+        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            router,
+            outbounds,
+            dns: Some(dns),
+            sniffing,
         })
     }
 }
@@ -103,20 +140,39 @@ impl Dispatcher for DefaultDispatcher {
     #[instrument(skip(self, inbound_stream), fields(dest = %dest, inbound = %ctx.inbound_tag))]
     async fn dispatch(
         &self,
-        ctx: Context,
-        dest: Address,
-        inbound_stream: BoxedStream,
+        mut ctx: Context,
+        mut dest: Address,
+        mut inbound_stream: BoxedStream,
     ) -> Result<(), ProxyError> {
+        let sniff_cfg = self
+            .sniffing
+            .read()
+            .ok()
+            .and_then(|g| g.get(&ctx.inbound_tag).cloned());
+        if let Some(cfg) = sniff_cfg {
+            if cfg.enabled && matches!(dest, Address::Ipv4(..) | Address::Ipv6(..)) {
+                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
+                inbound_stream = stream;
+                dest = crate::sniff::apply_dest_override(dest, &sniff, &cfg);
+                ctx = ctx.with_sniff(sniff.protocol, sniff.domain);
+            }
+        }
+
         let dest = self.restore_fakeip_destination(dest);
 
-        // Step 1: Ask the router which outbound to use.
-        let routing_ctx = crate::router::RoutingContext {
-            dest: &dest,
-            network: blackwire_common::Network::Tcp,
-            inbound_tag: &ctx.inbound_tag,
-            user: ctx.user.as_deref(),
-        };
-        let route = self.router.pick_route(&routing_ctx)?;
+        let protocol_label = ctx.sniffed_protocol.as_deref().unwrap_or("tcp");
+        record_connection_accepted(&ctx.inbound_tag, protocol_label);
+
+        // Step 1: Route per Xray `routing.domainStrategy` (AsIs / IPIfNonMatch / IPOnDemand).
+        let route = self
+            .pick_route_xray(
+                &ctx.inbound_tag,
+                &dest,
+                ctx.user.as_deref(),
+                ctx.sniffed_protocol.as_deref(),
+                ctx.sniffed_domain.as_deref(),
+            )
+            .await?;
 
         debug!(outbound = %route.outbound_tag, "route selected");
 
@@ -160,7 +216,7 @@ impl Dispatcher for DefaultDispatcher {
 
         let elapsed = start.elapsed();
 
-        match result {
+        match &result {
             Ok((up, down)) => {
                 info!(
                     outbound = %route.outbound_tag,
@@ -183,11 +239,127 @@ impl Dispatcher for DefaultDispatcher {
             }
         }
 
+        let (rx_bytes, tx_bytes) = result.unwrap_or((0, 0));
+        record_connection_closed(&ctx.inbound_tag, rx_bytes, tx_bytes, elapsed);
+        if let Some(user) = ctx.user.as_deref() {
+            runtime_stats::record_user_traffic(user, rx_bytes, tx_bytes);
+        }
+
         Ok(())
     }
 }
 
 impl DefaultDispatcher {
+    /// Xray routing: https://xtls.github.io/en/config/routing.html#domainstrategy
+    async fn pick_route_xray(
+        &self,
+        inbound_tag: &str,
+        dest: &Address,
+        user: Option<&str>,
+        sniffed_protocol: Option<&str>,
+        sniffed_domain: Option<&str>,
+    ) -> Result<crate::router::Route, ProxyError> {
+        let strategy = normalize_routing_domain_strategy(self.router.domain_strategy().as_deref());
+
+        if strategy == RoutingDomainStrategy::IpOnDemand
+            && matches!(dest, Address::Domain(..))
+            && self.router.has_ip_rules()
+        {
+            if let Some(ips) = self.resolve_domain_ips(dest).await {
+                for ip_dest in &ips {
+                    let ctx = Self::routing_ctx(
+                        ip_dest,
+                        inbound_tag,
+                        user,
+                        sniffed_protocol,
+                        sniffed_domain,
+                    );
+                    let (route, matched) = self.router.pick_route_match(&ctx);
+                    if matched {
+                        return Ok(route);
+                    }
+                }
+            }
+        }
+
+        let ctx = Self::routing_ctx(dest, inbound_tag, user, sniffed_protocol, sniffed_domain);
+        let (route, matched) = self.router.pick_route_match(&ctx);
+        if matched || strategy == RoutingDomainStrategy::AsIs {
+            return Ok(route);
+        }
+
+        if strategy == RoutingDomainStrategy::IpIfNonMatch {
+            if let Address::Domain(_, _) = dest {
+                if let Some(ips) = self.resolve_domain_ips(dest).await {
+                    for ip_dest in &ips {
+                        let ctx = Self::routing_ctx(
+                            ip_dest,
+                            inbound_tag,
+                            user,
+                            sniffed_protocol,
+                            sniffed_domain,
+                        );
+                        let (route, matched) = self.router.pick_route_match(&ctx);
+                        if matched {
+                            return Ok(route);
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(route)
+    }
+
+    fn routing_ctx<'a>(
+        dest: &'a Address,
+        inbound_tag: &'a str,
+        user: Option<&'a str>,
+        sniffed_protocol: Option<&'a str>,
+        sniffed_domain: Option<&'a str>,
+    ) -> crate::router::RoutingContext<'a> {
+        crate::router::RoutingContext {
+            dest,
+            network: blackwire_common::Network::Tcp,
+            inbound_tag,
+            user,
+            sniffed_protocol,
+            sniffed_domain,
+        }
+    }
+
+    async fn resolve_domain_ips(&self, dest: &Address) -> Option<Vec<Address>> {
+        let Address::Domain(name, port) = dest else {
+            return None;
+        };
+        let mut ips = Vec::new();
+        if let Some(dns) = &self.dns {
+            if let Ok(resolved) = dns.resolve(name).await {
+                for ip in resolved {
+                    ips.push(match ip {
+                        std::net::IpAddr::V4(v4) => Address::Ipv4(v4, *port),
+                        std::net::IpAddr::V6(v6) => Address::Ipv6(v6, *port),
+                    });
+                }
+            }
+        }
+        if ips.is_empty() {
+            if let Ok(addrs) = tokio::net::lookup_host((name.as_str(), *port)).await {
+                for addr in addrs {
+                    ips.push(match addr {
+                        std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), *port),
+                        std::net::SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), *port),
+                    });
+                }
+            }
+        }
+        if ips.is_empty() {
+            None
+        } else {
+            Some(ips)
+        }
+    }
+
     fn restore_fakeip_destination(&self, dest: Address) -> Address {
         let Some(dns) = &self.dns else {
             return dest;
@@ -212,10 +384,13 @@ mod tests {
     struct StaticRouter;
 
     impl Router for StaticRouter {
-        fn pick_route(&self, _ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
-            Ok(Route {
-                outbound_tag: Arc::from("unused"),
-            })
+        fn pick_route_match(&self, _ctx: &RoutingContext<'_>) -> (Route, bool) {
+            (
+                Route {
+                    outbound_tag: Arc::from("unused"),
+                },
+                false,
+            )
         }
     }
 

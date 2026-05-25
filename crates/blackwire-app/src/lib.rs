@@ -21,10 +21,14 @@ pub mod health;
 pub mod metrics;
 mod relay;
 pub mod router;
+pub mod runtime_stats;
+pub mod sniff;
 
 pub use balancer::Balancer;
 pub use context::Context;
 pub use dispatcher::Dispatcher;
 pub use features::{ConnectionHandler, InboundHandler, OutboundHandler};
 pub use health::{HealthChecker, HealthStates, OutboundState};
-pub use router::{Route, Router, RoutingContext};
+pub use router::{
+    normalize_routing_domain_strategy, Route, Router, RoutingContext, RoutingDomainStrategy,
+};

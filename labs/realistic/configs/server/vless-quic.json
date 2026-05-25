@@ -1,0 +1,28 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-quic-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8447,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }]
+      },
+      "streamSettings": {
+        "network": "quic",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/blackwire/certs/cert.pem",
+          "keyFile": "/etc/blackwire/certs/key.pem"
+        },
+        "quicSettings": {
+          "security": "none",
+          "key": "",
+          "header": { "type": "none" }
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

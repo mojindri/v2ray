@@ -1,16 +1,18 @@
 SHELL := /bin/bash
+.SHELLFLAGS := -euo pipefail -c
 
 ROOT := ../..
 REPORTS := reports
-# Hetzner VPS are x86_64; on Apple Silicon default docker build is arm64 — force linux/amd64.
-DOCKER_PLATFORM ?= linux/amd64
+# Local interop: native Docker arch (fast on Apple Silicon). VPS deploy: make build-amd64.
+DOCKER_PLATFORM ?=
 LINUX_BIN := $(ROOT)/target/linux-amd64/blackwire
+DOCKER_PLATFORM_FLAG := $(if $(DOCKER_PLATFORM),--platform $(DOCKER_PLATFORM),)
 SSH_USER ?= root
 SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build build-linux-bin docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
+.PHONY: help build build-amd64 build-linux-bin docker-up stable ship finalize interop-docker interop-server-docker interop-client-reality interop-server-vps \
 	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
@@ -18,16 +20,24 @@ SSH_EXTRA_OPTS ?=
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
 
-build: ## Build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
+ship: finalize ## Alias: full local parity gate before push/PR
+
+finalize: stable advanced-features-smoke interop-server-docker ## Full local gate: unit/e2e + advanced smoke + external-client matrix
+	@echo "finalize: PASS"
+
+build: ## Build blackwire:latest (native platform; fast local interop on arm64 Mac)
 	@mkdir -p $(REPORTS)
-	docker build --platform $(DOCKER_PLATFORM) \
+	docker build $(DOCKER_PLATFORM_FLAG) \
 		-f $(ROOT)/deploy/docker/Dockerfile \
 		-t blackwire:latest $(ROOT) | tee $(REPORTS)/docker-build-image.txt
-	@echo "Built blackwire:latest ($(DOCKER_PLATFORM))"
+	@echo "Built blackwire:latest $$(docker image inspect blackwire:latest --format '{{.Os}}/{{.Architecture}}')"
 
-build-linux-bin: build ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
+build-amd64: ## Cross-build blackwire:latest for linux/amd64 (Hetzner x86_64 VPS)
+	$(MAKE) build DOCKER_PLATFORM=linux/amd64
+
+build-linux-bin: build-amd64 ## Extract linux/amd64 binary for scp to VPS (no cargo on server)
 	@mkdir -p $(dir $(LINUX_BIN))
-	@cid=$$(docker create --platform $(DOCKER_PLATFORM) blackwire:latest); \
+	@cid=$$(docker create --platform linux/amd64 blackwire:latest); \
 	 docker cp "$$cid:/usr/local/bin/blackwire" "$(LINUX_BIN)"; \
 	 docker rm "$$cid" >/dev/null
 	@file "$(LINUX_BIN)"
@@ -41,6 +51,7 @@ stable: ## Run the stable Rust integration matrix
 	@mkdir -p $(REPORTS)
 	cd $(ROOT) && cargo test -p integration-tests 2>&1 | tee labs/realistic/$(REPORTS)/stable-matrix.log
 
+# External-client matrix: sequential only (one client at a time; see external-clients/README.md).
 interop-server-docker: build ## Server-compat: Xray/sing-box clients -> our server (Docker)
 	@mkdir -p $(REPORTS)/external-clients
 	@bash external-clients/scripts/run-docker-matrix.sh $(REPORTS)/external-clients configs/matrix.env
@@ -61,19 +72,26 @@ xray: ## Deprecated: use make interop-client-reality
 	@echo "Deprecated alias: use make interop-client-reality"
 	$(MAKE) interop-client-reality
 
-advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, health/failover, DNS/geo routing guards
-	@mkdir -p $(REPORTS)
-	@echo "=== [advanced-features-smoke] ShadowTLS v3 ===" | tee $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p integration-tests phase7_vless_over_shadowtls_v3_transfers_data 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	@echo "=== [advanced-features-smoke] mKCP ===" | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p integration-tests phase8_vless_over_mkcp 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	@echo "=== [advanced-features-smoke] health / failover guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness balancer_rejects_missing_selector_outbound 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness balancer_rejects_unsupported_health_check_scheme 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness routing_rule_can_target_registered_balancer 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	@echo "=== [advanced-features-smoke] DNS / geo / FakeIP guards ===" | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
-	cd $(ROOT) && cargo test -p blackwire-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, QUIC/SplitHTTP VLESS, health/failover, DNS/geo routing guards
+	@set -euo pipefail; \
+	log="$(CURDIR)/$(REPORTS)/advanced-features-smoke.log"; \
+	mkdir -p "$(CURDIR)/$(REPORTS)"; \
+	: > "$$log"; \
+	cd "$(ROOT)"; \
+	run() { \
+	  echo "=== [advanced-features-smoke] $$1 ===" | tee -a "$$log"; \
+	  shift; \
+	  cargo test --locked "$$@" 2>&1 | tee -a "$$log"; \
+	}; \
+	run "VLESS QUIC" -p integration-tests --test e2e_phase6_vless_quic phase6_vless_quic_echo; \
+	run "VLESS SplitHTTP" -p integration-tests --test e2e_phase6_vless_splithttp phase6_vless_splithttp_echo; \
+	run "ShadowTLS v3" -p integration-tests --test e2e_phase7_shadowtls phase7_vless_over_shadowtls_v3_transfers_data; \
+	run "mKCP" -p integration-tests --test e2e_phase8_mkcp phase8_vless_over_mkcp; \
+	run "health / failover guards" -p blackwire-core --test production_readiness balancer_rejects_missing_selector_outbound; \
+	run "health / failover guards" -p blackwire-core --test production_readiness balancer_rejects_unsupported_health_check_scheme; \
+	run "health / failover guards" -p blackwire-core --test production_readiness routing_rule_can_target_registered_balancer; \
+	run "DNS / geo / FakeIP guards" -p blackwire-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing; \
+	run "DNS / geo / FakeIP guards" -p blackwire-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup
 
 negative-auth: ## Run negative-auth scenarios that should be rejected/fallback
 	@mkdir -p $(REPORTS)
@@ -118,7 +136,7 @@ report-summary: ## Build a compact summary from report logs
 
 realistic-all: docker-full advanced-features-smoke negative-auth restart-smoke stress report-summary ## Full local baseline + advanced-feature smoke tests
 
-docker-full: docker-up stable interop-docker ## Run stable matrix + full Docker interop (server + client legs)
+docker-full: docker-up stable advanced-features-smoke interop-docker ## Stable matrix + ShadowTLS/mKCP smoke + Docker interop
 
 docker-down: ## Stop lab and interop containers
 	-docker compose -f docker-compose.yml down -v

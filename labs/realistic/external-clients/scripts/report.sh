@@ -25,11 +25,13 @@ if [[ $# -gt 0 ]]; then
 fi
 
 found=0
-for dir in "$REPORT_ROOT/external-clients" "$REPORT_ROOT/external-clients-vps"; do
-    if print_report "$dir"; then
-        found=1
-    fi
-done
+if print_report "$REPORT_ROOT/external-clients"; then
+    found=1
+fi
+# VPS summary is optional; stale files caused false FAIL lines after a green Docker run.
+if [[ "${EXTERNAL_CLIENT_REPORT_VPS:-0}" == 1 ]] && print_report "$REPORT_ROOT/external-clients-vps"; then
+    found=1
+fi
 
 if [[ "$found" -eq 0 ]]; then
     echo "No external-client summaries found under $REPORT_ROOT"

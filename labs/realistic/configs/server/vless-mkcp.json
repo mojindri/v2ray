@@ -1,0 +1,26 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-mkcp-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8451,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }]
+      },
+      "streamSettings": {
+        "network": "kcp",
+        "kcpSettings": {
+          "header": "none",
+          "tti": 10,
+          "uplinkCapacity": 5,
+          "downlinkCapacity": 20,
+          "readBufferSize": 32,
+          "writeBufferSize": 32
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

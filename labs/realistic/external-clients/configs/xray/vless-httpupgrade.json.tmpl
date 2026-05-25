@@ -1,0 +1,32 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-in", "listen": "0.0.0.0", "port": 1080, "protocol": "socks", "settings": { "auth": "noauth" } }
+  ],
+  "outbounds": [
+    {
+      "tag": "blackwire-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "${EXTERNAL_SERVER_ADDRESS}",
+            "port": 8446,
+            "users": [
+              { "id": "${VLESS_UUID}", "encryption": "none", "flow": "" }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "httpupgrade",
+        "security": "tls",
+        "tlsSettings": { "serverName": "${EXTERNAL_TLS_SERVER_NAME}", "allowInsecure": true },
+        "httpupgradeSettings": {
+          "path": "/proxy",
+          "host": "${EXTERNAL_TLS_SERVER_NAME}"
+        }
+      }
+    }
+  ]
+}

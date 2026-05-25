@@ -111,3 +111,16 @@ To interoperate cleanly, the Rust client now offers both:
 - `secp256r1` for TLS servers that prefer P-256
 
 That first-flight dual offer is what made the `d1` Phase 3 handshake pass.
+
+## CI gates
+
+Pull requests run `.github/workflows/interop-smoke.yml`:
+
+- `cargo test -p integration-tests --locked` (parity unit tests, production readiness)
+- `make -C labs/realistic advanced-features-smoke` (ShadowTLS + mKCP)
+
+Scheduled / `workflow_dispatch` runs also execute `make -C labs/realistic interop-server-docker`
+(external Xray/sing-box clients against a blackwire server). On failure, interop logs are
+uploaded from `labs/realistic/reports/`.
+
+Wire parity exit criteria are defined in `docs/xray-parity-source-of-truth.md`.

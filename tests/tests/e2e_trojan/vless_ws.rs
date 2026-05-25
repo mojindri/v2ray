@@ -37,7 +37,15 @@ async fn vless_over_ws_plain() {
     .unwrap();
 
     let dest = Address::Ipv4("127.0.0.1".parse().unwrap(), echo_port);
-    let mut stream = connect_vless_on_stream(ws, &uuid, "", &dest).await.unwrap();
+    let mut stream = connect_vless_on_stream(
+        ws,
+        &uuid,
+        "",
+        blackwire_protocol::vless::codec::Command::Tcp,
+        &dest,
+    )
+    .await
+    .unwrap();
 
     let payload = b"VLESS OVER WS PLAIN";
     stream.write_all(payload).await.unwrap();
@@ -85,7 +93,15 @@ async fn vless_over_ws_tls() {
     .unwrap();
 
     let dest = Address::Ipv4("127.0.0.1".parse().unwrap(), echo_port);
-    let mut stream = connect_vless_on_stream(ws, &uuid, "", &dest).await.unwrap();
+    let mut stream = connect_vless_on_stream(
+        ws,
+        &uuid,
+        "",
+        blackwire_protocol::vless::codec::Command::Tcp,
+        &dest,
+    )
+    .await
+    .unwrap();
 
     let payload = b"VLESS OVER WSS";
     stream.write_all(payload).await.unwrap();
@@ -129,7 +145,15 @@ async fn vless_over_ws_large_payload() {
     .unwrap();
 
     let dest = Address::Ipv4("127.0.0.1".parse().unwrap(), echo_port);
-    let mut stream = connect_vless_on_stream(ws, &uuid, "", &dest).await.unwrap();
+    let mut stream = connect_vless_on_stream(
+        ws,
+        &uuid,
+        "",
+        blackwire_protocol::vless::codec::Command::Tcp,
+        &dest,
+    )
+    .await
+    .unwrap();
 
     let payload = vec![0xAAu8; 48 * 1024];
     stream.write_all(&payload).await.unwrap();
@@ -179,7 +203,15 @@ async fn vless_over_ws_tls_multi_conn() {
         .unwrap();
 
         let dest = Address::Ipv4("127.0.0.1".parse().unwrap(), echo_port);
-        let mut stream = connect_vless_on_stream(ws, &uuid, "", &dest).await.unwrap();
+        let mut stream = connect_vless_on_stream(
+            ws,
+            &uuid,
+            "",
+            blackwire_protocol::vless::codec::Command::Tcp,
+            &dest,
+        )
+        .await
+        .unwrap();
 
         let msg = format!("connection {i}").into_bytes();
         stream.write_all(&msg).await.unwrap();

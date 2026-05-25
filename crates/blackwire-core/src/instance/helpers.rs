@@ -13,7 +13,7 @@ use blackwire_app::geo::loader::{load_geoip, load_geosite};
 use blackwire_app::health::{HealthStates, OutboundState};
 use blackwire_app::router::{CompiledRule, DomainMatcher, IpMatcher};
 use blackwire_common::{BoxedStream, ProxyError};
-use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
+use blackwire_config::schema::{NetworkType, Protocol, SecurityType, StreamSettingsConfig};
 use blackwire_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
@@ -55,6 +55,7 @@ pub(crate) fn initial_health_states(
 pub(crate) fn reject_unfinished_transport_settings(
     side: &str,
     tag: &str,
+    _protocol: Protocol,
     stream_settings: &Option<StreamSettingsConfig>,
 ) -> Result<()> {
     let Some(settings) = stream_settings else {
@@ -291,6 +292,20 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
     Ok(*uuid.as_bytes())
 }
 
+pub(crate) fn build_sniffing_map(
+    inbounds: &[blackwire_config::schema::InboundConfig],
+) -> std::collections::HashMap<String, blackwire_config::schema::SniffingConfig> {
+    let mut map = std::collections::HashMap::new();
+    for inbound in inbounds {
+        if let Some(sniff) = &inbound.sniffing {
+            if sniff.enabled {
+                map.insert(inbound.tag.clone(), sniff.clone());
+            }
+        }
+    }
+    map
+}
+
 pub(crate) fn build_rules(
     rules: &[blackwire_config::schema::RoutingRule],
     outbound_tags: &HashSet<String>,
@@ -363,6 +378,7 @@ pub(crate) fn build_rules(
                 geoip_codes,
                 port_ranges,
                 inbound_tags: r.inbound_tag.clone(),
+                protocols: r.protocol.clone(),
             })
         })
         .collect()

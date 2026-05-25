@@ -34,6 +34,9 @@ pub enum NetworkType {
     Tcp,
     /// WebSocket.
     Ws,
+    /// HTTPUpgrade transport (Xray `httpupgrade`).
+    #[serde(rename = "httpupgrade")]
+    HttpUpgrade,
     /// gRPC over HTTP/2.
     Grpc,
     /// QUIC-based transport.

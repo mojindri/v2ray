@@ -31,6 +31,12 @@ pub struct Context {
 
     /// The detected inner protocol (e.g. "http", "tls"), if sniffing is enabled.
     pub sniffed_protocol: Option<String>,
+
+    /// Sniffed domain (HTTP Host or TLS SNI), if sniffing is enabled.
+    pub sniffed_domain: Option<String>,
+
+    /// Client requested VLESS flow `xtls-rprx-vision`.
+    pub vision_flow: bool,
 }
 
 impl Context {
@@ -41,12 +47,27 @@ impl Context {
             inbound_tag: inbound_tag.into(),
             user: None,
             sniffed_protocol: None,
+            sniffed_domain: None,
+            vision_flow: false,
         }
+    }
+
+    /// Mark XTLS Vision flow for relay optimizations.
+    pub fn with_vision(mut self, enabled: bool) -> Self {
+        self.vision_flow = enabled;
+        self
     }
 
     /// Set the authenticated user on this context.
     pub fn with_user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
+        self
+    }
+
+    /// Attach sniffing results from [`crate::sniff::SniffResult`].
+    pub fn with_sniff(mut self, protocol: Option<String>, domain: Option<String>) -> Self {
+        self.sniffed_protocol = protocol;
+        self.sniffed_domain = domain;
         self
     }
 }

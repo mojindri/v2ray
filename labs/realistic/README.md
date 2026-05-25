@@ -7,157 +7,78 @@ It has two jobs:
 1. Run the stable protocol matrix in a repeatable local environment.
 2. Provide a two-VPS checklist for the same scenarios over real public networking.
 
-## What Is Mandatory Green
+## Gates (what to run)
 
-The mandatory matrix is limited to paths that are wired end-to-end today:
+| Goal | Command |
+|------|---------|
+| Everyday Rust confidence | `make -C labs/realistic stable` |
+| ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health/DNS guards | `make -C labs/realistic advanced-features-smoke` |
+| Xray/sing-box clients → our server (Docker) | `make -C labs/realistic interop-server-docker` |
+| All local pre-push checks | `make -C labs/realistic finalize` |
+| Same matrix on two VPS hosts | `SSH_SERVER=… SSH_CLIENT=… make -C labs/realistic interop-server-vps` |
 
-- VLESS TCP
-- VLESS REALITY
-- VLESS over WebSocket
-- VMess over gRPC
-- Trojan over TLS
-- Shadowsocks 2022
-- Hysteria2
-- Xray REALITY interop
+**External-client matrix (Docker):** 15 protocol rows × 4 cases → **52 PASS, 8 SKIP, 0 FAIL** when green. The eight SKIPs are **client/config limits** (Xray 26 QUIC, SplitHTTP, ShadowTLS, mKCP), not missing server transports — see [docs/parity-status.md](../../docs/parity-status.md).
 
-**Advanced features** (ShadowTLS, mKCP, health/failover, DNS/geo routing) have local smoke
-tests via `make -C labs/realistic advanced-features-smoke` but are not mandatory green yet.
-See the table above and [labs/realistic/README.md](labs/realistic/README.md).
+Source of truth: [docs/xray-parity-source-of-truth.md](../../docs/xray-parity-source-of-truth.md).
 
-## Local Docker Baseline
-
-Run the full local baseline:
+## Local Docker baseline
 
 ```sh
 make -C labs/realistic docker-full
 ```
 
-This does three things:
-
-1. Starts deterministic target services for manual probing.
+1. Starts deterministic target services.
 2. Runs the stable Rust integration matrix.
-3. Starts Xray and runs the live REALITY interop tests.
+3. Runs Xray REALITY interop tests.
 
-Reports are written under `labs/realistic/reports/`.
-
-Run advanced-feature smoke tests (ShadowTLS, mKCP, health/failover, DNS/routing guards):
+Reports: `labs/realistic/reports/`.
 
 ```sh
-make -C labs/realistic advanced-features-smoke
-```
-
-Writes `reports/advanced-features-smoke.log`.
-
-Run negative-auth scenarios:
-
-```sh
+make -C labs/realistic advanced-features-smoke   # ShadowTLS, mKCP, QUIC/SplitHTTP, guards
 make -C labs/realistic negative-auth
-```
-
-Run restart smoke checks:
-
-```sh
 make -C labs/realistic restart-smoke
-```
-
-Run repeat stress loop:
-
-```sh
 make -C labs/realistic stress
-```
-
-Build a compact report summary:
-
-```sh
 make -C labs/realistic report-summary
-```
-
-Run the whole realistic bundle:
-
-```sh
 make -C labs/realistic realistic-all
-```
-
-Clean up:
-
-```sh
 make -C labs/realistic docker-down
 ```
 
-## External client compatibility (interop server-compat)
+## External client compatibility (server-compat)
 
-The external-client lab is the **server-compat** leg of interop: scenarios in
-`external-clients/scenarios.env` run against a `blackwire` server inbound. This
-is different from `vps-test`, which checks `blackwire` client → `blackwire` server.
+Scenarios in `external-clients/scenarios.env`: real **Xray** or **sing-box** client → **blackwire** server → `target-http`.
 
 ```sh
 make -C labs/realistic interop-server-docker
-# or both interop legs:
-make -C labs/realistic interop-docker
+make -C labs/realistic interop-docker   # + client-compat REALITY leg
 ```
 
-Promote to VPS:
+VPS:
 
 ```sh
 SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 make -C labs/realistic interop-server-vps
 ```
 
-Generated configs and Hiddify import artifacts are written under
-`labs/realistic/external-clients/generated/`. Reports are written under
-`labs/realistic/reports/external-clients/`.
+Configs: `external-clients/generated/`. Reports: `reports/external-clients/`.
 
-Run this before claiming GUI-client compatibility for a specific scenario set. A
-passing `blackwire` client matrix does not prove Xray, sing-box, or Hiddify
-inbound compatibility on paths that are not in the current external-client
-scenario file.
+Details: [external-clients/README.md](external-clients/README.md).
 
-## Two-VPS Gate
+## Two-VPS gate
 
-The closest-to-production gate uses two Ubuntu 24.04 VPS machines:
+- **Client VPS:** runs matrix probes (Docker Xray/sing-box + curl).
+- **Server VPS:** blackwire inbounds, Caddy ACME, target on `:18080`.
 
-- client VPS: runs the client-side `blackwire` instance and traffic generator.
-- server VPS: runs public protocol inbounds, target services, Caddy ACME, and firewall rules.
-
-See [docs/11-testing.md](../../docs/11-testing.md) for the full step-by-step VPS workflow.
-
-Quick start:
+Full steps: [docs/11-testing.md](../../docs/11-testing.md).
 
 ```sh
-# Fill in your server IP, domain, keys, and passwords
 cp configs/matrix.env.example configs/matrix.env
-
-# Provision server VPS
 SSH_SERVER=1.2.3.4 SSH_KEY=~/.ssh/id_hetzner make vps-server-setup
-
-# Provision client VPS
 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_hetzner make vps-client-setup
-
-# Run the 7-protocol matrix from the client
 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_hetzner make vps-test
-
-# Run TUN privileged tests on the server (Linux + root)
 SSH_SERVER=1.2.3.4 SSH_KEY=~/.ssh/id_hetzner make vps-tun
 ```
 
-Optional SSH overrides:
+Optional: `SSH_USER`, `SSH_PORT`, `SSH_EXTRA_OPTS`, or `make vm-pack`.
 
-- `SSH_USER`
-- `SSH_PORT`
-- `SSH_EXTRA_OPTS`
+## Why this lab reuses existing tests
 
-Or pack everything into a tarball and transfer manually:
-
-```sh
-make vm-pack
-# Then follow vps/README.md on each machine
-```
-
-## Why This Lab Reuses Existing Tests
-
-The existing integration tests already exercise real `blackwire-core::Instance`
-objects with the stable protocol stack. This lab deliberately wraps those tests
-instead of duplicating protocol logic in shell scripts.
-
-The Docker services here provide realistic targets and Xray compatibility
-coverage. Full client/server process orchestration is added per feature only
-after that feature has a passing local e2e test.
+Integration tests already exercise real `blackwire-core::Instance` objects. This lab wraps them with Docker targets and external clients instead of duplicating protocol logic in shell scripts.

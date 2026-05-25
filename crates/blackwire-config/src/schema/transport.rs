@@ -37,6 +37,23 @@ pub struct StreamSettingsConfig {
     )]
     pub ws_settings: Option<WsConfig>,
 
+    /// HTTPUpgrade-specific settings (same shape as WebSocket path/headers).
+    #[serde(
+        default,
+        rename = "httpupgradeSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub httpupgrade_settings: Option<WsConfig>,
+
+    /// SplitHTTP / xHTTP settings.
+    #[serde(
+        default,
+        rename = "splithttpSettings",
+        alias = "xhttpSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub splithttp_settings: Option<SplitHttpConfig>,
+
     /// gRPC-specific settings.
     #[serde(
         default,
@@ -169,6 +186,30 @@ fn default_ws_path() -> String {
     "/".to_string()
 }
 
+/// SplitHTTP transport settings.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct SplitHttpConfig {
+    /// HTTP path used by the transport.
+    #[serde(default = "default_ws_path")]
+    pub path: String,
+
+    /// Optional host override(s).
+    #[serde(default)]
+    pub host: Vec<String>,
+
+    /// HTTP method to use for the upload request.
+    #[serde(default = "default_splithttp_method")]
+    pub method: String,
+
+    /// Extra HTTP headers.
+    #[serde(default)]
+    pub headers: std::collections::HashMap<String, String>,
+}
+
+fn default_splithttp_method() -> String {
+    "PUT".to_string()
+}
+
 /// gRPC transport settings.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GrpcConfig {
@@ -260,11 +301,35 @@ fn default_shadowtls_version() -> u8 {
     3
 }
 
+/// Xray accepts mKCP `header` as either a string (`"none"`) or `{"type":"none"}`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(untagged)]
+enum KcpHeaderField {
+    Plain(String),
+    Typed {
+        #[serde(rename = "type")]
+        typ: String,
+    },
+}
+
+fn deserialize_kcp_header<'de, D>(deserializer: D) -> Result<String, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    match KcpHeaderField::deserialize(deserializer)? {
+        KcpHeaderField::Plain(s) => Ok(s),
+        KcpHeaderField::Typed { typ } => Ok(typ),
+    }
+}
+
 /// mKCP transport settings (UDP-based reliable stream).
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct KcpConfig {
     /// Packet obfuscation header type (`"none"`, `"srtp"`, `"wechat-video"`, etc.).
-    #[serde(default = "default_kcp_header")]
+    #[serde(
+        default = "default_kcp_header",
+        deserialize_with = "deserialize_kcp_header"
+    )]
     pub header: String,
     /// Maximum transmission unit for KCP segments.
     #[serde(default = "default_kcp_mtu")]

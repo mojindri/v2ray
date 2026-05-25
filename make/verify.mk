@@ -9,7 +9,8 @@
 	lab-lima-preflight lab-lima-test-fingerprint lab-lima-down \
 	remote-preflight remote-deploy remote-test-smoke remote-test-protocols \
 	remote-test-fingerprint remote-test-fallback remote-collect remote-clean \
-	security fuzz-long perf-remote soak
+	security fuzz-long perf-remote soak \
+	advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable
 
 LAB_DIR := labs/realistic
 REPORT_DOCKER := $(LAB_DIR)/reports/external-clients/summary.txt
@@ -182,6 +183,11 @@ verify-release:
 	$(MAKE) soak
 	$(MAKE) fuzz-long
 	@echo "==> verify-release complete"
+
+# ── Lab targets (root aliases → labs/realistic/Makefile) ─────────────────────
+
+advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable:
+	$(MAKE) -C $(LAB_DIR) $@
 
 # ── Support targets ───────────────────────────────────────────────────────────
 

@@ -1,0 +1,27 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "vless-httpupgrade-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 8446,
+      "settings": {
+        "clients": [{ "id": "${VLESS_UUID}", "email": "vps-user@lab", "flow": "" }]
+      },
+      "streamSettings": {
+        "network": "httpupgrade",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "/etc/blackwire/certs/cert.pem",
+          "keyFile": "/etc/blackwire/certs/key.pem"
+        },
+        "httpupgradeSettings": {
+          "path": "/proxy",
+          "headers": { "Host": "blackwire.local" }
+        }
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

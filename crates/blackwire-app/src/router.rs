@@ -58,6 +58,12 @@ pub struct RoutingContext<'a> {
 
     /// The authenticated user, if any.
     pub user: Option<&'a str>,
+
+    /// Sniffed inner protocol (`http`, `tls`, …) when enabled.
+    pub sniffed_protocol: Option<&'a str>,
+
+    /// Sniffed domain from HTTP Host or TLS SNI.
+    pub sniffed_domain: Option<&'a str>,
 }
 
 /// The routing trait. Can be swapped out at runtime via `ArcSwap`.
@@ -66,7 +72,25 @@ pub trait Router: Send + Sync + 'static {
     ///
     /// Returns `Route` on success, or `ProxyError::RoutingFailed` if no rule
     /// matched and there is no default outbound configured.
-    fn pick_route(&self, ctx: &RoutingContext<'_>) -> Result<Route, ProxyError>;
+    fn pick_route(&self, ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
+        Ok(self.pick_route_match(ctx).0)
+    }
+
+    /// Like [`pick_route`](Self::pick_route), but reports whether a configured rule
+    /// matched (`true`) or the default outbound was used (`false`).
+    ///
+    /// Used for Xray `routing.domainStrategy` (`IPIfNonMatch`, `IPOnDemand`).
+    fn pick_route_match(&self, ctx: &RoutingContext<'_>) -> (Route, bool);
+
+    /// `true` when any rule may match on destination IP (literal CIDR or `geoip:`).
+    fn has_ip_rules(&self) -> bool {
+        false
+    }
+
+    /// Xray `routing.domainStrategy` (`AsIs`, `IPIfNonMatch`, `IPOnDemand`).
+    fn domain_strategy(&self) -> Option<String> {
+        None
+    }
 }
 
 /// The live router, stored behind `ArcSwap` for hot-reload support.
@@ -84,6 +108,7 @@ impl LiveRouter {
         default_tag: impl Into<Arc<str>>,
         geoip: HashMap<String, GeoIpMatcher>,
         geosite: HashMap<String, GeoSiteMatcher>,
+        domain_strategy: Option<String>,
     ) -> Arc<Self> {
         Arc::new(Self {
             inner: ArcSwap::from_pointee(RouterInner {
@@ -91,6 +116,7 @@ impl LiveRouter {
                 default_tag: default_tag.into(),
                 geoip,
                 geosite,
+                domain_strategy,
             }),
         })
     }
@@ -105,35 +131,74 @@ impl LiveRouter {
         default_tag: impl Into<Arc<str>>,
         geoip: HashMap<String, GeoIpMatcher>,
         geosite: HashMap<String, GeoSiteMatcher>,
+        domain_strategy: Option<String>,
     ) {
         self.inner.store(Arc::new(RouterInner {
             rules,
             default_tag: default_tag.into(),
             geoip,
             geosite,
+            domain_strategy,
         }));
     }
 }
 
 impl Router for LiveRouter {
-    fn pick_route(&self, ctx: &RoutingContext<'_>) -> Result<Route, ProxyError> {
-        // Load the current router snapshot (wait-free read).
-        let inner = self.inner.load();
+    fn domain_strategy(&self) -> Option<String> {
+        self.inner.load().domain_strategy.clone()
+    }
 
-        // Evaluate rules in order; first match wins.
+    fn has_ip_rules(&self) -> bool {
+        let inner = self.inner.load();
+        inner
+            .rules
+            .iter()
+            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty())
+    }
+
+    fn pick_route_match(&self, ctx: &RoutingContext<'_>) -> (Route, bool) {
+        let inner = self.inner.load();
         for rule in &inner.rules {
             if rule.matches_with_geo(ctx, &inner.geoip, &inner.geosite) {
-                return Ok(Route {
-                    outbound_tag: Arc::clone(&rule.outbound_tag),
-                });
+                return (
+                    Route {
+                        outbound_tag: Arc::clone(&rule.outbound_tag),
+                    },
+                    true,
+                );
             }
         }
-
-        // No rule matched — use the default outbound.
-        Ok(Route {
-            outbound_tag: Arc::clone(&inner.default_tag),
-        })
+        (
+            Route {
+                outbound_tag: Arc::clone(&inner.default_tag),
+            },
+            false,
+        )
     }
+}
+
+/// Normalize Xray `routing.domainStrategy` spelling.
+pub fn normalize_routing_domain_strategy(strategy: Option<&str>) -> RoutingDomainStrategy {
+    match strategy
+        .map(str::trim)
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
+        Some("ipifnonmatch") => RoutingDomainStrategy::IpIfNonMatch,
+        Some("ipondemand") => RoutingDomainStrategy::IpOnDemand,
+        _ => RoutingDomainStrategy::AsIs,
+    }
+}
+
+/// Xray [`routing.domainStrategy`](https://xtls.github.io/en/config/routing.html).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RoutingDomainStrategy {
+    /// Route using the destination as given (no extra DNS for routing).
+    AsIs,
+    /// Resolve domain when no domain rule matches, then retry IP rules.
+    IpIfNonMatch,
+    /// Resolve domain before the first route attempt.
+    IpOnDemand,
 }
 
 /// The immutable inner state of the router, swapped atomically on reload.
@@ -146,6 +211,8 @@ struct RouterInner {
     geoip: HashMap<String, GeoIpMatcher>,
     /// GeoSite data indexed by uppercase group name.
     geosite: HashMap<String, GeoSiteMatcher>,
+    /// Xray `domainStrategy` for pre-routing DNS resolution.
+    domain_strategy: Option<String>,
 }
 
 /// A single compiled routing rule, ready for fast matching.
@@ -175,6 +242,9 @@ pub struct CompiledRule {
 
     /// Inbound tags this rule applies to. Empty means "any inbound".
     pub inbound_tags: Vec<String>,
+
+    /// Protocol names from sniffing (e.g. `http`, `tls`). Empty means any.
+    pub protocols: Vec<String>,
 }
 
 impl CompiledRule {
@@ -199,6 +269,15 @@ impl CompiledRule {
         if !self.inbound_tags.is_empty() && !self.inbound_tags.iter().any(|t| t == ctx.inbound_tag)
         {
             return false;
+        }
+
+        if !self.protocols.is_empty() {
+            let Some(proto) = ctx.sniffed_protocol else {
+                return false;
+            };
+            if !self.protocols.iter().any(|p| p == proto) {
+                return false;
+            }
         }
 
         // Check port restriction.
@@ -407,6 +486,53 @@ mod tests {
         assert!(!matcher.matches("notgoogle.com"));
     }
 
+    // Xray IPIfNonMatch: domain pass misses IP rules; resolved IP hits geoip/CIDR rule.
+    #[test]
+    fn ip_if_non_match_second_pass_finds_ip_rule() {
+        use std::sync::Arc;
+
+        let rule = CompiledRule {
+            outbound_tag: Arc::from("direct"),
+            domain_matcher: None,
+            geosite_codes: vec![],
+            ip_matcher: Some(IpMatcher::new(vec!["203.0.113.0/24".into()]).expect("cidr")),
+            geoip_codes: vec![],
+            port_ranges: vec![],
+            inbound_tags: vec![],
+            protocols: vec![],
+        };
+        let router = LiveRouter::new(
+            vec![rule],
+            "proxy",
+            HashMap::new(),
+            HashMap::new(),
+            Some("IPIfNonMatch".into()),
+        );
+
+        let domain_ctx = RoutingContext {
+            dest: &Address::Domain("example.com".into(), 443),
+            network: blackwire_common::Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+            sniffed_protocol: None,
+            sniffed_domain: None,
+        };
+        let (_, matched_domain) = router.pick_route_match(&domain_ctx);
+        assert!(!matched_domain, "domain dest must not match pure IP rule");
+
+        let ip_ctx = RoutingContext {
+            dest: &Address::Ipv4("203.0.113.50".parse().unwrap(), 443),
+            network: blackwire_common::Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+            sniffed_protocol: None,
+            sniffed_domain: None,
+        };
+        let (route, matched_ip) = router.pick_route_match(&ip_ctx);
+        assert!(matched_ip);
+        assert_eq!(route.outbound_tag.as_ref(), "direct");
+    }
+
     // Checks that IP CIDR matching works for addresses inside and outside the range.
     #[test]
     fn ip_cidr_match() {
@@ -435,6 +561,7 @@ mod tests {
             geoip_codes: vec![],
             port_ranges: vec![],
             inbound_tags: vec![],
+            protocols: vec![],
         };
 
         let geosite_entry = GeoSite {
@@ -452,6 +579,8 @@ mod tests {
             network: Network::Tcp,
             inbound_tag: "in",
             user: None,
+            sniffed_protocol: None,
+            sniffed_domain: None,
         };
 
         assert!(rule.matches_with_geo(&ctx, &HashMap::new(), &geosite));

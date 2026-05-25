@@ -1,0 +1,16 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "0.0.0.0", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 10081,
+      "uuid": "${VLESS_UUID}",
+      "network": "tcp"
+    }
+  ]
+}

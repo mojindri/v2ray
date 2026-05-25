@@ -15,10 +15,16 @@ Recommended reading order:
 
 Related docs:
 
+- [parity-status.md](parity-status.md)
+  Shipped parity, external-client matrix SKIPs (vs server support), backlog.
+- [feature-matrix.md](feature-matrix.md)
+  Evidence-based feature status.
+- [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md)
+  Upstream-first rules for wire parity.
 - [../tests/interop/README.md](../tests/interop/README.md)
   REALITY and Xray interop notes, including `d0` and `d1`.
 - [../labs/realistic/README.md](../labs/realistic/README.md)
-  Realistic Docker and two-VPS test gate for the stable protocol matrix.
+  Realistic Docker and two-VPS test gates.
 
 Second-wave deep dives:
 

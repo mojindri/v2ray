@@ -1,0 +1,30 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-in", "listen": "0.0.0.0", "port": 1080, "protocol": "socks", "settings": { "auth": "noauth" } }
+  ],
+  "outbounds": [
+    {
+      "tag": "blackwire-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "${EXTERNAL_SERVER_ADDRESS}",
+            "port": 8450,
+            "users": [{ "id": "${VLESS_UUID}", "encryption": "none", "flow": "" }]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "shadowtls",
+        "shadowTlsSettings": {
+          "version": 3,
+          "password": "${SHADOWTLS_PASSWORD}",
+          "dest": "${SHADOWTLS_DEST}"
+        }
+      }
+    }
+  ]
+}

@@ -14,6 +14,7 @@
 pub mod freedom;
 pub mod http_connect;
 pub mod socks;
+pub mod socks5_udp;
 pub mod ss2022;
 pub mod trojan;
 pub mod vless;

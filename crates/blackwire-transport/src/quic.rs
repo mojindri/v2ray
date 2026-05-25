@@ -43,6 +43,16 @@ pub fn ensure_crypto_provider() {
 /// * `cert_pem` — PEM-encoded certificate chain
 /// * `key_pem`  — PEM-encoded private key (PKCS#8 or PKCS#1)
 pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) -> Result<Endpoint> {
+    build_server_endpoint_with_alpn(addr, cert_pem, key_pem, &[b"h3".to_vec()])
+}
+
+/// Build a QUIC server endpoint with explicit ALPN values.
+pub fn build_server_endpoint_with_alpn(
+    addr: SocketAddr,
+    cert_pem: &str,
+    key_pem: &str,
+    alpn_protocols: &[Vec<u8>],
+) -> Result<Endpoint> {
     ensure_crypto_provider();
 
     let (certs, key) = parse_cert_and_key(cert_pem, key_pem)?;
@@ -52,8 +62,7 @@ pub fn build_server_endpoint(addr: SocketAddr, cert_pem: &str, key_pem: &str) ->
         .with_single_cert(certs, key)
         .context("invalid TLS certificate or key")?;
 
-    // Hysteria2 auth is HTTP/3; sing-box and sing-quic negotiate ALPN "h3".
-    tls_config.alpn_protocols = vec![b"h3".to_vec()];
+    tls_config.alpn_protocols = alpn_protocols.to_vec();
 
     let quic_server_config = QuicServerConfig::try_from(tls_config)
         .context("failed to build QUIC server config from TLS config")?;
@@ -114,6 +123,14 @@ pub fn build_hysteria2_server_endpoint(
 /// This is useful for development with self-signed certificates but MUST NOT
 /// be used in production.
 pub fn build_client_endpoint(skip_verify: bool) -> Result<Endpoint> {
+    build_client_endpoint_with_alpn(skip_verify, &[b"h3".to_vec()])
+}
+
+/// Build a QUIC client endpoint with explicit ALPN values.
+pub fn build_client_endpoint_with_alpn(
+    skip_verify: bool,
+    alpn_protocols: &[Vec<u8>],
+) -> Result<Endpoint> {
     ensure_crypto_provider();
 
     let mut tls_config = if skip_verify {
@@ -121,7 +138,7 @@ pub fn build_client_endpoint(skip_verify: bool) -> Result<Endpoint> {
     } else {
         build_default_client_tls()?
     };
-    tls_config.alpn_protocols = vec![b"h3".to_vec()];
+    tls_config.alpn_protocols = alpn_protocols.to_vec();
 
     let quic_client_config = QuicClientConfig::try_from(tls_config)
         .context("failed to build QUIC client config from TLS config")?;

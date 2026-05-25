@@ -13,6 +13,7 @@ use blackwire_transport::hysteria2::tcp::{address_to_hysteria, hysteria_to_addre
 use blackwire_transport::BrutalCCFactory;
 use http::header::{HeaderName, HeaderValue};
 use http::HeaderMap;
+use std::time::Duration;
 
 #[test]
 fn auth_headers_accept_valid_password() {
@@ -116,6 +117,26 @@ fn brutal_cc_ignores_congestion_events() {
     let now = Instant::now();
     ctrl.on_congestion_event(now, now, true, 1_000_000);
     assert_eq!(window_before, ctrl.window());
+}
+
+#[test]
+#[allow(clippy::cast_lossless)]
+fn hysteria2_brutal_cc_window_stable_under_rapid_congestion_events() {
+    use blackwire_transport::congestion::ControllerFactory;
+
+    let factory = Arc::new(BrutalCCFactory::new(12_500_000));
+    let mut ctrl = Arc::clone(&factory).build(Instant::now(), 1200);
+    let base = ctrl.window();
+    let start = Instant::now();
+    for i in 0..50 {
+        let t = start + Duration::from_millis(i * 10);
+        ctrl.on_congestion_event(t, t, i % 2 == 0, 500_000 + i);
+    }
+    assert_eq!(
+        base,
+        ctrl.window(),
+        "Brutal CC must ignore congestion (hostility)"
+    );
 }
 
 #[test]

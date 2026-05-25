@@ -19,7 +19,7 @@ pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
     GrpcConfig, Hysteria2Config, KcpConfig, RealityConfig, ShadowTlsConfig, SniffingConfig,
-    StreamSettingsConfig, TlsConfig, WsConfig,
+    SplitHttpConfig, StreamSettingsConfig, TlsConfig, WsConfig,
 };
 
 use serde::{Deserialize, Serialize};
@@ -183,6 +183,16 @@ fn default_tun_dns_port() -> u16 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mkcp_header_accepts_xray_object_form() {
+        let json = r#"{
+            "header": { "type": "none" },
+            "tti": 10
+        }"#;
+        let kcp: super::transport::KcpConfig = serde_json::from_str(json).unwrap();
+        assert_eq!(kcp.header, "none");
+    }
 
     #[test]
     fn minimal_config_deserialises() {

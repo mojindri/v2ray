@@ -1,4 +1,4 @@
-# blackwire
+# Blackwire
 
 Rust-native proxy **server** aimed at **wire compatibility** with the Xray and
 sing-box client ecosystem.
