@@ -28,12 +28,12 @@
 //! routing rules and VLESS user lists **without** restarting TCP listeners.
 //! Outbound handlers and listen ports are still fixed at startup.
 
+use anyhow::{Context as _, Result};
+use dashmap::DashMap;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
-use anyhow::{Context as _, Result};
-use dashmap::DashMap;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
@@ -53,16 +53,16 @@ mod helpers;
 
 pub(crate) use helpers::{build_rules, load_geo_data, populate_vless_registry};
 
-use helpers::{
-    build_dns_module, build_mkcp_server_config, build_vless_inbound, build_vless_outbound,
-    handshake_timeout_for, initial_health_states, reject_unfinished_transport_settings,
-    select_balancer_outbounds, InboundConnectionHandler,
-};
 use crate::reality::{build_reality_server, uses_reality, RealityConnectionHandler};
 use crate::reload::ReloadState;
 use crate::ss2022::{build_ss2022_inbound, build_ss2022_outbound};
 use crate::trojan::{build_trojan_inbound, build_trojan_outbound};
 use crate::vmess::{build_vmess_inbound, build_vmess_outbound};
+use helpers::{
+    build_dns_module, build_mkcp_server_config, build_vless_inbound, build_vless_outbound,
+    handshake_timeout_for, initial_health_states, reject_unfinished_transport_settings,
+    select_balancer_outbounds, InboundConnectionHandler,
+};
 
 use crate::ws_tls::{build_conn_handler, uses_grpc, uses_shadowtls, uses_tls, uses_ws};
 

@@ -359,10 +359,7 @@ fn vmess_aead_encrypt(
 ) -> Result<Vec<u8>, ProxyError> {
     let cipher = Aes128Gcm::new(GenericArray::from_slice(key));
     cipher
-        .encrypt(
-            GenericArray::from_slice(nonce),
-            Payload { msg, aad },
-        )
+        .encrypt(GenericArray::from_slice(nonce), Payload { msg, aad })
         .map_err(|_| ProxyError::Protocol(err.into()))
 }
 

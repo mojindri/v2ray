@@ -142,7 +142,9 @@ pub(crate) fn client_hello_cipher_suites(body: &[u8]) -> Result<&[u8], ProxyErro
 
 fn skip_cipher_suites(body: &[u8], mut pos: usize) -> Result<usize, ProxyError> {
     if pos + 2 > body.len() {
-        return Err(ProxyError::Protocol("truncated at cipher_suites_len".into()));
+        return Err(ProxyError::Protocol(
+            "truncated at cipher_suites_len".into(),
+        ));
     }
     let cs_len = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
     pos += 2 + cs_len;

@@ -42,7 +42,9 @@ pub(crate) fn select_balancer_outbounds(
         .collect()
 }
 
-pub(crate) fn initial_health_states(selected: &[(String, Arc<dyn OutboundHandler>)]) -> HealthStates {
+pub(crate) fn initial_health_states(
+    selected: &[(String, Arc<dyn OutboundHandler>)],
+) -> HealthStates {
     let states = HealthStates::default();
     for (tag, _) in selected {
         states.insert(tag.clone(), OutboundState::default());

@@ -1,9 +1,9 @@
 //! Strict parse/validation tests for generated Chrome ClientHello bytes.
 
 use super::ClientHelloBuilder;
-use bytes::BytesMut;
 use crate::grease::is_grease_u16;
 use crate::profile::FingerprintProfile;
+use bytes::BytesMut;
 use rand::SeedableRng;
 
 #[derive(Debug, Clone)]
@@ -66,8 +66,7 @@ fn parse_u24(input: &[u8], p: &mut usize) -> Result<usize, String> {
         return Err("truncated u24".into());
     }
 
-    let v =
-        ((input[*p] as usize) << 16) | ((input[*p + 1] as usize) << 8) | input[*p + 2] as usize;
+    let v = ((input[*p] as usize) << 16) | ((input[*p + 1] as usize) << 8) | input[*p + 2] as usize;
 
     *p += 3;
     Ok(v)
@@ -704,8 +703,8 @@ fn current_builder_generates_parseable_output_for_common_sni_lengths() {
 
     for sni in cases {
         let hello = build_test_hello_with_sni(sni);
-        let parsed = parse_client_hello(&hello)
-            .unwrap_or_else(|e| panic!("failed to parse SNI={sni}: {e}"));
+        let parsed =
+            parse_client_hello(&hello).unwrap_or_else(|e| panic!("failed to parse SNI={sni}: {e}"));
 
         let sni_ext = extension(&parsed, 0x0000).expect("missing SNI extension");
         assert!(

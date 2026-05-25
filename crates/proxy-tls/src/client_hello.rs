@@ -232,4 +232,3 @@ mod tests {
 #[cfg(test)]
 #[path = "client_hello/hard_tests.rs"]
 mod hard_clienthello_tests;
-
