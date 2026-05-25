@@ -318,13 +318,20 @@ impl AsyncWrite for Ss2022Stream {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        // Split field borrows without cloning the buffer. Ss2022Stream: Unpin.
         while !self.write_buf.is_empty() {
-            let data = self.write_buf.clone().freeze();
-            match Pin::new(self.inner.as_mut()).poll_write(cx, &data) {
+            let this = self.as_mut().get_mut();
+            match Pin::new(this.inner.as_mut()).poll_write(cx, &this.write_buf) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
+                Poll::Ready(Ok(0)) => {
+                    return Poll::Ready(Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "SS-2022: inner write returned 0",
+                    )));
+                }
                 Poll::Ready(Ok(n)) => {
-                    let _ = self.write_buf.split_to(n);
+                    let _ = this.write_buf.split_to(n);
                 }
             }
         }
