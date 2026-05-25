@@ -23,7 +23,10 @@
 
 use std::sync::Arc;
 
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
+    ServerName,
+};
 use rustls::version::TLS13;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
@@ -186,9 +189,14 @@ fn parse_certs(pem: &str) -> Result<Vec<CertificateDer<'static>>, ProxyError> {
 fn parse_private_key(pem: &str) -> Result<PrivateKeyDer<'static>, ProxyError> {
     for block in pem_blocks(pem) {
         match block.label.as_str() {
-            "PRIVATE KEY" | "EC PRIVATE KEY" | "RSA PRIVATE KEY" => {
-                let der = PrivatePkcs8KeyDer::from(block.contents);
-                return Ok(PrivateKeyDer::Pkcs8(der));
+            "PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(block.contents)));
+            }
+            "RSA PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(block.contents)));
+            }
+            "EC PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(block.contents)));
             }
             _ => {}
         }

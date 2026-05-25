@@ -31,6 +31,8 @@ use crate::quic::{build_hysteria2_server_endpoint, ensure_crypto_provider, Bruta
 /// Configuration for a Hysteria2 inbound server.
 #[derive(Debug, Clone)]
 pub struct Hysteria2ServerConfig {
+    /// Inbound tag used for routing rules.
+    pub tag: String,
     /// Socket address to listen on (for example `0.0.0.0:443`).
     pub addr: SocketAddr,
     /// Shared password that clients must send during HTTP/3 auth.

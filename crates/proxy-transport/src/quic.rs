@@ -18,7 +18,9 @@ use std::time::Duration;
 use anyhow::{Context as _, Result};
 use quinn::crypto::rustls::{QuicClientConfig, QuicServerConfig};
 use quinn::{ClientConfig, Endpoint, ServerConfig, TransportConfig};
-use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use rustls::pki_types::{
+    CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
+};
 use rustls::RootCertStore;
 
 /// Install the rustls crypto provider used by this workspace.
@@ -188,14 +190,19 @@ fn rustls_pem_certs(pem: &str) -> Result<Vec<CertificateDer<'static>>> {
 
 /// Extract a private key from a PEM string.
 ///
-/// Accepts PKCS#8 (`BEGIN PRIVATE KEY`) or PKCS#8 EC (`BEGIN EC PRIVATE KEY`)
-/// blocks. Returns the first one found.
+/// Accepts PKCS#8 (`PRIVATE KEY`), PKCS#1 (`RSA PRIVATE KEY`), or SEC1
+/// (`EC PRIVATE KEY`) blocks. Returns the first one found.
 fn rustls_pem_key(pem: &str) -> Result<PrivateKeyDer<'static>> {
     for block in pem_blocks(pem) {
         match block.label.as_str() {
-            "PRIVATE KEY" | "EC PRIVATE KEY" | "RSA PRIVATE KEY" => {
-                let der = PrivatePkcs8KeyDer::from(block.contents);
-                return Ok(PrivateKeyDer::Pkcs8(der));
+            "PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Pkcs8(PrivatePkcs8KeyDer::from(block.contents)));
+            }
+            "RSA PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Pkcs1(PrivatePkcs1KeyDer::from(block.contents)));
+            }
+            "EC PRIVATE KEY" => {
+                return Ok(PrivateKeyDer::Sec1(PrivateSec1KeyDer::from(block.contents)));
             }
             _ => {}
         }

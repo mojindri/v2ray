@@ -168,7 +168,13 @@ fn key_share_extension_data(body: &[u8]) -> Option<&[u8]> {
         return None;
     }
     let cs_len = u16::from_be_bytes([body[pos], body[pos + 1]]) as usize;
-    pos += 2 + cs_len + 1;
+    pos += 2 + cs_len;
+    if pos >= body.len() {
+        return None;
+    }
+    // Skip compression_methods: 1-byte length field + content bytes.
+    let comp_len = body[pos] as usize;
+    pos += 1 + comp_len;
     if pos + 2 > body.len() {
         return None;
     }

@@ -34,9 +34,18 @@ pub async fn serve_connection(
     };
 
     handle_h3_auth_request(resolver, &config.password, server_rx_bps, true).await?;
-    // Do not drop the HTTP/3 driver (sends GOAWAY). Leak it so raw QUIC streams work for TCP.
-    std::mem::forget(h3_conn);
+    // Drive the HTTP/3 connection in the background to avoid sending GOAWAY on drop.
+    // Raw QUIC bidi streams (accepted below) carry the actual proxy data.
+    tokio::spawn(async move {
+        loop {
+            match h3_conn.accept().await {
+                Ok(None) | Err(_) => break,
+                Ok(Some(_)) => {}
+            }
+        }
+    });
 
+    let inbound_tag = config.tag.clone();
     loop {
         let (mut send, mut recv) = conn
             .accept_bi()
@@ -44,6 +53,7 @@ pub async fn serve_connection(
             .context("accept Hysteria2 TCP stream")?;
 
         let dispatcher = Arc::clone(&dispatcher);
+        let tag = inbound_tag.clone();
         tokio::spawn(async move {
             let dest = match tcp::server_read_request(&mut recv).await {
                 Ok(d) => d,
@@ -62,7 +72,7 @@ pub async fn serve_connection(
             let stream: BoxedStream = Box::new(ReunionStream::new(recv, send));
             let ctx = Context {
                 source: None,
-                inbound_tag: "hysteria2".to_string(),
+                inbound_tag: tag,
                 user: None,
                 sniffed_protocol: None,
             };

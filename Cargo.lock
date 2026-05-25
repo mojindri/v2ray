@@ -2855,6 +2855,7 @@ dependencies = [
  "proxy-config",
  "proxy-protocol",
  "proxy-transport",
+ "rand 0.8.6",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",

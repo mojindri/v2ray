@@ -24,6 +24,8 @@ use self::segment::Segment;
 use self::stream::MkcpStream;
 
 const SERVER_SESSION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+/// Maximum concurrent mKCP sessions per server socket (matches Xray mKCP defaults).
+const MAX_SERVER_SESSIONS: usize = 1024;
 
 #[derive(Debug, Clone)]
 /// Client-side settings for one mKCP connection.
@@ -88,7 +90,7 @@ pub async fn mkcp_connect(cfg: &MkcpClientConfig) -> Result<MkcpStream> {
     kcp.set_nodelay(cfg.nodelay);
     kcp.set_wndsize(cfg.snd_wnd, cfg.rcv_wnd);
 
-    let (tx_to_driver, rx_from_user) = mpsc::unbounded_channel::<Bytes>();
+    let (tx_to_driver, rx_from_user) = mpsc::channel::<Bytes>(256);
     let (tx_to_user, rx_from_driver) = mpsc::channel::<Bytes>(256);
 
     tokio::spawn(run_client_driver(
@@ -141,7 +143,7 @@ async fn run_server_listener(
     let mut udp_buf = vec![0u8; 65535];
     // Value is (conv, sender) so we can detect reconnects from the same SocketAddr
     // with a different conversation ID (stale-session eviction).
-    let mut sessions = HashMap::<SocketAddr, (u32, mpsc::UnboundedSender<Vec<u8>>)>::new();
+    let mut sessions = HashMap::<SocketAddr, (u32, mpsc::Sender<Vec<u8>>)>::new();
     let (cleanup_tx, mut cleanup_rx) = mpsc::unbounded_channel::<SocketAddr>();
 
     loop {
@@ -162,7 +164,7 @@ async fn run_server_listener(
                     // Peek the conv from the first 4 bytes (KCP wire: u32 LE).
                     let incoming_conv = peek_conv(payload);
                     if incoming_conv == Some(*stored_conv) {
-                        let _ = tx_udp.send(payload.to_vec());
+                        let _ = tx_udp.try_send(payload.to_vec()); // drop if driver is busy
                         continue;
                     }
                     // Conv mismatch: peer reconnected with a new session. Evict
@@ -170,6 +172,9 @@ async fn run_server_listener(
                     sessions.remove(&peer);
                 }
 
+                if sessions.len() >= MAX_SERVER_SESSIONS {
+                    continue; // drop packet — server is at capacity
+                }
                 if start_server_session(
                     Arc::clone(&socket),
                     peer,
@@ -196,7 +201,7 @@ async fn start_server_session(
     cfg: &MkcpServerConfig,
     session_tx: &mpsc::Sender<(MkcpStream, SocketAddr)>,
     cleanup_tx: &mpsc::UnboundedSender<SocketAddr>,
-    sessions: &mut HashMap<SocketAddr, (u32, mpsc::UnboundedSender<Vec<u8>>)>,
+    sessions: &mut HashMap<SocketAddr, (u32, mpsc::Sender<Vec<u8>>)>,
 ) -> Result<()> {
     let mut cursor = payload;
     let Some(first) = Segment::decode(&mut cursor) else {
@@ -208,9 +213,11 @@ async fn start_server_session(
     kcp.set_wndsize(cfg.snd_wnd, cfg.rcv_wnd);
     let _ = kcp.input(payload);
 
-    let (tx_to_driver, rx_from_user) = mpsc::unbounded_channel::<Bytes>();
+    let (tx_to_driver, rx_from_user) = mpsc::channel::<Bytes>(256);
     let (tx_to_user, rx_from_driver) = mpsc::channel::<Bytes>(256);
-    let (tx_udp, rx_udp) = mpsc::unbounded_channel::<Vec<u8>>();
+    // Bounded UDP→driver channel: excess packets are dropped (UDP is lossy by nature).
+    // 1024 matches xray's udp.HubCapacity(1024) default.
+    let (tx_udp, rx_udp) = mpsc::channel::<Vec<u8>>(1024);
 
     sessions.insert(peer, (first.conv, tx_udp));
 
@@ -256,8 +263,8 @@ async fn run_server_driver(
     socket: Arc<UdpSocket>,
     peer: SocketAddr,
     header: HeaderType,
-    mut rx_from_user: mpsc::UnboundedReceiver<Bytes>,
-    mut rx_from_udp: mpsc::UnboundedReceiver<Vec<u8>>,
+    mut rx_from_user: mpsc::Receiver<Bytes>,
+    mut rx_from_udp: mpsc::Receiver<Vec<u8>>,
     tx_to_user: mpsc::Sender<Bytes>,
     interval_ms: u64,
 ) {
@@ -310,7 +317,7 @@ async fn run_client_driver(
     mut kcp: Kcp,
     socket: Arc<UdpSocket>,
     header: HeaderType,
-    mut rx_from_user: mpsc::UnboundedReceiver<Bytes>,
+    mut rx_from_user: mpsc::Receiver<Bytes>,
     tx_to_user: mpsc::Sender<Bytes>,
     interval_ms: u64,
 ) {

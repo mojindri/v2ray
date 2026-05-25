@@ -196,14 +196,8 @@ pub struct GrpcStream {
     /// Decoded payload bytes ready to serve to readers.
     read_buf: BytesMut,
 
-    /// Pending outgoing bytes, collected until flush.
+    /// Pre-encoded gRPC frames waiting to be flushed to the inner stream.
     write_buf: BytesMut,
-
-    /// Encoded gRPC frame currently being flushed to the inner stream.
-    flush_frame: Option<Bytes>,
-
-    /// Number of bytes already written from `flush_frame`.
-    flush_frame_pos: usize,
 }
 
 impl GrpcStream {
@@ -214,8 +208,6 @@ impl GrpcStream {
             recv_buf: BytesMut::new(),
             read_buf: BytesMut::new(),
             write_buf: BytesMut::new(),
-            flush_frame: None,
-            flush_frame_pos: 0,
         }
     }
 }
@@ -300,29 +292,18 @@ impl AsyncWrite for GrpcStream {
         _cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        self.write_buf.extend_from_slice(buf);
-        Poll::Ready(Ok(buf.len()))
+        // Encode each write immediately as a bounded gRPC frame (xray pattern).
+        // This prevents unbounded write_buf growth when flush is delayed.
+        let n = buf.len().min(MAX_MESSAGE_SIZE as usize);
+        let hunk = encode_hunk(&buf[..n]);
+        self.write_buf.extend_from_slice(&encode_grpc_frame(&hunk));
+        Poll::Ready(Ok(n))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        if self.flush_frame.is_none() && !self.write_buf.is_empty() {
-            let raw = self.write_buf.split().freeze();
-            // Wrap the raw bytes in a protobuf Hunk message before gRPC framing.
-            let hunk = encode_hunk(&raw);
-            self.flush_frame = Some(encode_grpc_frame(&hunk));
-            self.flush_frame_pos = 0;
-        }
-
-        while let Some(frame) = self.flush_frame.clone() {
-            if self.flush_frame_pos == frame.len() {
-                self.flush_frame = None;
-                self.flush_frame_pos = 0;
-                break;
-            }
-
-            let pos = self.flush_frame_pos;
-            let chunk = frame.slice(pos..);
-            match Pin::new(self.inner.as_mut()).poll_write(cx, chunk.as_ref()) {
+        while !self.write_buf.is_empty() {
+            let this = self.as_mut().get_mut();
+            match Pin::new(this.inner.as_mut()).poll_write(cx, &this.write_buf) {
                 Poll::Pending => return Poll::Pending,
                 Poll::Ready(Err(e)) => return Poll::Ready(Err(e)),
                 Poll::Ready(Ok(0)) => {
@@ -332,11 +313,10 @@ impl AsyncWrite for GrpcStream {
                     )));
                 }
                 Poll::Ready(Ok(n)) => {
-                    self.flush_frame_pos += n;
+                    let _ = this.write_buf.split_to(n);
                 }
             }
         }
-
         Pin::new(self.inner.as_mut()).poll_flush(cx)
     }
 
@@ -404,6 +384,10 @@ pub async fn grpc_connect(
             Ok(r) => r,
             Err(_) => return,
         };
+        if response.status() != http::StatusCode::OK {
+            tracing::warn!(status = %response.status(), "gRPC upstream returned non-200; treating as connection failure");
+            return; // proxy_writer EOF signals the failure to the reader
+        }
         let mut recv_body = response.into_body();
         loop {
             match recv_body.data().await {

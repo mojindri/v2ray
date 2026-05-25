@@ -92,6 +92,7 @@ fn parse_server_config(cfg: &InboundConfig) -> Result<Hysteria2ServerConfig> {
         })?;
 
     Ok(Hysteria2ServerConfig {
+        tag: cfg.tag.clone(),
         addr,
         password,
         up_mbps,

@@ -3,21 +3,24 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use bytes::{Buf, Bytes, BytesMut};
+use std::task::ready;
+
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::mpsc;
+use tokio_util::sync::PollSender;
 
 /// Async byte stream backed by an mKCP session driver.
 pub struct MkcpStream {
-    tx: mpsc::UnboundedSender<Bytes>,
+    tx: PollSender<Bytes>,
     rx: mpsc::Receiver<Bytes>,
     read_buf: BytesMut,
 }
 
 impl MkcpStream {
     /// Create a new stream from driver channels.
-    pub fn new(tx: mpsc::UnboundedSender<Bytes>, rx: mpsc::Receiver<Bytes>) -> Self {
+    pub fn new(tx: mpsc::Sender<Bytes>, rx: mpsc::Receiver<Bytes>) -> Self {
         Self {
-            tx,
+            tx: PollSender::new(tx),
             rx,
             read_buf: BytesMut::new(),
         }
@@ -53,17 +56,16 @@ impl AsyncRead for MkcpStream {
 
 impl AsyncWrite for MkcpStream {
     fn poll_write(
-        self: Pin<&mut Self>,
-        _cx: &mut Context<'_>,
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        match self.tx.send(Bytes::copy_from_slice(buf)) {
-            Ok(()) => Poll::Ready(Ok(buf.len())),
-            Err(_) => Poll::Ready(Err(io::Error::new(
-                io::ErrorKind::BrokenPipe,
-                "KCP driver closed",
-            ))),
-        }
+        let broken = || io::Error::new(io::ErrorKind::BrokenPipe, "KCP driver closed");
+        ready!(self.tx.poll_reserve(cx)).map_err(|_| broken())?;
+        self.tx
+            .send_item(Bytes::copy_from_slice(buf))
+            .map_err(|_| broken())?;
+        Poll::Ready(Ok(buf.len()))
     }
     fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         Poll::Ready(Ok(()))

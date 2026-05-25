@@ -333,7 +333,7 @@ fn build_mkcp_client_config(
 
     Ok(MkcpClientConfig {
         server,
-        conv: 0,
+        conv: rand::random::<u32>(),
         header,
         interval_ms: settings.map(|k| k.tti).unwrap_or(50),
         rcv_wnd: settings.map(|k| k.read_buffer_size as u16).unwrap_or(128),
