@@ -11,6 +11,7 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
+use rand::{Rng, RngExt};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use proxy_common::{tcp_connect, BoxedStream, ProxyError};
@@ -78,7 +79,7 @@ impl RealityClient {
         let hello_bytes = {
             // `ThreadRng` is not Send, so keep it inside this small scope.
             // Nothing from this block may live across the later `write_all().await`.
-            let mut rng = rand::thread_rng();
+            let mut rng = rand::rng();
             let builder = ClientHelloBuilder::chrome_131();
             builder.build_with_additional_key_share(
                 &self.config.sni,
@@ -133,7 +134,7 @@ struct ClientKeyShares {
 /// Generate the REALITY-auth x25519 key material plus a TLS P-256 key share
 /// for origins that select `secp256r1`.
 fn make_client_key_shares(server_public_key: [u8; 32]) -> ClientKeyShares {
-    let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
+    let client_secret = StaticSecret::random();
     let client_public = PublicKey::from(&client_secret);
     let client_pub_bytes = *client_public.as_bytes();
     let server_pub_key = PublicKey::from(server_public_key);
@@ -159,7 +160,7 @@ fn derive_auth_key(shared_secret: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), Pro
     // REALITY reuses the TLS random field:
     // random[0..20] is the HKDF salt, random[20..32] is the AES-GCM nonce.
     let mut random = [0u8; 32];
-    rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut random);
+    rand::rng().fill(&mut random[..]);
 
     let hk = Hkdf::<Sha256>::new(Some(&random[..20]), shared_secret);
     let mut auth_key = [0u8; 32];

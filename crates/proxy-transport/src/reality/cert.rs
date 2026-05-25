@@ -235,7 +235,7 @@ fn get_template(sni: &str, mlkem_client: bool) -> Result<CertTemplate, ProxyErro
         });
     }
 
-    let signing_key = SigningKey::generate(&mut rand::rngs::OsRng);
+    let signing_key = SigningKey::generate(&mut rand_core::OsRng);
     let verifying_key = *signing_key.verifying_key().as_bytes();
     let pkcs8 = signing_key
         .to_pkcs8_der()

@@ -30,7 +30,7 @@ use aes_gcm::{
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
-use rand::RngCore;
+use rand::{Rng, RngExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
@@ -99,7 +99,7 @@ pub async fn open_ss2022_stream(
 ) -> Result<Ss2022Stream, ProxyError> {
     // ── 1. Send request ───────────────────────────────────────────────────────
     let mut req_salt = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut req_salt);
+    rand::rng().fill(&mut req_salt[..]);
     raw.write_all(&req_salt).await?;
 
     let req_subkey = derive_subkey(psk, &req_salt);

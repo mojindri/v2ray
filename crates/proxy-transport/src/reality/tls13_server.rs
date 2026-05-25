@@ -1,7 +1,7 @@
 //! TLS 1.3 server handshake for REALITY (post-auth camouflage).
 
 use ed25519_dalek::{Signer, SigningKey};
-use rand::RngCore;
+use rand::{Rng, RngExt};
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use proxy_common::{BoxedStream, ProxyError};
@@ -42,7 +42,7 @@ pub async fn complete_tls13_server_handshake(
     crate::reality::cert::verify_reality_cert_hmac(auth_key, &cert_der)
         .map_err(|e| ProxyError::Tls(format!("REALITY cert self-check before send: {e}")))?;
 
-    let server_tls_secret = StaticSecret::random_from_rng(rand::thread_rng());
+    let server_tls_secret = StaticSecret::random();
     let server_tls_pub = PublicKey::from(&server_tls_secret);
     let server_pub_bytes = *server_tls_pub.as_bytes();
 
@@ -190,7 +190,7 @@ fn parse_client_session_id(ch_body: &[u8]) -> Result<&[u8], ProxyError> {
 
 fn build_server_hello(cs: CipherSuite, server_pub: &[u8; 32], session_id: &[u8]) -> Vec<u8> {
     let mut random = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut random);
+    rand::rng().fill(&mut random[..]);
 
     let mut extensions = Vec::new();
     extensions.extend_from_slice(&[0x00, 0x2b, 0x00, 0x02, 0x03, 0x04]);
@@ -304,17 +304,18 @@ mod tests {
         use proxy_tls::ClientHelloBuilder;
         use x25519_dalek::{PublicKey, StaticSecret};
 
-        let secret = StaticSecret::random_from_rng(rand::thread_rng());
+        let secret = StaticSecret::random();
         let pub_key = *PublicKey::from(&secret).as_bytes();
         let random = [7u8; 32];
         let session_id = [0u8; 32];
+        let mut rng = rand::rng();
         let hello = ClientHelloBuilder::chrome_131().build_with_additional_key_share(
             "www.example.com",
             &random,
             &session_id,
             Some(&pub_key),
             None,
-            &mut rand::thread_rng(),
+            &mut rng,
         );
         let fields = parse_client_hello(&hello[5..]).unwrap();
         assert_eq!(fields.x25519_key_share, pub_key);
@@ -357,18 +358,19 @@ mod tests {
         use proxy_tls::ClientHelloBuilder;
         use x25519_dalek::{PublicKey, StaticSecret};
 
-        let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
+        let client_secret = StaticSecret::random();
         let client_pub = *PublicKey::from(&client_secret).as_bytes();
-        let server_secret = StaticSecret::random_from_rng(rand::thread_rng());
+        let server_secret = StaticSecret::random();
         let server_pub = *PublicKey::from(&server_secret).as_bytes();
 
+        let mut rng = rand::rng();
         let hello = ClientHelloBuilder::chrome_131().build_with_additional_key_share(
             "www.example.com",
             &[1u8; 32],
             &[0u8; 32],
             Some(&client_pub),
             None,
-            &mut rand::thread_rng(),
+            &mut rng,
         );
         let ch_body = hello[5..].to_vec();
         let sh_body = build_server_hello(CipherSuite::Aes128GcmSha256, &server_pub, &[0u8; 32]);
@@ -495,8 +497,8 @@ mod tests {
         use crate::reality::{REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
         use crate::{RealityServer, RealityServerConfig, Tls13Stream};
 
-        let server_secret = StaticSecret::random_from_rng(rand::thread_rng());
-        let client_secret = StaticSecret::random_from_rng(rand::thread_rng());
+        let server_secret = StaticSecret::random();
+        let client_secret = StaticSecret::random();
         let client_pub = *PublicKey::from(&client_secret).as_bytes();
 
         let shared = server_secret
@@ -507,7 +509,7 @@ mod tests {
         auth_key.copy_from_slice(shared.as_slice());
 
         let mut random = [0u8; 32];
-        rand::RngCore::fill_bytes(&mut rand::thread_rng(), &mut random);
+        rand::rng().fill(&mut random[..]);
         let hk = Hkdf::<Sha256>::new(Some(&random[..20]), &auth_key);
         hk.expand(REALITY_HKDF_INFO, &mut auth_key).unwrap();
 
@@ -523,13 +525,14 @@ mod tests {
         session_id[4..8].copy_from_slice(&ts.to_be_bytes());
         session_id[8..16].copy_from_slice(&short_id);
 
+        let mut rng = rand::rng();
         let hello_bytes = ClientHelloBuilder::chrome_131().build_with_additional_key_share(
             "www.microsoft.com",
             &random,
             &[0u8; 32],
             Some(&client_pub),
             None,
-            &mut rand::thread_rng(),
+            &mut rng,
         );
         let hs_body = &hello_bytes[5..];
         // Xray/sing-box: hello.Raw session_id is zero at Seal time; plaintext is SessionId only.

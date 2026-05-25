@@ -42,7 +42,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use base64::Engine as _;
-use rand::{RngCore, SeedableRng};
+use rand::{Rng, RngExt, SeedableRng};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::oneshot;
@@ -134,7 +134,7 @@ fn hex_short_id(hex: &str) -> Vec<u8> {
 /// Returns (private_bytes, public_bytes).
 fn generate_test_keypair() -> ([u8; 32], [u8; 32]) {
     let mut raw = [0u8; 32];
-    rand::thread_rng().fill_bytes(&mut raw);
+    rand::rng().fill(&mut raw[..]);
     // Clamp per RFC 7748 §5
     raw[0] &= 248;
     raw[31] = (raw[31] & 127) | 64;

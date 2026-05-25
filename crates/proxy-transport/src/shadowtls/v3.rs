@@ -13,7 +13,7 @@ use std::pin::Pin;
 use std::task::{ready, Context, Poll};
 
 use hmac::{Hmac, KeyInit, Mac};
-use rand::RngCore;
+use rand::RngExt;
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
@@ -59,13 +59,13 @@ pub struct ClientHelloSession {
 /// The HMAC is computed over the TLS handshake bytes without the 5-byte record
 /// header, with the last 4 bytes of SessionID set to zero as the upstream v3
 /// design specifies.
-pub fn sign_client_hello_session_id<R: RngCore + ?Sized>(
+pub fn sign_client_hello_session_id<R: RngExt + ?Sized>(
     client_hello_record: &mut [u8],
     psk: &[u8],
     rng: &mut R,
 ) -> Result<ClientHelloSession, ProxyError> {
     let offset = session_id_offset(client_hello_record)?;
-    rng.fill_bytes(&mut client_hello_record[offset..offset + SESSION_ID_RANDOM_LEN]);
+    rng.fill(&mut client_hello_record[offset..offset + SESSION_ID_RANDOM_LEN]);
     client_hello_record[offset + SESSION_ID_RANDOM_LEN..offset + SESSION_ID_LEN].fill(0);
 
     let tag = client_hello_hmac(client_hello_record, psk)?;

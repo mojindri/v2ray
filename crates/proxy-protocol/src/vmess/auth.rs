@@ -30,7 +30,7 @@ use aes_gcm::aes::cipher::{BlockDecrypt, BlockEncrypt, KeyInit};
 use aes_gcm::aes::Aes128;
 use crc32fast::Hasher as Crc32Hasher;
 use md5::{Digest as Md5Digest, Md5};
-use rand::RngCore;
+use rand::{Rng, RngExt};
 
 use super::kdf::kdf;
 
@@ -72,7 +72,7 @@ pub fn generate_auth_id_at(cmd_key: &[u8; 16], timestamp: u64) -> [u8; 16] {
     plaintext[0..8].copy_from_slice(&timestamp.to_be_bytes());
 
     // bytes 8–11: 4 random bytes
-    rand::thread_rng().fill_bytes(&mut plaintext[8..12]);
+    rand::rng().fill(&mut plaintext[8..12]);
 
     // bytes 12–15: CRC32 of first 12 bytes
     let checksum = crc32_bytes(&plaintext[0..12]);

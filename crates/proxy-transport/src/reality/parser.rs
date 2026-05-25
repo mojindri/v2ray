@@ -282,7 +282,7 @@ mod tests {
     fn parse_builder_output() {
         let random = [0x11u8; 32];
         let session_id = [0x22u8; 32];
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
 
         let hello = ClientHelloBuilder::chrome_131().build(
             "www.example.com",
