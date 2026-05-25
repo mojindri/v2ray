@@ -1,0 +1,28 @@
+[package]
+name = "proxy-benches"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+bytes.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "tcp_relay_throughput"
+harness = false
+
+[[bench]]
+name = "protocol_handshake_latency"
+harness = false
+
+[[bench]]
+name = "routing_dns_fakeip"
+harness = false
+
+[[bench]]
+name = "framing_overhead"
+harness = false
