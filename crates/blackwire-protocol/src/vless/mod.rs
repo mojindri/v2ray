@@ -41,6 +41,7 @@ pub mod inbound;
 pub mod outbound;
 pub mod registry;
 pub mod udp;
+pub mod vision;
 
 pub use inbound::VlessInbound;
 pub use outbound::{connect_vless_on_stream, VlessOutbound, VlessOutboundConfig};

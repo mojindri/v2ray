@@ -73,6 +73,7 @@ port_for_protocol() {
     case "$1" in
         trojan-tls) echo 8445 ;;
         vless-tcp) echo 10080 ;;
+        vless-vision) echo 10082 ;;
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
         vless-httpupgrade) echo 8446 ;;

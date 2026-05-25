@@ -75,6 +75,7 @@ pub async fn serve_connection(
                 inbound_tag: tag,
                 user: None,
                 sniffed_protocol: None,
+                vision_flow: false,
             };
 
             if let Err(e) = dispatcher.dispatch(ctx, dest, stream).await {

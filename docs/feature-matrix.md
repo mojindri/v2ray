@@ -53,7 +53,7 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
 | VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab scenario pending |
-| VLESS flow `xtls-rprx-vision` | Partial | Partial | **Partial** | Encoded on wire; inbound logs and continues without Vision splice (`vless/inbound.rs` TODO) |
+| VLESS flow `xtls-rprx-vision` | Partial | Partial | **Partial** | `vless/vision.rs` unpadding reader; TLS splice/direct-copy not implemented |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
 | Trojan UDP | No | No | **Unsupported** | No UDP associate path in trojan module |

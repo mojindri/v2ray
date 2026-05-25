@@ -26,6 +26,7 @@ use blackwire_app::features::OutboundHandler;
 use blackwire_common::{Address, BoxedStream, ProxyError};
 
 use super::codec::{encode_request, Command};
+use super::vision::wrap_vision_stream;
 
 /// Send a VLESS request header over an already-established stream.
 ///
@@ -66,7 +67,11 @@ pub async fn connect_vless_on_stream(
         let mut addons = vec![0u8; addons_len];
         stream.read_exact(&mut addons).await?;
     }
-    Ok(stream)
+    if flow == "xtls-rprx-vision" {
+        Ok(wrap_vision_stream(stream, *uuid))
+    } else {
+        Ok(stream)
+    }
 }
 
 /// VLESS outbound configuration.
@@ -143,14 +148,17 @@ impl OutboundHandler for VlessOutbound {
 
         let addons_len = stream.read_u8().await? as usize;
         if addons_len > 0 {
-            // Read and discard the addons (Phase 2 may use them for flow control).
             let mut addons = vec![0u8; addons_len];
             stream.read_exact(&mut addons).await?;
         }
 
         debug!(server = %self.config.server, dest = %dest, "VLESS handshake complete");
 
-        // The stream is now ready for raw bidirectional data relay.
-        Ok(Box::new(stream))
+        let stream: BoxedStream = Box::new(stream);
+        if self.config.flow == "xtls-rprx-vision" {
+            Ok(wrap_vision_stream(stream, self.config.uuid))
+        } else {
+            Ok(stream)
+        }
     }
 }
