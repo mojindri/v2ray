@@ -46,7 +46,9 @@ async fn invalid_frame_then_valid_frame_does_not_corrupt_next_parse() {
 
     // New parser instance on the next frame must still decode correctly.
     let mut good_cursor = std::io::Cursor::new(good);
-    let second = vless_codec::decode_request(&mut good_cursor).await.expect("decode second");
+    let second = vless_codec::decode_request(&mut good_cursor)
+        .await
+        .expect("decode second");
     assert_eq!(second.uuid, [0x22; 16]);
     assert_eq!(second.dest, Address::Domain("good.example".into(), 80));
 }
@@ -87,7 +89,10 @@ fn grpc_decode_partial_then_retry_and_close_mid_frame() {
     truncated.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x20]);
     truncated.extend_from_slice(b"short");
     let res = decode_grpc_frame(&mut truncated).expect("decode");
-    assert!(res.is_none(), "truncated frame must wait for more bytes, not panic");
+    assert!(
+        res.is_none(),
+        "truncated frame must wait for more bytes, not panic"
+    );
 }
 
 #[tokio::test]
@@ -106,7 +111,10 @@ async fn read_timeout_then_retry_then_success() {
         vless_codec::decode_request(&mut r),
     )
     .await;
-    assert!(timed.is_err(), "initial decode should time out before bytes arrive");
+    assert!(
+        timed.is_err(),
+        "initial decode should time out before bytes arrive"
+    );
 
     tokio::spawn(async move {
         w.write_all(&msg).await.expect("write");

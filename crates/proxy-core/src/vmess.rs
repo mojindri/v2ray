@@ -19,16 +19,22 @@ pub(crate) fn build_vmess_inbound(
 ) -> Result<Arc<dyn InboundHandler>> {
     let registry = VmessUserRegistry::new();
 
-    if let Some(clients) = cfg.settings["clients"].as_array() {
-        for (i, client) in clients.iter().enumerate() {
-            let id_str = client["id"]
-                .as_str()
-                .ok_or_else(|| anyhow::anyhow!("VMess client #{i} missing 'id'"))?;
-            let uuid =
-                parse_uuid(id_str).with_context(|| format!("invalid UUID in VMess client #{i}"))?;
-            let email = client["email"].as_str().unwrap_or("").to_string();
-            registry.add_user(uuid, email);
-        }
+    let clients = cfg.settings["clients"]
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("VMess inbound '{}' missing 'clients' array", cfg.tag))?;
+
+    if clients.is_empty() {
+        anyhow::bail!("VMess inbound '{}' has no configured clients", cfg.tag);
+    }
+
+    for (i, client) in clients.iter().enumerate() {
+        let id_str = client["id"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("VMess client #{i} missing 'id'"))?;
+        let uuid =
+            parse_uuid(id_str).with_context(|| format!("invalid UUID in VMess client #{i}"))?;
+        let email = client["email"].as_str().unwrap_or("").to_string();
+        registry.add_user(uuid, email);
     }
 
     Ok(VmessInbound::new(&cfg.tag, registry))
