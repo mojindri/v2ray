@@ -8,7 +8,7 @@ mod extensions;
 mod wire;
 
 use bytes::{BufMut, BytesMut};
-use rand::Rng;
+use rand::{Rng, RngExt};
 use x25519_dalek::{EphemeralSecret, PublicKey};
 
 use crate::grease::grease_u16;
@@ -67,7 +67,7 @@ impl ClientHelloBuilder {
         let key_bytes: &[u8; 32] = match x25519_pub {
             Some(k) => k,
             None => {
-                let secret = EphemeralSecret::random_from_rng(rand::thread_rng());
+                let secret = EphemeralSecret::random();
                 generated = *PublicKey::from(&secret).as_bytes();
                 &generated
             }

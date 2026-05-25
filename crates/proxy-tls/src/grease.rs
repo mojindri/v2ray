@@ -31,7 +31,7 @@
 //! Pattern: the two bytes are always equal, and the low nibble is always 0x0A.
 //! Chrome picks one of these 16 values randomly for each connection.
 
-use rand::Rng;
+use rand::{Rng, RngExt};
 
 /// The 16 GREASE values defined by RFC 8701 for 16-bit TLS fields.
 ///
@@ -60,18 +60,18 @@ const GREASE_VALUES_U8: [u8; 16] = [
 /// # Example
 /// ```rust
 /// use proxy_tls::grease::grease_u16;
-/// let mut rng = rand::thread_rng();
+/// let mut rng = rand::rng();
 /// let grease = grease_u16(&mut rng);
 /// assert!(grease & 0x0F0F == 0x0A0A, "must be a GREASE value");
 /// ```
 pub fn grease_u16(rng: &mut impl Rng) -> u16 {
-    let idx = rng.gen_range(0..16usize);
+    let idx = rng.random_range(0..16usize);
     GREASE_VALUES_U16[idx]
 }
 
 /// Pick a random GREASE value for an 8-bit TLS field.
 pub fn grease_u8(rng: &mut impl Rng) -> u8 {
-    let idx = rng.gen_range(0..16usize);
+    let idx = rng.random_range(0..16usize);
     GREASE_VALUES_U8[idx]
 }
 

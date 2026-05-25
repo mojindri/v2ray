@@ -27,7 +27,7 @@ use aes_gcm::{
 };
 use async_trait::async_trait;
 use bytes::BytesMut;
-use rand::RngCore;
+use rand::RngExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 
@@ -119,7 +119,7 @@ impl InboundHandler for Ss2022Inbound {
         debug!(source = %source, dest = %dest, "SS-2022 inbound authenticated");
 
         let mut resp_salt = [0u8; 32];
-        rand::thread_rng().fill_bytes(&mut resp_salt);
+        rand::rng().fill(&mut resp_salt[..]);
         stream.write_all(&resp_salt).await?;
         let resp_subkey = derive_subkey(&self.psk, &resp_salt);
 

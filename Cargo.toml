@@ -74,11 +74,11 @@ chacha20poly1305    = "0.10"
 blake3              = "1.8"
 x25519-dalek        = { version = "2", features = ["getrandom", "static_secrets"] }
 ed25519-dalek       = { version = "2", features = ["pkcs8", "rand_core"] }
-x509-parser         = "0.16"
+x509-parser         = "0.18"
 p256                = { version = "0.13", features = ["ecdh"] }
 sha2                = "0.11"
 sha1                = "0.11"
-sha3                = "0.12"
+shake               = "0.1"
 md-5                = "0.11"
 hmac                = "0.13"
 hkdf                = "0.13"
@@ -142,7 +142,8 @@ caps        = "0.5"
 clap        = { version = "4", features = ["derive", "env"] }
 
 # ── Misc utilities ─────────────────────────────────────────────────────────────
-rand        = { version = "0.8", features = ["small_rng"] }
+rand        = { version = "0.10", features = ["std", "std_rng", "thread_rng", "sys_rng"] }
+rand_core   = "0.6"
 hex         = "0.4"
 base64      = "0.22"
 num_cpus    = "1"

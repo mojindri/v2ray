@@ -16,7 +16,7 @@
 
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_tls::ClientHelloBuilder;
-use rand::RngCore;
+use rand::{Rng, RngExt};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::marker::compute_marker;
@@ -80,10 +80,10 @@ pub async fn shadowtls_v3_connect(
 ) -> Result<BoxedStream, ProxyError> {
     let sni = shadowtls_sni_from_dest(dest)?;
     let client_hello = {
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         let mut random = [0u8; 32];
         let session_id = [0u8; 32];
-        rng.fill_bytes(&mut random);
+        rng.fill(&mut random[..]);
 
         let mut client_hello = ClientHelloBuilder::chrome_131()
             .build(sni, &random, &session_id, None, &mut rng)

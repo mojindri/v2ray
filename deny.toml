@@ -23,6 +23,10 @@ allow = [
     "0BSD",
     "CC0-1.0",
     "MPL-2.0",
+    # TUN device (proxy-transport).
+    "WTFPL",
+    # Mozilla root CA bundles (rustls / quinn / tungstenite stack).
+    "CDLA-Permissive-2.0",
 ]
 exceptions = []
 
