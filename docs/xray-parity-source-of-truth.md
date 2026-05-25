@@ -22,7 +22,7 @@ Use the **primary** reference first; validate with the **secondary** when both a
 | REALITY (TLS camouflage) | [XTLS/REALITY](https://github.com/XTLS/REALITY) + Xray `transport/internet/reality` | sing-box `common/tls/reality_*` — see [reality-interop.md](reality-interop.md) |
 | ShadowTLS, mKCP, Hysteria2 | Xray where implemented; else sing-box | Whichever ships the transport clients use |
 | SplitHTTP / xHTTP | [SagerNet/sing-box](https://github.com/SagerNet/sing-box) (leading client configs) | Xray if/when equivalent paths exist |
-| Sniffing, routing, DNS, FakeIP | Xray `app/dispatcher`, `app/dns`, routing rules | sing-box route/DNS when behavior differs—document delta |
+| Sniffing, routing, DNS, FakeIP | Xray `app/dispatcher`, `app/dns`, routing rules (`domainStrategy`: AsIs / IPIfNonMatch / IPOnDemand) | sing-box route/DNS when behavior differs—document delta |
 | SOCKS5 / HTTP CONNECT | RFC + Xray inbound behavior | sing-box inbound tests in lab |
 | SS2022 | Xray / outline spec as used by Xray | sing-box `shadowsocks` implementation |
 | gRPC Gun transport | Xray `transport/internet/grpc` | sing-box gRPC transport |

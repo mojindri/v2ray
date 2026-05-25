@@ -42,8 +42,11 @@ use blackwire_common::{domain_wire_len, Address, ProxyError};
 /// VLESS command: open a TCP connection to the destination.
 pub const CMD_TCP: u8 = 0x01;
 
-/// VLESS command: UDP association (not implemented in Phase 1).
+/// VLESS command: UDP association.
 pub const CMD_UDP: u8 = 0x02;
+
+/// VLESS command: Mux.Cool (deprecated in Xray; still decoded for compatibility).
+pub const CMD_MUX: u8 = 0x03;
 
 // ── Address type constants ────────────────────────────────────────────────────
 
@@ -84,8 +87,10 @@ pub struct VlessRequest {
 pub enum Command {
     /// Open a TCP connection to the destination.
     Tcp,
-    /// UDP association (Phase 1: not fully implemented).
+    /// UDP association.
     Udp,
+    /// Mux.Cool (Xray CMD 0x03) — relayed like TCP until full mux framing is implemented.
+    Mux,
 }
 
 // ── Decoder ───────────────────────────────────────────────────────────────────
@@ -137,6 +142,7 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
     let command = match cmd_byte {
         CMD_TCP => Command::Tcp,
         CMD_UDP => Command::Udp,
+        CMD_MUX => Command::Mux,
         other => {
             return Err(ProxyError::Protocol(format!(
                 "unknown VLESS CMD {other:#x}"
@@ -307,6 +313,7 @@ pub fn encode_request(
     buf.put_u8(match command {
         Command::Tcp => CMD_TCP,
         Command::Udp => CMD_UDP,
+        Command::Mux => CMD_MUX,
     });
 
     // Port (2 bytes, big-endian).
