@@ -35,7 +35,7 @@ use tokio::net::TcpStream;
 use tracing::debug;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 
 // ── TLS record types ─────────────────────────────────────────────────────────
 

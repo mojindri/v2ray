@@ -14,8 +14,8 @@ use tokio::io::AsyncWriteExt;
 use tracing::debug;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{tcp_connect, BoxedStream, ProxyError};
-use proxy_tls::ClientHelloBuilder;
+use blackwire_common::{tcp_connect, BoxedStream, ProxyError};
+use blackwire_tls::ClientHelloBuilder;
 
 use super::{
     tls13::{complete_tls13_handshake, Tls13Stream},

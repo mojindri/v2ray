@@ -41,7 +41,7 @@ const LARGE_SIZE: usize = 64 * 1024; // 64 KiB
 ///
 /// To use:
 /// ```rust
-/// use proxy_common::BufferPool;
+/// use blackwire_common::BufferPool;
 ///
 /// let pool = BufferPool::new();
 /// let mut buf = pool.acquire(1024); // get a buffer big enough for 1024 bytes

@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_transport::tcp::{TcpClientTransport, TcpConfig};
+use blackwire_transport::tcp::{TcpClientTransport, TcpConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 

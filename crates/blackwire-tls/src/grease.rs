@@ -59,7 +59,7 @@ const GREASE_VALUES_U8: [u8; 16] = [
 ///
 /// # Example
 /// ```rust
-/// use proxy_tls::grease::grease_u16;
+/// use blackwire_tls::grease::grease_u16;
 /// let mut rng = rand::rng();
 /// let grease = grease_u16(&mut rng);
 /// assert!(grease & 0x0F0F == 0x0A0A, "must be a GREASE value");

@@ -1,12 +1,12 @@
 [package]
-name        = "proxy-common"
+name        = "blackwire-common"
 description = "Shared types used by every other crate: addresses, errors, byte streams, and buffer pools."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
-# proxy-common deliberately has no internal dependencies.
+# blackwire-common deliberately has no internal dependencies.
 # It sits at the bottom of the dependency graph.
 [dependencies]
 bytes.workspace        = true

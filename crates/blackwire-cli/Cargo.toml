@@ -11,10 +11,10 @@ name = "blackwire"
 path = "src/main.rs"
 
 [dependencies]
-proxy-common    = { path = "../proxy-common" }
-proxy-config    = { path = "../proxy-config" }
-proxy-core      = { path = "../proxy-core" }
-proxy-app       = { path = "../proxy-app" }
+blackwire-common    = { path = "../blackwire-common" }
+blackwire-config    = { path = "../blackwire-config" }
+blackwire-core      = { path = "../blackwire-core" }
+blackwire-app       = { path = "../blackwire-app" }
 
 tokio.workspace              = true
 clap.workspace               = true

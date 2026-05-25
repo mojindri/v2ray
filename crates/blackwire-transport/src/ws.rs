@@ -40,7 +40,7 @@ use tokio_tungstenite::{
 };
 use tungstenite::Message;
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 
 /// Configuration for a WebSocket connection.
 #[derive(Debug, Clone)]

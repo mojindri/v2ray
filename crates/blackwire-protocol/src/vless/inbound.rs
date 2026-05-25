@@ -29,10 +29,10 @@ use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tracing::{debug, warn};
 
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::InboundHandler;
-use proxy_common::{
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::InboundHandler;
+use blackwire_common::{
     copy_bidirectional_with_idle, tcp_connect, with_handshake_timeout, BoxedStream, Network,
     PrependedStream, ProxyError, CONNECTION_IDLE_TIMEOUT,
 };

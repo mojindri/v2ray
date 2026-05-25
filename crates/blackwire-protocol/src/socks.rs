@@ -35,10 +35,10 @@ use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::InboundHandler;
-use proxy_common::{read_socks5_address, Address, BoxedStream, Network, ProxyError, ATYP_IPV4};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::InboundHandler;
+use blackwire_common::{read_socks5_address, Address, BoxedStream, Network, ProxyError, ATYP_IPV4};
 
 // ── SOCKS5 protocol constants ─────────────────────────────────────────────────
 

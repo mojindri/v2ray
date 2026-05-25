@@ -8,7 +8,7 @@ use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub fn parse_config(json: serde_json::Value) -> Arc<proxy_config::schema::Config> {
+pub fn parse_config(json: serde_json::Value) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_value(json).expect("config parse"))
 }
 

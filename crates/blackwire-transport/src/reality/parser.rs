@@ -1,5 +1,5 @@
 use anyhow::Result;
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 
 /// Parsed fields from a TLS ClientHello.
 ///
@@ -276,7 +276,7 @@ fn collect_x25519_auth_keys(ext_data: &[u8]) -> Vec<[u8; 32]> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proxy_tls::ClientHelloBuilder;
+    use blackwire_tls::ClientHelloBuilder;
 
     #[test]
     fn parse_builder_output() {

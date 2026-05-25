@@ -1,18 +1,18 @@
-//! Production-readiness tests for proxy-core.
+//! Production-readiness tests for blackwire-core.
 //!
 //! Scope: instance lifecycle, config-to-handler wiring, routing validation,
 //! task cancellation, and failure behavior. This deliberately avoids testing
-//! protocol wire formats or transport adapters; those belong in proxy-protocol
-//! and proxy-transport.
+//! protocol wire formats or transport adapters; those belong in blackwire-protocol
+//! and blackwire-transport.
 //!
 //! These are deterministic non-fuzz tests. Some are intentionally strict and
-//! may fail if proxy-core currently accepts ambiguous or unsafe config.
+//! may fail if blackwire-core currently accepts ambiguous or unsafe config.
 
 use std::sync::Arc;
 use std::time::Duration;
 
-use proxy_config::schema::Config;
-use proxy_core::Instance;
+use blackwire_config::schema::Config;
+use blackwire_core::Instance;
 use serde_json::{json, Value};
 use tokio::net::TcpStream;
 use tokio::time::{sleep, timeout};
@@ -20,7 +20,7 @@ use tokio::time::{sleep, timeout};
 const SHORT: Duration = Duration::from_millis(400);
 
 fn parse_config(value: Value) -> Config {
-    serde_json::from_value(value).expect("test JSON must match proxy-config schema")
+    serde_json::from_value(value).expect("test JSON must match blackwire-config schema")
 }
 
 fn base_config(inbounds: Value, outbounds: Value) -> Config {
@@ -465,7 +465,7 @@ async fn tun_config_is_no_longer_blocked_by_placeholder_guard() {
     let cfg = parse_config(json!({
         "log": { "level": "warning" },
         "tun": {
-            "name": "proxy-tun",
+            "name": "blackwire-tun",
             "address": "198.18.0.1",
             "netmask": "255.255.0.0",
             "mtu": 1500

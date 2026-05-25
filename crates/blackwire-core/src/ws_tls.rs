@@ -18,11 +18,11 @@ use std::time::Duration;
 
 use anyhow::Result;
 
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::{ConnectionHandler, InboundHandler};
-use proxy_common::{with_handshake_timeout, BoxedStream, ProxyError};
-use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_transport::{grpc_accept, shadowtls_accept, tls_accept, ws_accept};
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::{ConnectionHandler, InboundHandler};
+use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
+use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
+use blackwire_transport::{grpc_accept, shadowtls_accept, tls_accept, ws_accept};
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
 
@@ -308,7 +308,7 @@ pub(crate) fn build_conn_handler(
             vec![]
         };
         let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
-        proxy_transport::tls_build_server_config(&cert_pem, &key_pem, &alpn_refs)
+        blackwire_transport::tls_build_server_config(&cert_pem, &key_pem, &alpn_refs)
             .map_err(|e| anyhow::anyhow!("invalid TLS certificate/key material: {e}"))?;
         handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handshake_timeout, handler);
     }

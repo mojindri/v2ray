@@ -154,7 +154,7 @@ make vm-pack
 
 ## Why This Lab Reuses Existing Tests
 
-The existing integration tests already exercise real `proxy-core::Instance`
+The existing integration tests already exercise real `blackwire-core::Instance`
 objects with the stable protocol stack. This lab deliberately wraps those tests
 instead of duplicating protocol logic in shell scripts.
 

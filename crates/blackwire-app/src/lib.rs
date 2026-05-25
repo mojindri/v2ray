@@ -1,4 +1,4 @@
-//! proxy-app — application layer: routing, dispatching, DNS, and health checking.
+//! blackwire-app — application layer: routing, dispatching, DNS, and health checking.
 //!
 //! This crate is the "brain" of the proxy. It connects inbounds (where traffic
 //! comes in) to outbounds (where traffic goes out) by:

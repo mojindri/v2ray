@@ -1,5 +1,5 @@
 [package]
-name        = "proxy-app"
+name        = "blackwire-app"
 description = "Application layer: router, dispatcher, DNS resolver, FakeIP, health checker, failover, statistics."
 version.workspace = true
 edition.workspace = true
@@ -7,8 +7,8 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-proxy-common          = { path = "../proxy-common" }
-proxy-config          = { path = "../proxy-config" }
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
 
 tokio.workspace            = true
 bytes.workspace            = true

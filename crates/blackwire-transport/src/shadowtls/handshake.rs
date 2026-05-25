@@ -30,7 +30,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use proxy_common::{tcp_connect_to, BoxedStream, ProxyError};
+use blackwire_common::{tcp_connect_to, BoxedStream, ProxyError};
 
 /// Maximum time to complete the TLS handshake relay (sing-box `C.TCPTimeoutShort`).
 const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(4);

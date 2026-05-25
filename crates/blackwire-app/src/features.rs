@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use blackwire_common::{Address, BoxedStream, ProxyError};
 
 use crate::context::Context;
 use crate::dispatcher::Dispatcher;
@@ -46,7 +46,7 @@ pub trait InboundHandler: Send + Sync + 'static {
 
     /// Which network types this inbound supports.
     /// Most inbounds support TCP only. Hysteria2 supports both TCP and UDP.
-    fn networks(&self) -> &[proxy_common::Network];
+    fn networks(&self) -> &[blackwire_common::Network];
 
     /// Handle a new incoming connection.
     ///

@@ -375,9 +375,9 @@ version = "0.0.0"
 dependencies = [
  "bytes",
  "libfuzzer-sys",
- "proxy-common",
- "proxy-protocol",
- "proxy-transport",
+ "blackwire-common",
+ "blackwire-protocol",
+ "blackwire-transport",
  "tokio",
 ]
 
@@ -2630,7 +2630,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-app"
+name = "blackwire-app"
 version = "0.1.0"
 dependencies = [
  "aho-corasick",
@@ -2649,8 +2649,8 @@ dependencies = [
  "once_cell",
  "parking_lot",
  "prost",
- "proxy-common",
- "proxy-config",
+ "blackwire-common",
+ "blackwire-config",
  "regex",
  "serde",
  "serde_json",
@@ -2660,7 +2660,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-common"
+name = "blackwire-common"
 version = "0.1.0"
 dependencies = [
  "bytes",
@@ -2673,7 +2673,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-config"
+name = "blackwire-config"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2681,7 +2681,7 @@ dependencies = [
  "ipnet",
  "notify",
  "once_cell",
- "proxy-common",
+ "blackwire-common",
  "regex",
  "serde",
  "serde_json",
@@ -2692,7 +2692,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-protocol"
+name = "blackwire-protocol"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -2711,10 +2711,10 @@ dependencies = [
  "md-5",
  "parking_lot",
  "pin-project-lite",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-transport",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-transport",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -2730,13 +2730,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-tls"
+name = "blackwire-tls"
 version = "0.1.0"
 dependencies = [
  "anyhow",
  "bytes",
  "once_cell",
- "proxy-common",
+ "blackwire-common",
  "rand 0.8.6",
  "serde",
  "serde_json",
@@ -2745,7 +2745,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "proxy-transport"
+name = "blackwire-transport"
 version = "0.1.0"
 dependencies = [
  "aes-gcm",
@@ -2770,10 +2770,10 @@ dependencies = [
  "p256",
  "pin-project-lite",
  "prost",
- "proxy-app",
- "proxy-common",
- "proxy-config",
- "proxy-tls",
+ "blackwire-app",
+ "blackwire-common",
+ "blackwire-config",
+ "blackwire-tls",
  "quinn",
  "quinn-proto",
  "rand 0.8.6",

@@ -1,4 +1,4 @@
-use proxy_config::schema::Config;
+use blackwire_config::schema::Config;
 use validator::Validate;
 
 #[test]

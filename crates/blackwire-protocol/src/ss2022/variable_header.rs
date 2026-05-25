@@ -1,6 +1,6 @@
 //! SIP022 request variable header: SOCKS5-style address + padding length.
 
-use proxy_common::{decode_socks5_address, write_socks5_address, Address, ProxyError};
+use blackwire_common::{decode_socks5_address, write_socks5_address, Address, ProxyError};
 
 /// Build the SIP022 request variable header plaintext.
 ///

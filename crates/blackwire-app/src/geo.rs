@@ -17,7 +17,7 @@
 //! # Usage
 //!
 //! ```no_run
-//! use proxy_app::geo::{load_geoip, load_geosite};
+//! use blackwire_app::geo::{load_geoip, load_geosite};
 //!
 //! let geoip = load_geoip("/usr/share/v2ray/geoip.dat");
 //! let geosite = load_geosite("/usr/share/v2ray/geosite.dat");

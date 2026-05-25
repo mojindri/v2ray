@@ -1,5 +1,5 @@
-use proxy_common::Address;
-use proxy_protocol::vless::connect_vless_on_stream;
+use blackwire_common::Address;
+use blackwire_protocol::vless::connect_vless_on_stream;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -10,14 +10,14 @@ use super::common::{
 
 #[tokio::test]
 async fn vless_over_ws_plain() {
-    use proxy_transport::{ws_connect, WsConnectConfig};
+    use blackwire_transport::{ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
     let (echo_port, echo_task) = spawn_echo_server().await;
     let vless_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(vless_ws_server(vless_port))
+    let _server = blackwire_core::Instance::from_config(vless_ws_server(vless_port))
         .await
         .expect("server start failed");
 
@@ -52,7 +52,7 @@ async fn vless_over_ws_plain() {
 
 #[tokio::test]
 async fn vless_over_ws_tls() {
-    use proxy_transport::{tls_connect, ws_connect, WsConnectConfig};
+    use blackwire_transport::{tls_connect, ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -60,10 +60,11 @@ async fn vless_over_ws_tls() {
     let (cert_path, key_path) = write_dev_cert_files();
     let vless_port = unused_local_port();
 
-    let _server =
-        proxy_core::Instance::from_config(vless_ws_tls_server(vless_port, &cert_path, &key_path))
-            .await
-            .expect("server start failed");
+    let _server = blackwire_core::Instance::from_config(vless_ws_tls_server(
+        vless_port, &cert_path, &key_path,
+    ))
+    .await
+    .expect("server start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -101,14 +102,14 @@ async fn vless_over_ws_tls() {
 
 #[tokio::test]
 async fn vless_over_ws_large_payload() {
-    use proxy_transport::{ws_connect, WsConnectConfig};
+    use blackwire_transport::{ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
     let (echo_port, echo_task) = spawn_echo_server().await;
     let vless_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(vless_ws_server(vless_port))
+    let _server = blackwire_core::Instance::from_config(vless_ws_server(vless_port))
         .await
         .expect("server start failed");
 
@@ -143,7 +144,7 @@ async fn vless_over_ws_large_payload() {
 
 #[tokio::test]
 async fn vless_over_ws_tls_multi_conn() {
-    use proxy_transport::{tls_connect, ws_connect, WsConnectConfig};
+    use blackwire_transport::{tls_connect, ws_connect, WsConnectConfig};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -151,10 +152,11 @@ async fn vless_over_ws_tls_multi_conn() {
     let (cert_path, key_path) = write_dev_cert_files();
     let vless_port = unused_local_port();
 
-    let _server =
-        proxy_core::Instance::from_config(vless_ws_tls_server(vless_port, &cert_path, &key_path))
-            .await
-            .expect("server start failed");
+    let _server = blackwire_core::Instance::from_config(vless_ws_tls_server(
+        vless_port, &cert_path, &key_path,
+    ))
+    .await
+    .expect("server start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 

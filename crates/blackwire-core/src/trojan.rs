@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 
-use proxy_app::features::{InboundHandler, OutboundHandler};
-use proxy_protocol::trojan::{TrojanInbound, TrojanOutbound, TrojanOutboundConfig};
+use blackwire_app::features::{InboundHandler, OutboundHandler};
+use blackwire_protocol::trojan::{TrojanInbound, TrojanOutbound, TrojanOutboundConfig};
 
 use crate::outbound_transport::{uses_outbound_transport, TransportTrojanOutbound};
 
 /// Build a Trojan inbound handler from config.
 pub(crate) fn build_trojan_inbound(
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
 ) -> Result<Arc<dyn InboundHandler>> {
     // Collect passwords from config JSON.
     // Expected shape: { "clients": [{ "password": "..." }, ...] }
@@ -45,7 +45,7 @@ pub(crate) fn build_trojan_inbound(
 
 /// Build a Trojan outbound handler from config.
 pub(crate) fn build_trojan_outbound(
-    cfg: &proxy_config::schema::OutboundConfig,
+    cfg: &blackwire_config::schema::OutboundConfig,
 ) -> Result<Arc<dyn OutboundHandler>> {
     let settings = &cfg.settings;
 

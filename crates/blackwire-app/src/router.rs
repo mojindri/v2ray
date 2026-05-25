@@ -31,7 +31,7 @@ use arc_swap::ArcSwap;
 use ipnet::IpNet;
 use regex::RegexSet;
 
-use proxy_common::{Address, Network, ProxyError};
+use blackwire_common::{Address, Network, ProxyError};
 
 use crate::geo::{GeoIpMatcher, GeoSiteMatcher};
 

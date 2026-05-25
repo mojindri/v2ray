@@ -22,23 +22,23 @@ WORKDIR /build
 # download step. If only source files change (not Cargo.toml/Cargo.lock),
 # the dependency layer is reused from Docker cache, speeding up rebuilds.
 COPY Cargo.toml Cargo.lock rust-toolchain.toml ./
-COPY crates/proxy-cli/Cargo.toml    crates/proxy-cli/
-COPY crates/proxy-core/Cargo.toml   crates/proxy-core/
-COPY crates/proxy-common/Cargo.toml crates/proxy-common/
-COPY crates/proxy-config/Cargo.toml crates/proxy-config/
-COPY crates/proxy-transport/Cargo.toml crates/proxy-transport/
-COPY crates/proxy-protocol/Cargo.toml crates/proxy-protocol/
-COPY crates/proxy-app/Cargo.toml    crates/proxy-app/
-COPY crates/proxy-tls/Cargo.toml    crates/proxy-tls/
-COPY crates/proxy-api/Cargo.toml    crates/proxy-api/
+COPY crates/blackwire-cli/Cargo.toml    crates/blackwire-cli/
+COPY crates/blackwire-core/Cargo.toml   crates/blackwire-core/
+COPY crates/blackwire-common/Cargo.toml crates/blackwire-common/
+COPY crates/blackwire-config/Cargo.toml crates/blackwire-config/
+COPY crates/blackwire-transport/Cargo.toml crates/blackwire-transport/
+COPY crates/blackwire-protocol/Cargo.toml crates/blackwire-protocol/
+COPY crates/blackwire-app/Cargo.toml    crates/blackwire-app/
+COPY crates/blackwire-tls/Cargo.toml    crates/blackwire-tls/
+COPY crates/blackwire-api/Cargo.toml    crates/blackwire-api/
 COPY tests/Cargo.toml               tests/
 
 # Create stub lib/main.rs files so cargo can resolve dependencies.
 # These will be replaced by the full source copy below.
-RUN for d in proxy-common proxy-config proxy-app proxy-transport proxy-protocol proxy-core proxy-tls proxy-api; do \
+RUN for d in blackwire-common blackwire-config blackwire-app blackwire-transport blackwire-protocol blackwire-core blackwire-tls blackwire-api; do \
         mkdir -p crates/$d/src && echo "// stub" > crates/$d/src/lib.rs; \
     done && \
-    mkdir -p crates/proxy-cli/src && echo "fn main(){}" > crates/proxy-cli/src/main.rs
+    mkdir -p crates/blackwire-cli/src && echo "fn main(){}" > crates/blackwire-cli/src/main.rs
 
 # Download and compile all dependencies (cached if Cargo.toml unchanged).
 RUN cargo fetch

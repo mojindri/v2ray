@@ -1,4 +1,4 @@
-//! proxy-common — shared building blocks for every other crate.
+//! blackwire-common — shared building blocks for every other crate.
 //!
 //! This crate sits at the very bottom of the dependency graph, meaning
 //! every other crate in the workspace can use it, but it cannot use any
@@ -22,7 +22,7 @@ pub mod splice;
 pub mod stream;
 
 // Re-export the most commonly used items so callers can write
-// `use proxy_common::Address` instead of `use proxy_common::address::Address`.
+// `use blackwire_common::Address` instead of `use blackwire_common::address::Address`.
 pub use address::{Address, Network};
 pub use buf::BufferPool;
 pub use connect::{tcp_connect, tcp_connect_to, TCP_CONNECT_TIMEOUT};

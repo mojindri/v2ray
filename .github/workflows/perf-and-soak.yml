@@ -33,7 +33,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run criterion benchmarks
-        run: cargo bench -p proxy-benches
+        run: cargo bench -p blackwire-benches
 
   soak:
     name: Soak

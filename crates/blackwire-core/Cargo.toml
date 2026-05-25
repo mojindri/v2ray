@@ -1,5 +1,5 @@
 [package]
-name        = "proxy-core"
+name        = "blackwire-core"
 description = "Instance lifecycle and feature registry. Owns the running inbounds, outbounds, dispatcher, and router."
 version.workspace = true
 edition.workspace = true
@@ -7,11 +7,11 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-proxy-common          = { path = "../proxy-common" }
-proxy-config          = { path = "../proxy-config" }
-proxy-app             = { path = "../proxy-app" }
-proxy-transport       = { path = "../proxy-transport" }
-proxy-protocol        = { path = "../proxy-protocol" }
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
+blackwire-app             = { path = "../blackwire-app" }
+blackwire-transport       = { path = "../blackwire-transport" }
+blackwire-protocol        = { path = "../blackwire-protocol" }
 
 dashmap.workspace    = true
 tokio.workspace       = true

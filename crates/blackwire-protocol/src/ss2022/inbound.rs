@@ -31,10 +31,10 @@ use rand::RngExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::InboundHandler;
-use proxy_common::{BoxedStream, Network, ProxyError};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::InboundHandler;
+use blackwire_common::{BoxedStream, Network, ProxyError};
 
 use super::{
     password_to_psk, replay::SaltReplay, stream::Ss2022Stream, subkey::derive_subkey, u64_from_be8,

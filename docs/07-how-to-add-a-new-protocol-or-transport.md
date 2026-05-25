@@ -22,7 +22,7 @@ Examples already in the repo:
 
 ### A New Protocol Usually Belongs In
 
-- `crates/proxy-protocol`
+- `crates/blackwire-protocol`
 
 ### Typical Pieces You Need
 
@@ -80,7 +80,7 @@ Examples already in the repo:
 
 ### A New Transport Usually Belongs In
 
-- `crates/proxy-transport`
+- `crates/blackwire-transport`
 
 ### A New Transport Should Usually Produce
 
@@ -107,7 +107,7 @@ It is probably a transport feature.
 
 ## Step-By-Step: Adding A New Protocol
 
-## 1. Create module(s) in `proxy-protocol`
+## 1. Create module(s) in `blackwire-protocol`
 
 Pick a structure that matches existing patterns.
 
@@ -123,9 +123,9 @@ Examples:
 
 Use:
 
-- `proxy_common::Address`
-- `proxy_common::BoxedStream`
-- `proxy_common::ProxyError`
+- `blackwire_common::Address`
+- `blackwire_common::BoxedStream`
+- `blackwire_common::ProxyError`
 
 Do not invent parallel core types.
 
@@ -133,17 +133,17 @@ Do not invent parallel core types.
 
 Read:
 
-- [crates/proxy-app/src/features.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-app/src/features.rs)
+- [crates/blackwire-app/src/features.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-app/src/features.rs)
 
 Your new handler should fit those trait contracts cleanly.
 
-## 4. Add builder/wiring in `proxy-core`
+## 4. Add builder/wiring in `blackwire-core`
 
-`proxy-core` is where config becomes concrete handler instances.
+`blackwire-core` is where config becomes concrete handler instances.
 
 That means you will usually need to update:
 
-- `crates/proxy-core/src/instance.rs`
+- `crates/blackwire-core/src/instance.rs`
 
 and possibly add a small helper module beside:
 
@@ -156,9 +156,9 @@ and possibly add a small helper module beside:
 
 If the protocol needs new config fields, update:
 
-- `proxy-config`
+- `blackwire-config`
 
-Do not parse ad hoc JSON inside `proxy-core`.
+Do not parse ad hoc JSON inside `blackwire-core`.
 
 ## 6. Add tests at three levels
 
@@ -176,13 +176,13 @@ For end-to-end behavior.
 
 ## Step-By-Step: Adding A New Transport
 
-## 1. Create module in `proxy-transport`
+## 1. Create module in `blackwire-transport`
 
 Examples to copy style from:
 
-- [crates/proxy-transport/src/tcp.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/tcp.rs)
-- [crates/proxy-transport/src/tls.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/tls.rs)
-- [crates/proxy-transport/src/ws.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/ws.rs)
+- [crates/blackwire-transport/src/tcp.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/tcp.rs)
+- [crates/blackwire-transport/src/tls.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/tls.rs)
+- [crates/blackwire-transport/src/ws.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/ws.rs)
 
 ## 2. Expose a clean stream abstraction
 
@@ -205,13 +205,13 @@ If your transport writes framed messages, do not assume a single kernel write co
 
 ## 4. Add core wiring if config can select it
 
-If the transport is selectable by `streamSettings`, update the relevant `proxy-core` glue.
+If the transport is selectable by `streamSettings`, update the relevant `blackwire-core` glue.
 
 Examples:
 
-- `crates/proxy-core/src/ws_tls.rs`
-- `crates/proxy-core/src/reality.rs`
-- `crates/proxy-core/src/outbound_transport.rs`
+- `crates/blackwire-core/src/ws_tls.rs`
+- `crates/blackwire-core/src/reality.rs`
+- `crates/blackwire-core/src/outbound_transport.rs`
 
 ## 5. Add tests
 
@@ -222,9 +222,9 @@ At minimum:
 - malformed input tests if parsing is involved
 - integration test showing the transport stack around a real protocol
 
-## When To Touch `proxy-tls`
+## When To Touch `blackwire-tls`
 
-Only touch `proxy-tls` if the feature specifically requires custom raw TLS handshake construction or fingerprint control.
+Only touch `blackwire-tls` if the feature specifically requires custom raw TLS handshake construction or fingerprint control.
 
 That is a specialized area.
 
@@ -257,7 +257,7 @@ That consistency matters because the repo is already large.
 
 ## How To Decide Where Config Logic Belongs
 
-### `proxy-config`
+### `blackwire-config`
 
 Owns:
 
@@ -265,7 +265,7 @@ Owns:
 - serde names
 - validation structure
 
-### `proxy-core`
+### `blackwire-core`
 
 Owns:
 
@@ -287,7 +287,7 @@ The path is usually:
 1. create codec
 2. create inbound handler implementing `InboundHandler`
 3. add config schema if needed
-4. update `proxy-core` inbound builder
+4. update `blackwire-core` inbound builder
 5. add tests
 
 The inbound should end with:
@@ -303,18 +303,18 @@ The path is usually:
 
 1. create connect/accept wrapper
 2. return `BoxedStream`
-3. update `proxy-core` transport selection path
+3. update `blackwire-core` transport selection path
 4. add production-readiness tests for stream behavior
 
 ## How To Stay Sane While Contributing
 
 Follow these constraints:
 
-1. Keep protocol meaning in `proxy-protocol`.
-2. Keep transport wrapping in `proxy-transport`.
-3. Keep config shape in `proxy-config`.
-4. Keep runtime assembly in `proxy-core`.
-5. Keep routing/dispatch in `proxy-app`.
+1. Keep protocol meaning in `blackwire-protocol`.
+2. Keep transport wrapping in `blackwire-transport`.
+3. Keep config shape in `blackwire-config`.
+4. Keep runtime assembly in `blackwire-core`.
+5. Keep routing/dispatch in `blackwire-app`.
 
 If you violate those boundaries casually, the repo gets much harder to maintain.
 
@@ -346,7 +346,7 @@ If you violate those boundaries casually, the repo gets much harder to maintain.
 Before calling a new protocol or transport "done", check:
 
 - config fields exist and are validated
-- `proxy-core` can build it
+- `blackwire-core` can build it
 - trait boundaries are respected
 - malformed input tests exist
 - partial-write tests exist if you wrapped a stream

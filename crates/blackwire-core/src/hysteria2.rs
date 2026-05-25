@@ -1,6 +1,6 @@
 //! Hysteria2 glue used by the instance builder.
 //!
-//! This module wires together the Hysteria2 transport (from proxy-transport)
+//! This module wires together the Hysteria2 transport (from blackwire-transport)
 //! with the instance lifecycle. It reads the config settings JSON and
 //! constructs `Hysteria2ServerConfig` / `Hysteria2ClientConfig`.
 
@@ -9,9 +9,9 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 
-use proxy_app::dispatcher::Dispatcher;
-use proxy_config::schema::{InboundConfig, OutboundConfig};
-use proxy_transport::{
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_config::schema::{InboundConfig, OutboundConfig};
+use blackwire_transport::{
     Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server, Hysteria2ServerConfig,
 };
 
@@ -40,7 +40,7 @@ pub(crate) fn start_hysteria2_inbound(
 /// Build a `Hysteria2OutboundHandler` from the outbound config.
 pub(crate) fn build_hysteria2_outbound(
     cfg: &OutboundConfig,
-) -> Result<Arc<dyn proxy_app::features::OutboundHandler>> {
+) -> Result<Arc<dyn blackwire_app::features::OutboundHandler>> {
     let client_config = parse_client_config(cfg)?;
     Ok(Hysteria2OutboundHandler::new(
         client_config,

@@ -153,7 +153,7 @@ pub struct TunConfig {
 }
 
 fn default_tun_name() -> String {
-    "proxy-tun".to_string()
+    "blackwire-tun".to_string()
 }
 
 fn default_tun_address() -> String {

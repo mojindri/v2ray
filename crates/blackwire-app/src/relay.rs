@@ -17,7 +17,7 @@
 
 use std::io;
 
-use proxy_common::BoxedStream;
+use blackwire_common::BoxedStream;
 
 /// Relay bytes between two streams until either side closes.
 ///
@@ -28,7 +28,7 @@ pub async fn relay_bidirectional(
 ) -> io::Result<(u64, u64)> {
     #[cfg(target_os = "linux")]
     {
-        use proxy_common::try_into_tcp_stream;
+        use blackwire_common::try_into_tcp_stream;
 
         // Wrapped streams (TLS/WS/REALITY) cannot splice — use async copy.
         let inbound = match try_into_tcp_stream(inbound) {
@@ -45,7 +45,9 @@ pub async fn relay_bidirectional(
             }
         };
 
-        if let Ok(result) = proxy_common::splice::splice_bidirectional(&inbound, &outbound).await {
+        if let Ok(result) =
+            blackwire_common::splice::splice_bidirectional(&inbound, &outbound).await
+        {
             return Ok(result);
         }
         // splice can fail on exotic socket types — fall back safely.

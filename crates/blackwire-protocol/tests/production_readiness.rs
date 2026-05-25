@@ -1,4 +1,4 @@
-//! Production-readiness tests for proxy-protocol.
+//! Production-readiness tests for blackwire-protocol.
 //!
 //! Deterministic, non-fuzz tests covering:
 //! - spec-level crypto constants
@@ -21,14 +21,14 @@ use bytes::{BufMut, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::time::{timeout, Duration};
 
-use proxy_common::{Address, BoxedStream};
+use blackwire_common::{Address, BoxedStream};
 
-use proxy_protocol::http_connect::parse_connect_request_sync;
-use proxy_protocol::ss2022::subkey::derive_subkey;
-use proxy_protocol::ss2022::{password_to_psk, SaltReplay, Ss2022Stream};
-use proxy_protocol::trojan::codec as trojan_codec;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_protocol::vmess::{auth as vmess_auth, stream::VmessStream};
+use blackwire_protocol::http_connect::parse_connect_request_sync;
+use blackwire_protocol::ss2022::subkey::derive_subkey;
+use blackwire_protocol::ss2022::{password_to_psk, SaltReplay, Ss2022Stream};
+use blackwire_protocol::trojan::codec as trojan_codec;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_protocol::vmess::{auth as vmess_auth, stream::VmessStream};
 
 const SHORT_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -120,14 +120,16 @@ impl AsyncWrite for PendingOnceWriteIo {
     }
 }
 
-async fn vless_decode(data: &[u8]) -> Result<vless_codec::VlessRequest, proxy_common::ProxyError> {
+async fn vless_decode(
+    data: &[u8],
+) -> Result<vless_codec::VlessRequest, blackwire_common::ProxyError> {
     let mut c = std::io::Cursor::new(data.to_vec());
     vless_codec::decode_request(&mut c).await
 }
 
 async fn trojan_decode(
     data: &[u8],
-) -> Result<trojan_codec::TrojanRequest, proxy_common::ProxyError> {
+) -> Result<trojan_codec::TrojanRequest, blackwire_common::ProxyError> {
     let mut c = std::io::Cursor::new(data.to_vec());
     trojan_codec::decode_request(&mut c).await
 }

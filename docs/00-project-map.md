@@ -61,31 +61,31 @@ Examples:
 
 The workspace root `Cargo.toml` declares these crates:
 
-- `proxy-common`
+- `blackwire-common`
   Shared types used everywhere.
 
-- `proxy-config`
+- `blackwire-config`
   Config schema, parsing, validation, and hot reload.
 
-- `proxy-app`
+- `blackwire-app`
   Router, dispatcher, DNS, metrics, health, relay helpers.
 
-- `proxy-core`
+- `blackwire-core`
   Builds the running instance from config and wires everything together.
 
-- `proxy-protocol`
+- `blackwire-protocol`
   Proxy protocols such as SOCKS5, VLESS, VMess, Trojan, and SS-2022.
 
-- `proxy-transport`
+- `blackwire-transport`
   TCP, TLS, WebSocket, gRPC, QUIC, REALITY, mKCP, TUN, ShadowTLS.
 
-- `proxy-tls`
+- `blackwire-tls`
   Raw TLS ClientHello builder used by REALITY client camouflage.
 
-- `proxy-cli`
+- `blackwire-cli`
   The `blackwire` binary entrypoint.
 
-- `proxy-api`
+- `blackwire-api`
   Planned management/stats API crate. Currently mostly a stub.
 
 - `tests`
@@ -93,17 +93,17 @@ The workspace root `Cargo.toml` declares these crates:
 
 ## How Startup Works
 
-The startup path begins in `crates/proxy-cli/src/main.rs`.
+The startup path begins in `crates/blackwire-cli/src/main.rs`.
 
 The normal `run` command does this:
 
 1. Initialize tracing/logging.
-2. Load config through `proxy_config::ConfigManager`.
+2. Load config through `blackwire_config::ConfigManager`.
 3. Start the config watcher for hot reload.
-4. Build `proxy_core::Instance` from the current config.
+4. Build `blackwire_core::Instance` from the current config.
 5. Wait for signals or for the instance to exit.
 
-`proxy_core::Instance::from_config()` is the main wiring function.
+`blackwire_core::Instance::from_config()` is the main wiring function.
 
 It does the important assembly work:
 
@@ -124,8 +124,8 @@ Suppose a browser is configured to use local SOCKS5.
 The flow is:
 
 1. Browser connects to the SOCKS inbound listener.
-2. `proxy-transport` accepts the raw TCP socket.
-3. `proxy-protocol::socks` reads the SOCKS5 handshake.
+2. `blackwire-transport` accepts the raw TCP socket.
+3. `blackwire-protocol::socks` reads the SOCKS5 handshake.
 4. SOCKS extracts the destination address, for example `example.com:443`.
 5. SOCKS gives the stream and destination to the dispatcher.
 6. The dispatcher asks the router which outbound tag to use.
@@ -179,7 +179,7 @@ There are a few shared concepts that show up everywhere.
 
 ### `Address`
 
-Defined in `proxy-common`.
+Defined in `blackwire-common`.
 
 Represents:
 
@@ -191,7 +191,7 @@ This exists because many proxy protocols receive unresolved domain names, not al
 
 ### `BoxedStream`
 
-Also from `proxy-common`.
+Also from `blackwire-common`.
 
 This is the universal byte-stream type used between layers.
 
@@ -209,7 +209,7 @@ Shared error type used across the workspace.
 
 ### `InboundHandler`, `OutboundHandler`, `ConnectionHandler`
 
-Defined in `proxy-app::features`.
+Defined in `blackwire-app::features`.
 
 These traits are the main interfaces between the layers:
 
@@ -222,7 +222,7 @@ These traits are the main interfaces between the layers:
 - `ConnectionHandler`
   Lower-level transport/security wrapper used before inbound protocol parsing.
 
-## Why `proxy-core` Exists
+## Why `blackwire-core` Exists
 
 A common beginner question is:
 
@@ -230,7 +230,7 @@ A common beginner question is:
 
 Because startup wiring is not the same problem as protocol implementation.
 
-`proxy-core` exists to:
+`blackwire-core` exists to:
 
 - build all handlers from config
 - glue protocol code to transport code
@@ -239,7 +239,7 @@ Because startup wiring is not the same problem as protocol implementation.
 
 It should know how to assemble the system, but not own the low-level wire formats themselves.
 
-## Why `proxy-tls` Exists Separately
+## Why `blackwire-tls` Exists Separately
 
 Another common question:
 
@@ -254,7 +254,7 @@ REALITY needs something more specific:
 - preserve exact extension ordering and fingerprint shape
 - hide REALITY token material inside TLS fields
 
-That is why `proxy-tls` is focused on raw ClientHello construction.
+That is why `blackwire-tls` is focused on raw ClientHello construction.
 
 ## Why The Tests Are Split
 
@@ -299,23 +299,23 @@ These check behavior against real Xray expectations, especially around REALITY.
 
 If you want to understand the code in a practical order, use this path:
 
-1. `crates/proxy-cli/src/main.rs`
+1. `crates/blackwire-cli/src/main.rs`
    Shows startup.
 
-2. `crates/proxy-core/src/instance.rs`
+2. `crates/blackwire-core/src/instance.rs`
    Shows how the system is assembled.
 
-3. `crates/proxy-app/src/features.rs`
+3. `crates/blackwire-app/src/features.rs`
    Shows the core traits.
 
-4. `crates/proxy-app/src/dispatcher.rs`
+4. `crates/blackwire-app/src/dispatcher.rs`
    Shows how inbounds and outbounds connect.
 
-5. `crates/proxy-app/src/router.rs`
+5. `crates/blackwire-app/src/router.rs`
    Shows how outbound selection works.
 
 6. Pick one simple protocol pair:
-   `crates/proxy-protocol/src/socks.rs` and `crates/proxy-protocol/src/freedom.rs`
+   `crates/blackwire-protocol/src/socks.rs` and `crates/blackwire-protocol/src/freedom.rs`
 
 7. Then move to more advanced layers:
    VLESS, Trojan, VMess, TLS, WebSocket, REALITY
@@ -356,27 +356,27 @@ That way you build the model gradually instead of trying to learn the entire cod
 
 Use this simplified map:
 
-- `proxy-common`
+- `blackwire-common`
   shared nouns
 
-- `proxy-config`
+- `blackwire-config`
   typed config
 
-- `proxy-app`
+- `blackwire-app`
   decision-making and relay
 
-- `proxy-core`
+- `blackwire-core`
   startup and wiring
 
-- `proxy-protocol`
+- `blackwire-protocol`
   what the bytes mean
 
-- `proxy-transport`
+- `blackwire-transport`
   how the bytes travel
 
-- `proxy-tls`
+- `blackwire-tls`
   special fake-browser TLS builder for REALITY
 
-- `proxy-cli`
+- `blackwire-cli`
   the executable
 

@@ -28,7 +28,7 @@ use rustls::version::TLS13;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
 use tokio_rustls::{TlsAcceptor, TlsConnector};
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 
 // ── Client ────────────────────────────────────────────────────────────────────
 

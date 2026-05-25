@@ -14,8 +14,8 @@
 //! The server relays this handshake to the backend, so the client sees valid TLS.
 //! After the handshake, the client wraps its first data write in the marker record.
 
-use proxy_common::{BoxedStream, ProxyError};
-use proxy_tls::ClientHelloBuilder;
+use blackwire_common::{BoxedStream, ProxyError};
+use blackwire_tls::ClientHelloBuilder;
 use rand::RngExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -140,7 +140,9 @@ pub async fn shadowtls_v3_connect(
                 if data.is_empty() {
                     return Ok(Box::new(framed));
                 }
-                return Ok(Box::new(proxy_common::PrependedStream::new(framed, data)));
+                return Ok(Box::new(blackwire_common::PrependedStream::new(
+                    framed, data,
+                )));
             }
             Err(e) => return Err(e),
         }

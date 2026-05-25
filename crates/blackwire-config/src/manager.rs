@@ -92,7 +92,7 @@ impl ConfigManager {
     /// ```no_run
     /// use std::sync::Arc;
     ///
-    /// use proxy_config::ConfigManager;
+    /// use blackwire_config::ConfigManager;
     ///
     /// async fn spawn_watch(manager: Arc<ConfigManager>) {
     ///     let mgr = Arc::clone(&manager);

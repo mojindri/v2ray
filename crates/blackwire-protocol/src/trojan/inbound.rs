@@ -28,10 +28,10 @@ use async_trait::async_trait;
 use subtle::ConstantTimeEq;
 use tracing::{debug, warn};
 
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::InboundHandler;
-use proxy_common::{BoxedStream, Network, ProxyError};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::InboundHandler;
+use blackwire_common::{BoxedStream, Network, ProxyError};
 
 use super::codec::{compute_token, decode_request, TOKEN_LEN};
 

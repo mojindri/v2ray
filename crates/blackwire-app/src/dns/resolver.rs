@@ -13,7 +13,7 @@ use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use hickory_resolver::TokioResolver;
 use tracing::debug;
 
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 
 /// A DNS resolver that can perform real name lookups.
 pub struct DnsResolver {

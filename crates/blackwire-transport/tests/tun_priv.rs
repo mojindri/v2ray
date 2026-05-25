@@ -7,7 +7,7 @@
 //!     `#[cfg(target_os = "linux")]` and the `priv-test` Cargo feature.
 //!
 //! Run privileged tests on a Linux host with:
-//!   sudo -E cargo test -p proxy-transport --features priv-test \
+//!   sudo -E cargo test -p blackwire-transport --features priv-test \
 //!       --test tun_priv -- --include-ignored
 //!
 //! # VPS interop
@@ -23,10 +23,10 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use proxy_transport::tun::{parse_ip_packet, UdpNatTable};
+use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
 
 #[cfg(target_os = "linux")]
-use proxy_transport::tun::{create_tun, TunConfig, TunRuntime};
+use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
 #[cfg(target_os = "linux")]
 use tokio::sync::watch;
 
@@ -91,17 +91,17 @@ fn nat_response_packet_addresses_reversed() {
     let payload = b"pong";
 
     // Use the public re-export to build the response.
-    let fake = proxy_transport::tun::IpPacket {
+    let fake = blackwire_transport::tun::IpPacket {
         src: client.ip(),
         dst: remote.ip(),
         src_port: client.port(),
         dst_port: remote.port(),
-        protocol: proxy_transport::tun::TransportProtocol::Udp,
+        protocol: blackwire_transport::tun::TransportProtocol::Udp,
         header_len: 0,
         payload_offset: 0,
         payload_len: 0,
     };
-    let pkt = proxy_transport::tun::build_udp_response_packet(&fake, payload).unwrap();
+    let pkt = blackwire_transport::tun::build_udp_response_packet(&fake, payload).unwrap();
     let parsed = parse_ip_packet(&pkt).unwrap();
 
     assert_eq!(parsed.src, remote.ip());
@@ -207,7 +207,7 @@ async fn tun_runtime_starts_and_shuts_down() {
     ignore = "requires root + priv-test feature"
 )]
 async fn route_setup_and_cleanup_are_symmetric() {
-    use proxy_transport::tun::route::{cleanup_routes, setup_routes};
+    use blackwire_transport::tun::route::{cleanup_routes, setup_routes};
 
     let tun_name = "test-tun2";
     let cfg = TunConfig {

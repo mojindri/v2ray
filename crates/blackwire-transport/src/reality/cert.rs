@@ -26,7 +26,7 @@ use rustls::pki_types::PrivatePkcs8KeyDer;
 use sha2::Sha512;
 use x509_parser::prelude::*;
 
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 
 #[derive(Clone)]
 struct CertTemplate {

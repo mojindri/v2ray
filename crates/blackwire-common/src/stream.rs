@@ -224,7 +224,7 @@ impl<S: AsyncWrite + Unpin> AsyncWrite for PrependedStream<S> {
 /// # Usage
 ///
 /// ```rust
-/// use proxy_common::{BoxedStream, ReunionStream};
+/// use blackwire_common::{BoxedStream, ReunionStream};
 /// use tokio::io::{duplex, split};
 ///
 /// let (stream_a, _stream_b) = duplex(1024);

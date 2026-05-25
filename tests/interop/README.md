@@ -32,7 +32,7 @@ That is what the Phase 3 tests are checking.
 Run:
 
 ```sh
-cargo test -p proxy-transport --test interop d0 -- --ignored --nocapture
+cargo test -p blackwire-transport --test interop d0 -- --ignored --nocapture
 ```
 
 What it proves:
@@ -50,7 +50,7 @@ Run:
 
 ```sh
 make -C labs/realistic interop-client-reality
-# or: cd tests/interop && make up && cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture
+# or: cd tests/interop && make up && cargo test -p blackwire-transport --test interop d1 -- --ignored --nocapture
 ```
 
 What it proves:

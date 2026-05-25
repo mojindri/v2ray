@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use anyhow::{bail, Context as _, Result};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_common::{BoxedStream, ReunionStream};
 use h3_quinn::Connection as H3QuinnConnection;
 use http::{Response, StatusCode};
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_common::{BoxedStream, ReunionStream};
 use quinn::Connection;
 use tracing::warn;
 

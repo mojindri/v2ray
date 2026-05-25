@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_app::metrics::{
+use blackwire_app::metrics::{
     record_connection_accepted, record_connection_closed, start_metrics_server,
 };
 
@@ -37,7 +37,7 @@ async fn metrics_endpoint_exposes_proxy_metrics() {
 
 #[tokio::test]
 async fn dns_failure_returns_actionable_error() {
-    let dns = proxy_app::dns::DnsModule::new(proxy_app::dns::DnsModuleConfig {
+    let dns = blackwire_app::dns::DnsModule::new(blackwire_app::dns::DnsModuleConfig {
         servers: vec!["127.0.0.1:1".into()],
         ..Default::default()
     })
@@ -64,7 +64,9 @@ async fn reload_failure_contains_reason() {
         }],
         "outbounds": [{ "tag": "direct", "protocol": "freedom" }]
     }));
-    let instance = proxy_core::Instance::from_config(cfg).await.expect("start");
+    let instance = blackwire_core::Instance::from_config(cfg)
+        .await
+        .expect("start");
 
     let invalid = harness::parse_config(serde_json::json!({
         "inbounds": [{

@@ -4,7 +4,7 @@ use tracing::info;
 /// Settings used when creating the OS TUN interface.
 #[derive(Debug, Clone)]
 pub struct TunConfig {
-    /// Interface name (for example `proxy-tun`).
+    /// Interface name (for example `blackwire-tun`).
     pub name: String,
     /// IPv4 address assigned to the TUN interface.
     pub address: std::net::Ipv4Addr,
@@ -29,7 +29,7 @@ impl Default for TunConfig {
             .parse()
             .expect("valid default TUN netmask literal");
         Self {
-            name: "proxy-tun".into(),
+            name: "blackwire-tun".into(),
             address,
             netmask,
             mtu: 1500,

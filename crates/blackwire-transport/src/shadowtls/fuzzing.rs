@@ -1,4 +1,4 @@
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 
 use super::marker::markers_equal;
 

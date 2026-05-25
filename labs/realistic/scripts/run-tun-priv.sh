@@ -22,16 +22,16 @@ mkdir -p "$REPORT_DIR"
 echo "==> TUN privileged tests — $(date -u +%Y-%m-%dT%H:%M:%SZ)" | tee "$REPORT_FILE"
 
 echo "--- unit + cross-platform TUN tests ---" | tee -a "$REPORT_FILE"
-cargo test -p proxy-transport --all-features 2>&1 | tee -a "$REPORT_FILE"
+cargo test -p blackwire-transport --all-features 2>&1 | tee -a "$REPORT_FILE"
 
 echo "" | tee -a "$REPORT_FILE"
 echo "--- privileged TUN device tests ---" | tee -a "$REPORT_FILE"
-cargo test -p proxy-transport --features priv-test --test tun_priv \
+cargo test -p blackwire-transport --features priv-test --test tun_priv \
     -- --include-ignored --nocapture 2>&1 | tee -a "$REPORT_FILE"
 
 echo "" | tee -a "$REPORT_FILE"
 echo "--- VPS interop: real DNS through TUN NAT ---" | tee -a "$REPORT_FILE"
-TUN_INTEROP=1 cargo test -p proxy-transport --features priv-test --test tun_priv \
+TUN_INTEROP=1 cargo test -p blackwire-transport --features priv-test --test tun_priv \
     vps_udp_nat_real_dns_query -- --include-ignored --nocapture 2>&1 | tee -a "$REPORT_FILE"
 
 echo ""

@@ -17,8 +17,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::warn;
 
-use proxy_common::{Address, BoxedStream, ProxyError};
-use proxy_config::schema::BalancerConfig;
+use blackwire_common::{Address, BoxedStream, ProxyError};
+use blackwire_config::schema::BalancerConfig;
 
 use crate::context::Context;
 use crate::features::OutboundHandler;
@@ -159,8 +159,8 @@ impl OutboundHandler for Balancer {
 mod tests {
     use super::*;
     use crate::health::OutboundState;
-    use proxy_common::Address;
-    use proxy_config::schema::BalancerConfig;
+    use blackwire_common::Address;
+    use blackwire_config::schema::BalancerConfig;
     use tokio::io::duplex;
 
     struct MockOutbound {

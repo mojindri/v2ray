@@ -318,10 +318,10 @@ It does all of these:
 
 REALITY spans two crates:
 
-- `proxy-tls`
+- `blackwire-tls`
   builds the browser-like ClientHello
 
-- `proxy-transport`
+- `blackwire-transport`
   performs REALITY auth and handshake behavior
 
 ### Why It Is Hard
@@ -425,19 +425,19 @@ Examples:
 As a rule:
 
 - destination encoding, auth tokens, UUID parsing, request headers:
-  `proxy-protocol`
+  `blackwire-protocol`
 
 - socket accept, TLS wrapping, WebSocket wrapping, REALITY handshake:
-  `proxy-transport`
+  `blackwire-transport`
 
 - browser-like ClientHello construction for REALITY:
-  `proxy-tls`
+  `blackwire-tls`
 
 - choosing outbound and relaying streams:
-  `proxy-app`
+  `blackwire-app`
 
 - building the stack from config:
-  `proxy-core`
+  `blackwire-core`
 
 ## How To Read A Layered Stack
 
@@ -484,9 +484,9 @@ That makes the system extensible.
 If you are lost, ask these two questions:
 
 1. Am I looking at bytes that describe a proxy request?
-   If yes, you are probably in `proxy-protocol`.
+   If yes, you are probably in `blackwire-protocol`.
 
 2. Am I looking at code that carries, wraps, disguises, encrypts, or accepts the stream?
-   If yes, you are probably in `proxy-transport` or `proxy-tls`.
+   If yes, you are probably in `blackwire-transport` or `blackwire-tls`.
 
 That one distinction will save you a lot of confusion.

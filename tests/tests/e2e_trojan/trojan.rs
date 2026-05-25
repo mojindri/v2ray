@@ -1,4 +1,4 @@
-use proxy_common::Address;
+use blackwire_common::Address;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
@@ -16,12 +16,13 @@ async fn trojan_plain_tcp_single_chunk() {
     let trojan_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(trojan_server_plain(trojan_port))
+    let _server = blackwire_core::Instance::from_config(trojan_server_plain(trojan_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
-        .await
-        .expect("client start failed");
+    let _client =
+        blackwire_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
+            .await
+            .expect("client start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -44,12 +45,13 @@ async fn trojan_plain_tcp_large_payload() {
     let trojan_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(trojan_server_plain(trojan_port))
+    let _server = blackwire_core::Instance::from_config(trojan_server_plain(trojan_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
-        .await
-        .expect("client start failed");
+    let _client =
+        blackwire_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
+            .await
+            .expect("client start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -66,13 +68,13 @@ async fn trojan_plain_tcp_large_payload() {
 
 #[tokio::test]
 async fn trojan_wrong_password_is_rejected() {
-    use proxy_protocol::trojan::codec::encode_request;
-    use proxy_protocol::trojan::compute_token;
+    use blackwire_protocol::trojan::codec::encode_request;
+    use blackwire_protocol::trojan::compute_token;
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
     let trojan_port = unused_local_port();
-    let _server = proxy_core::Instance::from_config(trojan_server_plain(trojan_port))
+    let _server = blackwire_core::Instance::from_config(trojan_server_plain(trojan_port))
         .await
         .expect("server start failed");
 
@@ -99,8 +101,8 @@ async fn trojan_wrong_password_is_rejected() {
 
 #[tokio::test]
 async fn trojan_over_tls_roundtrip() {
-    use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
-    use proxy_transport::tls_connect;
+    use blackwire_protocol::trojan::{compute_token, connect_trojan_on_stream};
+    use blackwire_transport::tls_connect;
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -108,10 +110,13 @@ async fn trojan_over_tls_roundtrip() {
     let (cert_path, key_path) = write_dev_cert_files();
     let trojan_port = unused_local_port();
 
-    let _server =
-        proxy_core::Instance::from_config(trojan_server_tls(trojan_port, &cert_path, &key_path))
-            .await
-            .expect("server start failed");
+    let _server = blackwire_core::Instance::from_config(trojan_server_tls(
+        trojan_port,
+        &cert_path,
+        &key_path,
+    ))
+    .await
+    .expect("server start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -141,7 +146,7 @@ async fn trojan_over_tls_roundtrip() {
 
 #[tokio::test]
 async fn trojan_multiple_passwords_any_accepted() {
-    use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
+    use blackwire_protocol::trojan::{compute_token, connect_trojan_on_stream};
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -167,7 +172,7 @@ async fn trojan_multiple_passwords_any_accepted() {
         }}"#
     ));
 
-    let _server = proxy_core::Instance::from_config(server_config)
+    let _server = blackwire_core::Instance::from_config(server_config)
         .await
         .expect("server start failed");
 
@@ -203,12 +208,13 @@ async fn trojan_ipv4_address() {
     let trojan_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(trojan_server_plain(trojan_port))
+    let _server = blackwire_core::Instance::from_config(trojan_server_plain(trojan_port))
         .await
         .unwrap();
-    let _client = proxy_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
-        .await
-        .unwrap();
+    let _client =
+        blackwire_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
+            .await
+            .unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -231,12 +237,13 @@ async fn trojan_domain_address() {
     let trojan_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(trojan_server_plain(trojan_port))
+    let _server = blackwire_core::Instance::from_config(trojan_server_plain(trojan_port))
         .await
         .unwrap();
-    let _client = proxy_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
-        .await
-        .unwrap();
+    let _client =
+        blackwire_core::Instance::from_config(trojan_client_plain(socks_port, trojan_port))
+            .await
+            .unwrap();
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
@@ -253,8 +260,8 @@ async fn trojan_domain_address() {
 
 #[tokio::test]
 async fn trojan_over_tls_large_payload() {
-    use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
-    use proxy_transport::tls_connect;
+    use blackwire_protocol::trojan::{compute_token, connect_trojan_on_stream};
+    use blackwire_transport::tls_connect;
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
 
@@ -262,10 +269,13 @@ async fn trojan_over_tls_large_payload() {
     let (cert_path, key_path) = write_dev_cert_files();
     let trojan_port = unused_local_port();
 
-    let _server =
-        proxy_core::Instance::from_config(trojan_server_tls(trojan_port, &cert_path, &key_path))
-            .await
-            .expect("server start failed");
+    let _server = blackwire_core::Instance::from_config(trojan_server_tls(
+        trojan_port,
+        &cert_path,
+        &key_path,
+    ))
+    .await
+    .expect("server start failed");
 
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 

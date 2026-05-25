@@ -1,6 +1,6 @@
 //! Minimal PEM block parser shared by TLS and QUIC loaders.
 
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 use rustls::pki_types::{
     CertificateDer, PrivateKeyDer, PrivatePkcs1KeyDer, PrivatePkcs8KeyDer, PrivateSec1KeyDer,
 };

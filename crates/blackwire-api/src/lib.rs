@@ -1,4 +1,4 @@
-//! proxy-api — gRPC management and statistics API (Phase 6 stub).
+//! blackwire-api — gRPC management and statistics API (Phase 6 stub).
 //!
 //! # What this crate will do
 //!

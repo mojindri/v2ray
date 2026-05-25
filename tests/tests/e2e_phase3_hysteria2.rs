@@ -63,7 +63,7 @@ async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> Tcp
 }
 
 fn write_dev_cert_files() -> (String, String) {
-    let (cert_pem, key_pem) = proxy_transport::dev_self_signed().unwrap();
+    let (cert_pem, key_pem) = blackwire_transport::dev_self_signed().unwrap();
     let dir = std::env::temp_dir();
     let unique = format!(
         "blackwire-phase3-{}-{}",
@@ -82,7 +82,7 @@ fn write_dev_cert_files() -> (String, String) {
     )
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
@@ -90,7 +90,7 @@ fn server_config(
     hysteria_port: u16,
     cert_path: &str,
     key_path: &str,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -123,7 +123,7 @@ fn server_config(
     ))
 }
 
-fn client_config(socks_port: u16, hysteria_port: u16) -> Arc<proxy_config::schema::Config> {
+fn client_config(socks_port: u16, hysteria_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -163,10 +163,10 @@ async fn phase3_hysteria2_to_freedom_transfers_data() {
     let (cert_path, key_path) = write_dev_cert_files();
 
     let _server =
-        proxy_core::Instance::from_config(server_config(hysteria_port, &cert_path, &key_path))
+        blackwire_core::Instance::from_config(server_config(hysteria_port, &cert_path, &key_path))
             .await
             .expect("server proxy instance creation failed");
-    let _client = proxy_core::Instance::from_config(client_config(socks_port, hysteria_port))
+    let _client = blackwire_core::Instance::from_config(client_config(socks_port, hysteria_port))
         .await
         .expect("client proxy instance creation failed");
 

@@ -16,14 +16,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use tracing::debug;
 
-use proxy_app::context::Context;
-use proxy_app::features::OutboundHandler;
-use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
-use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_protocol::trojan::{compute_token, connect_trojan_on_stream};
-use proxy_protocol::vless::connect_vless_on_stream;
-use proxy_protocol::vmess::{auth::cmd_key, connect_vmess_on_stream};
-use proxy_transport::{
+use blackwire_app::context::Context;
+use blackwire_app::features::OutboundHandler;
+use blackwire_common::{tcp_connect, Address, BoxedStream, ProxyError};
+use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
+use blackwire_protocol::trojan::{compute_token, connect_trojan_on_stream};
+use blackwire_protocol::vless::connect_vless_on_stream;
+use blackwire_protocol::vmess::{auth::cmd_key, connect_vmess_on_stream};
+use blackwire_transport::{
     grpc_connect, mkcp_connect, shadowtls_v3_connect, tls_connect, ws_connect, MkcpClientConfig,
     WsConnectConfig,
 };

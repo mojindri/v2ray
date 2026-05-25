@@ -2,19 +2,19 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
-use proxy_common::{Address, BoxedStream};
-use proxy_core::Instance;
-use proxy_protocol::http_connect::parse_connect_request;
-use proxy_protocol::ss2022::{password_to_psk, Ss2022Stream};
-use proxy_protocol::trojan::codec as trojan_codec;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_protocol::vmess::auth as vmess_auth;
-use proxy_protocol::vmess::codec as vmess_codec;
-use proxy_protocol::vmess::codec::Security as VmessSecurity;
-use proxy_transport::hysteria2::proto::{decode_tcp_request, encode_tcp_request};
-use proxy_transport::mkcp::segment::{Segment, CMD_PUSH};
-use proxy_transport::WsConnectConfig;
-use proxy_transport::{
+use blackwire_common::{Address, BoxedStream};
+use blackwire_core::Instance;
+use blackwire_protocol::http_connect::parse_connect_request;
+use blackwire_protocol::ss2022::{password_to_psk, Ss2022Stream};
+use blackwire_protocol::trojan::codec as trojan_codec;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_protocol::vmess::auth as vmess_auth;
+use blackwire_protocol::vmess::codec as vmess_codec;
+use blackwire_protocol::vmess::codec::Security as VmessSecurity;
+use blackwire_transport::hysteria2::proto::{decode_tcp_request, encode_tcp_request};
+use blackwire_transport::mkcp::segment::{Segment, CMD_PUSH};
+use blackwire_transport::WsConnectConfig;
+use blackwire_transport::{
     grpc_accept, grpc_connect, shadowtls_marker_accept, shadowtls_marker_connect, ws_accept,
     ws_connect,
 };
@@ -84,7 +84,7 @@ async fn write_fragmented(s: &mut TcpStream, data: &[u8]) {
     s.flush().await.unwrap();
 }
 
-fn parse_cfg(v: serde_json::Value) -> Arc<proxy_config::schema::Config> {
+fn parse_cfg(v: serde_json::Value) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_value(v).unwrap())
 }
 

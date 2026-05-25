@@ -12,7 +12,7 @@
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 
 use super::fuzzing::validate_first_application_record;
 use super::handshake::relay_v3_handshake;
@@ -72,7 +72,9 @@ pub async fn shadowtls_marker_accept(
     if prefix.is_empty() {
         Ok(stream)
     } else {
-        Ok(Box::new(proxy_common::PrependedStream::new(stream, prefix)))
+        Ok(Box::new(blackwire_common::PrependedStream::new(
+            stream, prefix,
+        )))
     }
 }
 

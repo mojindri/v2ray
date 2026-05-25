@@ -14,8 +14,8 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::timeout;
 use tracing::{info, warn};
 
-use proxy_common::{Address, ProxyError};
-use proxy_config::schema::HealthCheckConfig;
+use blackwire_common::{Address, ProxyError};
+use blackwire_config::schema::HealthCheckConfig;
 
 use crate::context::Context;
 use crate::features::OutboundHandler;
@@ -236,8 +236,8 @@ fn parse_port(port: &str) -> Result<u16, ProxyError> {
 mod tests {
     use super::*;
     use async_trait::async_trait;
-    use proxy_common::BoxedStream;
-    use proxy_config::schema::HealthCheckConfig;
+    use blackwire_common::BoxedStream;
+    use blackwire_config::schema::HealthCheckConfig;
     use tokio::io::AsyncWriteExt;
 
     struct StallReadOutbound;

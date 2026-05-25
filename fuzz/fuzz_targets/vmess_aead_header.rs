@@ -6,7 +6,7 @@ mod common;
 use std::io::Cursor;
 
 use libfuzzer_sys::fuzz_target;
-use proxy_protocol::vmess::codec::decode_header;
+use blackwire_protocol::vmess::codec::decode_header;
 
 const CMD_KEY: [u8; 16] = [0x11; 16];
 const AUTH_ID: [u8; 16] = [0x22; 16];

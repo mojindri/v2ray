@@ -49,7 +49,7 @@ use std::task::{Context, Poll};
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 

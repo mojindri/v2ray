@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 
-use proxy_app::features::{InboundHandler, OutboundHandler};
-use proxy_protocol::ss2022::{inbound::Ss2022Inbound, outbound::Ss2022Outbound};
+use blackwire_app::features::{InboundHandler, OutboundHandler};
+use blackwire_protocol::ss2022::{inbound::Ss2022Inbound, outbound::Ss2022Outbound};
 
 /// Build an SS-2022 inbound handler from config.
 ///
@@ -23,7 +23,7 @@ use proxy_protocol::ss2022::{inbound::Ss2022Inbound, outbound::Ss2022Outbound};
 /// }
 /// ```
 pub(crate) fn build_ss2022_inbound(
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
 ) -> Result<Arc<dyn InboundHandler>> {
     let password = cfg.settings["password"]
         .as_str()
@@ -47,7 +47,7 @@ pub(crate) fn build_ss2022_inbound(
 /// }
 /// ```
 pub(crate) fn build_ss2022_outbound(
-    cfg: &proxy_config::schema::OutboundConfig,
+    cfg: &blackwire_config::schema::OutboundConfig,
 ) -> Result<Arc<dyn OutboundHandler>> {
     let settings = &cfg.settings;
 

@@ -4,7 +4,7 @@ use ed25519_dalek::{Signer, SigningKey};
 use rand::RngExt;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError};
 use tokio::io::AsyncWriteExt;
 
 use super::{
@@ -301,7 +301,7 @@ mod tests {
 
     #[test]
     fn client_hello_key_share_matches_builder() {
-        use proxy_tls::ClientHelloBuilder;
+        use blackwire_tls::ClientHelloBuilder;
         use x25519_dalek::{PublicKey, StaticSecret};
 
         let secret = StaticSecret::random();
@@ -355,7 +355,7 @@ mod tests {
     #[test]
     fn handshake_traffic_keys_match_manual() {
         use super::super::{derive_handshake_keys, parse_server_hello};
-        use proxy_tls::ClientHelloBuilder;
+        use blackwire_tls::ClientHelloBuilder;
         use x25519_dalek::{PublicKey, StaticSecret};
 
         let client_secret = StaticSecret::random();
@@ -485,8 +485,8 @@ mod tests {
     async fn singbox_style_seal_auth_and_tls_roundtrip() {
         use aes_gcm::aead::{Aead, KeyInit, Payload};
         use aes_gcm::{Aes256Gcm, Key, Nonce};
+        use blackwire_tls::ClientHelloBuilder;
         use hkdf::Hkdf;
-        use proxy_tls::ClientHelloBuilder;
         use sha2::Sha256;
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
         use tokio::net::TcpListener;

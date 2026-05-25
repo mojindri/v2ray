@@ -16,9 +16,9 @@ use async_trait::async_trait;
 use tokio::io::AsyncWriteExt;
 use tracing::debug;
 
-use proxy_app::context::Context;
-use proxy_app::features::OutboundHandler;
-use proxy_common::{tcp_connect, Address, BoxedStream, ProxyError};
+use blackwire_app::context::Context;
+use blackwire_app::features::OutboundHandler;
+use blackwire_common::{tcp_connect, Address, BoxedStream, ProxyError};
 
 use super::auth::{cmd_key, generate_auth_id};
 use super::codec::{

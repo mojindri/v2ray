@@ -2,7 +2,7 @@
 
 This document explains what each crate owns, why it exists, and what to read first.
 
-## `proxy-common`
+## `blackwire-common`
 
 ### Purpose
 
@@ -22,10 +22,10 @@ Without this crate, every higher-level crate would duplicate base types or creat
 
 ### Read First
 
-- `crates/proxy-common/src/lib.rs`
-- `crates/proxy-common/src/address.rs`
-- `crates/proxy-common/src/stream.rs`
-- `crates/proxy-common/src/error.rs`
+- `crates/blackwire-common/src/lib.rs`
+- `crates/blackwire-common/src/address.rs`
+- `crates/blackwire-common/src/stream.rs`
+- `crates/blackwire-common/src/error.rs`
 
 ### What To Learn Here
 
@@ -33,7 +33,7 @@ Without this crate, every higher-level crate would duplicate base types or creat
 - what the universal stream type is
 - what shared errors look like
 
-## `proxy-config`
+## `blackwire-config`
 
 ### Purpose
 
@@ -48,9 +48,9 @@ Owns the JSON config schema and config lifecycle.
 
 ### Read First
 
-- `crates/proxy-config/src/lib.rs`
-- `crates/proxy-config/src/schema.rs`
-- `crates/proxy-config/src/manager.rs`
+- `crates/blackwire-config/src/lib.rs`
+- `crates/blackwire-config/src/schema.rs`
+- `crates/blackwire-config/src/manager.rs`
 
 ### What To Learn Here
 
@@ -62,13 +62,13 @@ Owns the JSON config schema and config lifecycle.
 
 No other crate should be inventing its own JSON parsing rules. They should consume typed config from here.
 
-## `proxy-app`
+## `blackwire-app`
 
 ### Purpose
 
 This is the application logic layer.
 
-If `proxy-core` is the assembler, `proxy-app` is the brain.
+If `blackwire-core` is the assembler, `blackwire-app` is the brain.
 
 ### Main Responsibilities
 
@@ -83,9 +83,9 @@ If `proxy-core` is the assembler, `proxy-app` is the brain.
 
 ### Read First
 
-- `crates/proxy-app/src/features.rs`
-- `crates/proxy-app/src/dispatcher.rs`
-- `crates/proxy-app/src/router.rs`
+- `crates/blackwire-app/src/features.rs`
+- `crates/blackwire-app/src/dispatcher.rs`
+- `crates/blackwire-app/src/router.rs`
 
 ### Most Important Concepts
 
@@ -115,7 +115,7 @@ Picks outbound tag from route rules.
 - how relaying is separate from route selection
 - how application logic does not need to know raw TLS/WebSocket details
 
-## `proxy-core`
+## `blackwire-core`
 
 ### Purpose
 
@@ -135,8 +135,8 @@ It is the glue between config, protocols, transports, router, and listeners.
 
 ### Read First
 
-- `crates/proxy-core/src/lib.rs`
-- `crates/proxy-core/src/instance.rs`
+- `crates/blackwire-core/src/lib.rs`
+- `crates/blackwire-core/src/instance.rs`
 
 ### Supporting Modules
 
@@ -159,9 +159,9 @@ These are adapter/wiring modules. They are less about raw protocol math and more
 
 ### Important Boundary
 
-`proxy-core` should assemble components, not reimplement wire formats.
+`blackwire-core` should assemble components, not reimplement wire formats.
 
-## `proxy-protocol`
+## `blackwire-protocol`
 
 ### Purpose
 
@@ -185,15 +185,15 @@ There are also references to future/advanced pieces, but the main ownership is t
 
 Start simple:
 
-- `crates/proxy-protocol/src/socks.rs`
-- `crates/proxy-protocol/src/freedom.rs`
+- `crates/blackwire-protocol/src/socks.rs`
+- `crates/blackwire-protocol/src/freedom.rs`
 
 Then move to:
 
-- `crates/proxy-protocol/src/vless/*`
-- `crates/proxy-protocol/src/trojan/*`
-- `crates/proxy-protocol/src/vmess/*`
-- `crates/proxy-protocol/src/ss2022/*`
+- `crates/blackwire-protocol/src/vless/*`
+- `crates/blackwire-protocol/src/trojan/*`
+- `crates/blackwire-protocol/src/vmess/*`
+- `crates/blackwire-protocol/src/ss2022/*`
 
 ### Internal Pattern
 
@@ -224,7 +224,7 @@ Do not start with VMess or SS-2022 if you are still learning the architecture.
 
 Start with SOCKS and VLESS first.
 
-## `proxy-transport`
+## `blackwire-transport`
 
 ### Purpose
 
@@ -249,17 +249,17 @@ This crate is about carrying bytes, not interpreting proxy headers.
 
 Start simple:
 
-- `crates/proxy-transport/src/tcp.rs`
-- `crates/proxy-transport/src/tls.rs`
-- `crates/proxy-transport/src/ws.rs`
+- `crates/blackwire-transport/src/tcp.rs`
+- `crates/blackwire-transport/src/tls.rs`
+- `crates/blackwire-transport/src/ws.rs`
 
 Then advanced:
 
-- `crates/proxy-transport/src/reality.rs`
-- `crates/proxy-transport/src/reality/client.rs`
-- `crates/proxy-transport/src/reality/server.rs`
-- `crates/proxy-transport/src/grpc.rs`
-- `crates/proxy-transport/src/quic.rs`
+- `crates/blackwire-transport/src/reality.rs`
+- `crates/blackwire-transport/src/reality/client.rs`
+- `crates/blackwire-transport/src/reality/server.rs`
+- `crates/blackwire-transport/src/grpc.rs`
+- `crates/blackwire-transport/src/quic.rs`
 
 ### What To Learn Here
 
@@ -274,7 +274,7 @@ The transport layer should not need to understand a VLESS UUID or Trojan token.
 
 It should just produce a usable stream.
 
-## `proxy-tls`
+## `blackwire-tls`
 
 ### Purpose
 
@@ -293,9 +293,9 @@ That means this crate must control:
 
 ### Read First
 
-- `crates/proxy-tls/src/lib.rs`
-- `crates/proxy-tls/src/client_hello.rs`
-- `crates/proxy-tls/src/profile.rs`
+- `crates/blackwire-tls/src/lib.rs`
+- `crates/blackwire-tls/src/client_hello.rs`
+- `crates/blackwire-tls/src/profile.rs`
 
 ### What To Learn Here
 
@@ -303,7 +303,7 @@ That means this crate must control:
 - it is a raw ClientHello builder
 - it exists mainly for REALITY camouflage
 
-## `proxy-cli`
+## `blackwire-cli`
 
 ### Purpose
 
@@ -319,14 +319,14 @@ This is the executable, `blackwire`.
 
 ### Read First
 
-- `crates/proxy-cli/src/main.rs`
+- `crates/blackwire-cli/src/main.rs`
 
 ### What To Learn Here
 
 - how a real run starts
 - what command-line tools exist for operators
 
-## `proxy-api`
+## `blackwire-api`
 
 ### Purpose
 
@@ -346,7 +346,7 @@ It shows intended future direction:
 
 ### Read First
 
-- `crates/proxy-api/src/lib.rs`
+- `crates/blackwire-api/src/lib.rs`
 
 ## `tests`
 
@@ -374,34 +374,34 @@ Cross-crate integration and interop coverage.
 
 Read:
 
-1. `proxy-cli`
-2. `proxy-config`
-3. `proxy-core`
+1. `blackwire-cli`
+2. `blackwire-config`
+3. `blackwire-core`
 
 ### If You Want To Understand Routing
 
 Read:
 
-1. `proxy-app/src/features.rs`
-2. `proxy-app/src/router.rs`
-3. `proxy-app/src/dispatcher.rs`
+1. `blackwire-app/src/features.rs`
+2. `blackwire-app/src/router.rs`
+3. `blackwire-app/src/dispatcher.rs`
 
 ### If You Want To Understand A Plain Local Proxy
 
 Read:
 
-1. `proxy-protocol/src/socks.rs`
-2. `proxy-protocol/src/freedom.rs`
-3. `proxy-core/src/instance.rs`
+1. `blackwire-protocol/src/socks.rs`
+2. `blackwire-protocol/src/freedom.rs`
+3. `blackwire-core/src/instance.rs`
 
 ### If You Want To Understand REALITY
 
 Read:
 
-1. `proxy-tls`
-2. `proxy-transport/src/reality.rs`
-3. `proxy-transport/src/reality/client.rs`
-4. `proxy-transport/src/reality/server.rs`
+1. `blackwire-tls`
+2. `blackwire-transport/src/reality.rs`
+3. `blackwire-transport/src/reality/client.rs`
+4. `blackwire-transport/src/reality/server.rs`
 5. `tests/interop/README.md`
 
 ### If You Want To Understand Tests
@@ -416,31 +416,31 @@ Read:
 
 Use this ownership map:
 
-- `proxy-common`
+- `blackwire-common`
   base shared types
 
-- `proxy-config`
+- `blackwire-config`
   typed config and reload
 
-- `proxy-app`
+- `blackwire-app`
   routing, dispatch, relay, metrics
 
-- `proxy-core`
+- `blackwire-core`
   startup and composition
 
-- `proxy-protocol`
+- `blackwire-protocol`
   proxy protocol byte semantics
 
-- `proxy-transport`
+- `blackwire-transport`
   stream-carrier implementations
 
-- `proxy-tls`
+- `blackwire-tls`
   browser-like ClientHello builder for REALITY
 
-- `proxy-cli`
+- `blackwire-cli`
   executable
 
-- `proxy-api`
+- `blackwire-api`
   future management surface
 
 - `tests`

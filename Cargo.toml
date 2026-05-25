@@ -15,15 +15,15 @@
 [workspace]
 members = [
     "benches",
-    "crates/proxy-cli",
-    "crates/proxy-core",
-    "crates/proxy-common",
-    "crates/proxy-config",
-    "crates/proxy-transport",
-    "crates/proxy-protocol",
-    "crates/proxy-app",
-    "crates/proxy-tls",
-    "crates/proxy-api",
+    "crates/blackwire-cli",
+    "crates/blackwire-core",
+    "crates/blackwire-common",
+    "crates/blackwire-config",
+    "crates/blackwire-transport",
+    "crates/blackwire-protocol",
+    "crates/blackwire-app",
+    "crates/blackwire-tls",
+    "crates/blackwire-api",
     "tests",
 ]
 resolver = "2"

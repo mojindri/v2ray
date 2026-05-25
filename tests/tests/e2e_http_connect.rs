@@ -24,7 +24,7 @@ fn unused_local_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
@@ -56,7 +56,7 @@ fn spawn_echo_task(listener: TcpListener) -> (u16, tokio::task::JoinHandle<()>) 
     (port, task)
 }
 
-fn http_connect_config(proxy_port: u16) -> Arc<proxy_config::schema::Config> {
+fn http_connect_config(proxy_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -122,7 +122,7 @@ async fn http_connect_ipv4_echo_roundtrip() {
     let (echo_port, echo_task) = spawn_echo_server().await;
     let proxy_port = unused_local_port();
 
-    let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
+    let _proxy = blackwire_core::Instance::from_config(http_connect_config(proxy_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
@@ -145,7 +145,7 @@ async fn http_connect_domain_echo_roundtrip() {
     let (echo_port, echo_task) = spawn_localhost_echo_server().await;
     let proxy_port = unused_local_port();
 
-    let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
+    let _proxy = blackwire_core::Instance::from_config(http_connect_config(proxy_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
@@ -167,7 +167,7 @@ async fn http_connect_domain_echo_roundtrip() {
 async fn http_connect_sequential_requests() {
     let proxy_port = unused_local_port();
 
-    let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
+    let _proxy = blackwire_core::Instance::from_config(http_connect_config(proxy_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
@@ -191,7 +191,7 @@ async fn http_connect_large_payload() {
     let (echo_port, echo_task) = spawn_echo_server().await;
     let proxy_port = unused_local_port();
 
-    let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
+    let _proxy = blackwire_core::Instance::from_config(http_connect_config(proxy_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
@@ -213,7 +213,7 @@ async fn http_connect_large_payload() {
 async fn http_connect_wrong_method_rejected() {
     let proxy_port = unused_local_port();
 
-    let _proxy = proxy_core::Instance::from_config(http_connect_config(proxy_port))
+    let _proxy = blackwire_core::Instance::from_config(http_connect_config(proxy_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
@@ -250,30 +250,31 @@ async fn http_connect_wrong_method_rejected() {
 
 #[test]
 fn parse_connect_ipv4_direct() {
-    let result =
-        proxy_protocol::http_connect::parse_connect_request_sync("CONNECT 1.2.3.4:443 HTTP/1.1");
+    let result = blackwire_protocol::http_connect::parse_connect_request_sync(
+        "CONNECT 1.2.3.4:443 HTTP/1.1",
+    );
     assert!(result.is_ok());
     assert_eq!(
         result.unwrap(),
-        proxy_common::Address::Ipv4("1.2.3.4".parse().unwrap(), 443)
+        blackwire_common::Address::Ipv4("1.2.3.4".parse().unwrap(), 443)
     );
 }
 
 #[test]
 fn parse_connect_domain_direct() {
-    let result = proxy_protocol::http_connect::parse_connect_request_sync(
+    let result = blackwire_protocol::http_connect::parse_connect_request_sync(
         "CONNECT example.com:8080 HTTP/1.1",
     );
     assert!(result.is_ok());
     assert_eq!(
         result.unwrap(),
-        proxy_common::Address::Domain("example.com".to_string(), 8080)
+        blackwire_common::Address::Domain("example.com".to_string(), 8080)
     );
 }
 
 #[test]
 fn parse_connect_port_overflow_rejected() {
-    let result = proxy_protocol::http_connect::parse_connect_request_sync(
+    let result = blackwire_protocol::http_connect::parse_connect_request_sync(
         "CONNECT example.com:99999 HTTP/1.1",
     );
     assert!(result.is_err());

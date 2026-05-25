@@ -29,7 +29,7 @@ use std::time::Instant;
 use async_trait::async_trait;
 use tracing::{debug, info, instrument, warn};
 
-use proxy_common::{Address, BoxedStream, ProxyError};
+use blackwire_common::{Address, BoxedStream, ProxyError};
 
 use crate::context::Context;
 use crate::dns::DnsModule;
@@ -112,7 +112,7 @@ impl Dispatcher for DefaultDispatcher {
         // Step 1: Ask the router which outbound to use.
         let routing_ctx = crate::router::RoutingContext {
             dest: &dest,
-            network: proxy_common::Network::Tcp,
+            network: blackwire_common::Network::Tcp,
             inbound_tag: &ctx.inbound_tag,
             user: ctx.user.as_deref(),
         };

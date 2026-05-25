@@ -37,7 +37,7 @@ use shake::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use proxy_common::BoxedStream;
+use blackwire_common::BoxedStream;
 
 use super::codec::Security;
 

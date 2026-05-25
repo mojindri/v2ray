@@ -17,8 +17,8 @@
 
 use std::net::Ipv4Addr;
 
-use proxy_common::Address;
-use proxy_protocol::vless::codec::{decode_request, encode_request, Command};
+use blackwire_common::Address;
+use blackwire_protocol::vless::codec::{decode_request, encode_request, Command};
 
 // The UUID used in all test vectors.
 // This is a real UUID that was used to generate the captures.

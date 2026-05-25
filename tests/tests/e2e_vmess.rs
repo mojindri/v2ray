@@ -23,7 +23,7 @@ fn unused_local_port() -> u16 {
     l.local_addr().unwrap().port()
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
@@ -44,7 +44,7 @@ async fn spawn_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
     (port, task)
 }
 
-fn vmess_server_config(vmess_port: u16) -> Arc<proxy_config::schema::Config> {
+fn vmess_server_config(vmess_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -70,7 +70,7 @@ fn vmess_server_config(vmess_port: u16) -> Arc<proxy_config::schema::Config> {
 fn vmess_client_config(
     socks_port: u16,
     vmess_server_port: u16,
-) -> Arc<proxy_config::schema::Config> {
+) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -122,24 +122,25 @@ async fn socks5_connect(socks_port: u16, dest: &str, dest_port: u16) -> tokio::n
 #[tokio::test]
 async fn vmess_direct_echo() {
     let vmess_port = unused_local_port();
-    let _server = proxy_core::Instance::from_config(vmess_server_config(vmess_port))
+    let _server = blackwire_core::Instance::from_config(vmess_server_config(vmess_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
 
     // Create a VMess outbound and connect directly (no SOCKS).
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
-    let cmd_key = proxy_protocol::vmess::auth::cmd_key(&uuid);
-    let dest = proxy_common::Address::Domain("127.0.0.1".to_string(), 0);
+    let cmd_key = blackwire_protocol::vmess::auth::cmd_key(&uuid);
+    let dest = blackwire_common::Address::Domain("127.0.0.1".to_string(), 0);
     let _ = (uuid, cmd_key, dest); // just verify they compile
 
     // Use SOCKS+VMess chain for actual data test.
     let socks_port = unused_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
-    let _client = proxy_core::Instance::from_config(vmess_client_config(socks_port, vmess_port))
-        .await
-        .unwrap();
+    let _client =
+        blackwire_core::Instance::from_config(vmess_client_config(socks_port, vmess_port))
+            .await
+            .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -161,12 +162,13 @@ async fn vmess_large_payload_echo() {
     let socks_port = unused_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
-    let _server = proxy_core::Instance::from_config(vmess_server_config(vmess_port))
+    let _server = blackwire_core::Instance::from_config(vmess_server_config(vmess_port))
         .await
         .unwrap();
-    let _client = proxy_core::Instance::from_config(vmess_client_config(socks_port, vmess_port))
-        .await
-        .unwrap();
+    let _client =
+        blackwire_core::Instance::from_config(vmess_client_config(socks_port, vmess_port))
+            .await
+            .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -184,15 +186,15 @@ async fn vmess_large_payload_echo() {
 #[tokio::test]
 async fn vmess_unknown_uuid_rejected() {
     let vmess_port = unused_local_port();
-    let _server = proxy_core::Instance::from_config(vmess_server_config(vmess_port))
+    let _server = blackwire_core::Instance::from_config(vmess_server_config(vmess_port))
         .await
         .unwrap();
     tokio::time::sleep(tokio::time::Duration::from_millis(30)).await;
 
     // Try to connect with a random UUID (wrong user).
     let wrong_uuid = [0u8; 16];
-    let wrong_cmd_key = proxy_protocol::vmess::auth::cmd_key(&wrong_uuid);
-    let fake_auth = proxy_protocol::vmess::auth::generate_auth_id(&wrong_cmd_key);
+    let wrong_cmd_key = blackwire_protocol::vmess::auth::cmd_key(&wrong_uuid);
+    let fake_auth = blackwire_protocol::vmess::auth::generate_auth_id(&wrong_cmd_key);
 
     let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", vmess_port))
         .await
@@ -215,7 +217,7 @@ async fn vmess_unknown_uuid_rejected() {
 
 #[test]
 fn kdf_deterministic() {
-    use proxy_protocol::vmess::kdf::kdf;
+    use blackwire_protocol::vmess::kdf::kdf;
     let a: [u8; 16] = kdf(b"key", &[b"path"]);
     let b: [u8; 16] = kdf(b"key", &[b"path"]);
     assert_eq!(a, b);
@@ -223,7 +225,7 @@ fn kdf_deterministic() {
 
 #[test]
 fn kdf_different_paths_differ() {
-    use proxy_protocol::vmess::kdf::kdf;
+    use blackwire_protocol::vmess::kdf::kdf;
     let a: [u8; 16] = kdf(b"key", &[b"a"]);
     let b: [u8; 16] = kdf(b"key", &[b"b"]);
     assert_ne!(a, b);
@@ -233,19 +235,19 @@ fn kdf_different_paths_differ() {
 
 #[test]
 fn auth_id_roundtrip() {
-    use proxy_protocol::vmess::auth::{
+    use blackwire_protocol::vmess::auth::{
         cmd_key, generate_auth_id_at, validate_auth_id, MAX_TIME_DIFF_SECS,
     };
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
     let key = cmd_key(&uuid);
-    let now = proxy_protocol::vmess::auth::current_timestamp();
+    let now = blackwire_protocol::vmess::auth::current_timestamp();
     let auth = generate_auth_id_at(&key, now);
     assert!(validate_auth_id(&key, &auth, MAX_TIME_DIFF_SECS));
 }
 
 #[test]
 fn auth_id_wrong_key_rejected() {
-    use proxy_protocol::vmess::auth::{
+    use blackwire_protocol::vmess::auth::{
         cmd_key, generate_auth_id, validate_auth_id, MAX_TIME_DIFF_SECS,
     };
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
@@ -260,7 +262,7 @@ fn auth_id_wrong_key_rejected() {
 
 #[test]
 fn vmess_header_encode_decode_domain() {
-    use proxy_protocol::vmess::{
+    use blackwire_protocol::vmess::{
         auth::{cmd_key, generate_auth_id},
         codec::{decode_header, encode_header, Security},
     };
@@ -268,7 +270,7 @@ fn vmess_header_encode_decode_domain() {
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
     let key = cmd_key(&uuid);
     let auth = generate_auth_id(&key);
-    let dest = proxy_common::Address::Domain("test.example.com".to_string(), 443);
+    let dest = blackwire_common::Address::Domain("test.example.com".to_string(), 443);
 
     let (iv, kk, v, connection_nonce, _enc_len, enc_header) =
         encode_header(&key, &auth, &dest, Security::Aes128Gcm).unwrap();
@@ -294,7 +296,7 @@ fn vmess_header_encode_decode_domain() {
 
 #[test]
 fn vmess_header_encode_decode_ipv4() {
-    use proxy_protocol::vmess::{
+    use blackwire_protocol::vmess::{
         auth::{cmd_key, generate_auth_id},
         codec::{decode_header, encode_header, Security},
     };
@@ -302,7 +304,7 @@ fn vmess_header_encode_decode_ipv4() {
     let uuid = *uuid::Uuid::parse_str(TEST_UUID).unwrap().as_bytes();
     let key = cmd_key(&uuid);
     let auth = generate_auth_id(&key);
-    let dest = proxy_common::Address::Ipv4("192.168.1.1".parse().unwrap(), 80);
+    let dest = blackwire_common::Address::Ipv4("192.168.1.1".parse().unwrap(), 80);
 
     let (iv, kk, v, connection_nonce, _enc_len, enc_header) =
         encode_header(&key, &auth, &dest, Security::Aes128Gcm).unwrap();

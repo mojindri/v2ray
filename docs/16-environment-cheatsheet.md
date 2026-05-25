@@ -23,7 +23,7 @@ Equivalent atoms if you need finer control:
 ```sh
 cargo test --workspace --all-targets
 cargo test -p integration-tests
-cargo test -p proxy-core --test production_readiness --all-features
+cargo test -p blackwire-core --test production_readiness --all-features
 ```
 
 ## 2. Local + Docker

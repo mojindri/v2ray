@@ -6,25 +6,25 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
-use dashmap::DashMap;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::dns::{DnsModule, DnsModuleConfig};
-use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
-use proxy_app::geo::loader::{load_geoip, load_geosite};
-use proxy_app::health::{HealthStates, OutboundState};
-use proxy_app::router::{CompiledRule, DomainMatcher, IpMatcher};
-use proxy_common::{BoxedStream, ProxyError};
-use proxy_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
-use proxy_protocol::vless::{
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::dns::{DnsModule, DnsModuleConfig};
+use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
+use blackwire_app::geo::loader::{load_geoip, load_geosite};
+use blackwire_app::health::{HealthStates, OutboundState};
+use blackwire_app::router::{CompiledRule, DomainMatcher, IpMatcher};
+use blackwire_common::{BoxedStream, ProxyError};
+use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
+use blackwire_protocol::vless::{
     VlessInbound, VlessOutbound, VlessOutboundConfig, VlessUser, VlessUserRegistry,
 };
-use proxy_transport::MkcpServerConfig;
+use blackwire_transport::MkcpServerConfig;
+use dashmap::DashMap;
 
 use crate::outbound_transport::{uses_outbound_transport, TransportVlessOutbound};
 use crate::reality::{build_reality_client, uses_reality, RealityVlessOutbound};
 
 pub(crate) fn select_balancer_outbounds(
-    cfg: &proxy_config::schema::BalancerConfig,
+    cfg: &blackwire_config::schema::BalancerConfig,
     outbounds: &HashMap<String, Arc<dyn OutboundHandler>>,
 ) -> Result<Vec<(String, Arc<dyn OutboundHandler>)>> {
     if cfg.selector.is_empty() {
@@ -82,7 +82,7 @@ pub(crate) fn reject_unfinished_transport_settings(
         let kcp = settings.kcp_settings.as_ref();
         if let Some(kcp) = kcp {
             kcp.header
-                .parse::<proxy_transport::mkcp::header::HeaderType>()
+                .parse::<blackwire_transport::mkcp::header::HeaderType>()
                 .map_err(|e| anyhow::anyhow!("{side} '{tag}' has invalid mKCP header: {e}"))?;
         }
     }
@@ -120,10 +120,10 @@ pub(crate) fn build_mkcp_server_config(
 }
 
 pub(crate) fn load_geo_data(
-    routing: Option<&proxy_config::schema::RoutingConfig>,
+    routing: Option<&blackwire_config::schema::RoutingConfig>,
 ) -> (
-    HashMap<String, proxy_app::geo::GeoIpMatcher>,
-    HashMap<String, proxy_app::geo::GeoSiteMatcher>,
+    HashMap<String, blackwire_app::geo::GeoIpMatcher>,
+    HashMap<String, blackwire_app::geo::GeoSiteMatcher>,
 ) {
     let geoip = routing
         .and_then(|r| r.geoip_file.as_deref())
@@ -137,7 +137,7 @@ pub(crate) fn load_geo_data(
 }
 
 pub(crate) async fn build_dns_module(
-    dns: Option<&proxy_config::schema::DnsConfig>,
+    dns: Option<&blackwire_config::schema::DnsConfig>,
 ) -> Result<Option<Arc<DnsModule>>> {
     let Some(dns) = dns else {
         return Ok(None);
@@ -169,8 +169,8 @@ pub(crate) struct InboundConnectionHandler {
 }
 
 pub(crate) fn handshake_timeout_for(
-    in_cfg: &proxy_config::schema::InboundConfig,
-    global: &proxy_config::schema::LimitsConfig,
+    in_cfg: &blackwire_config::schema::InboundConfig,
+    global: &blackwire_config::schema::LimitsConfig,
 ) -> Option<Duration> {
     let secs = in_cfg
         .limits
@@ -194,7 +194,7 @@ impl ConnectionHandler for InboundConnectionHandler {
 }
 
 pub(crate) fn build_vless_outbound(
-    cfg: &proxy_config::schema::OutboundConfig,
+    cfg: &blackwire_config::schema::OutboundConfig,
 ) -> Result<Arc<dyn OutboundHandler>> {
     let settings = &cfg.settings;
 
@@ -238,7 +238,7 @@ pub(crate) fn build_vless_outbound(
 }
 
 pub(crate) fn build_vless_inbound(
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
     registries: &Arc<DashMap<String, Arc<VlessUserRegistry>>>,
     handshake_timeout: Option<Duration>,
 ) -> Result<Arc<dyn InboundHandler>> {
@@ -263,7 +263,7 @@ pub(crate) fn build_vless_inbound(
 
 pub(crate) fn populate_vless_registry(
     registry: &VlessUserRegistry,
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
 ) -> Result<()> {
     registry.clear();
     let clients = cfg.settings["clients"]
@@ -292,7 +292,7 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
 }
 
 pub(crate) fn build_rules(
-    rules: &[proxy_config::schema::RoutingRule],
+    rules: &[blackwire_config::schema::RoutingRule],
     outbound_tags: &HashSet<String>,
 ) -> Result<Vec<CompiledRule>> {
     rules
@@ -355,7 +355,7 @@ pub(crate) fn build_rules(
 
             let port_ranges = parse_port_ranges(r.port.as_deref().unwrap_or(""))?;
 
-            Ok(proxy_app::router::CompiledRule {
+            Ok(blackwire_app::router::CompiledRule {
                 outbound_tag: Arc::from(r.outbound_tag.as_str()),
                 domain_matcher,
                 geosite_codes,

@@ -55,10 +55,10 @@ That is why VLESS feels lightweight in this repo.
 
 ### Where To Read It
 
-- [crates/proxy-protocol/src/vless/mod.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vless/mod.rs)
-- [crates/proxy-protocol/src/vless/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vless/codec.rs)
-- [crates/proxy-protocol/src/vless/inbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vless/inbound.rs)
-- [crates/proxy-protocol/src/vless/outbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vless/outbound.rs)
+- [crates/blackwire-protocol/src/vless/mod.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vless/mod.rs)
+- [crates/blackwire-protocol/src/vless/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vless/codec.rs)
+- [crates/blackwire-protocol/src/vless/inbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vless/inbound.rs)
+- [crates/blackwire-protocol/src/vless/outbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vless/outbound.rs)
 
 ## VMess
 
@@ -102,10 +102,10 @@ Because it has:
 
 ### Where To Read It
 
-- [crates/proxy-protocol/src/vmess.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vmess.rs)
-- [crates/proxy-protocol/src/vmess/auth.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vmess/auth.rs)
-- [crates/proxy-protocol/src/vmess/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vmess/codec.rs)
-- [crates/proxy-protocol/src/vmess/stream.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/vmess/stream.rs)
+- [crates/blackwire-protocol/src/vmess.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vmess.rs)
+- [crates/blackwire-protocol/src/vmess/auth.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vmess/auth.rs)
+- [crates/blackwire-protocol/src/vmess/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vmess/codec.rs)
+- [crates/blackwire-protocol/src/vmess/stream.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/vmess/stream.rs)
 
 ## Trojan
 
@@ -144,10 +144,10 @@ That makes it conceptually simpler than VMess, but it depends more strongly on t
 
 ### Where To Read It
 
-- [crates/proxy-protocol/src/trojan.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/trojan.rs)
-- [crates/proxy-protocol/src/trojan/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/trojan/codec.rs)
-- [crates/proxy-protocol/src/trojan/inbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/trojan/inbound.rs)
-- [crates/proxy-protocol/src/trojan/outbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/trojan/outbound.rs)
+- [crates/blackwire-protocol/src/trojan.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/trojan.rs)
+- [crates/blackwire-protocol/src/trojan/codec.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/trojan/codec.rs)
+- [crates/blackwire-protocol/src/trojan/inbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/trojan/inbound.rs)
+- [crates/blackwire-protocol/src/trojan/outbound.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/trojan/outbound.rs)
 
 ## How To Think About Them In This Repo
 
@@ -189,7 +189,7 @@ Why:
 - REALITY already provides the disguise/transport complexity
 - combining a light protocol with a sophisticated transport keeps responsibilities clearer
 
-That is why REALITY glue in [crates/proxy-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/reality.rs) is specifically about VLESS over REALITY.
+That is why REALITY glue in [crates/blackwire-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/src/reality.rs) is specifically about VLESS over REALITY.
 
 ## Common Beginner Confusions
 

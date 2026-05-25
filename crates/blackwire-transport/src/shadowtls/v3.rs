@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 use subtle::ConstantTimeEq;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use proxy_common::{BoxedStream, PrependedStream, ProxyError};
+use blackwire_common::{BoxedStream, PrependedStream, ProxyError};
 
 type ShadowHmac = Hmac<Sha1>;
 
@@ -674,7 +674,7 @@ fn xor_with_handshake_mask(data: &mut [u8], psk: &[u8], server_random: &[u8; 32]
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proxy_tls::ClientHelloBuilder;
+    use blackwire_tls::ClientHelloBuilder;
     use rand::{rngs::StdRng, SeedableRng};
     use tokio::io::{duplex, AsyncReadExt, AsyncWriteExt};
 

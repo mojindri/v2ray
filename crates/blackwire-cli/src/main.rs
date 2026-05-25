@@ -31,8 +31,8 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use tracing::{error, info};
 
-use proxy_config::ConfigManager;
-use proxy_core::Instance;
+use blackwire_config::ConfigManager;
+use blackwire_core::Instance;
 
 // ── Top-level CLI struct ──────────────────────────────────────────────────────
 

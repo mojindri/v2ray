@@ -49,8 +49,8 @@ use tokio::sync::oneshot;
 use tokio::time::timeout;
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::ProxyError;
-use proxy_transport::{
+use blackwire_common::ProxyError;
+use blackwire_transport::{
     dev_self_signed, tls_accept, RealityClient, RealityClientConfig, RealityServer,
     RealityServerConfig,
 };
@@ -83,7 +83,7 @@ const CHROME_131_JA3: &str = concat!(
 
 /// Path to the interop key directory, relative to the workspace root.
 fn interop_dir() -> std::path::PathBuf {
-    // CARGO_MANIFEST_DIR = crates/proxy-transport
+    // CARGO_MANIFEST_DIR = crates/blackwire-transport
     // ../../             = workspace root
     let manifest = env!("CARGO_MANIFEST_DIR");
     std::path::Path::new(manifest)
@@ -517,7 +517,7 @@ async fn d1_wrong_sni_triggers_fallback() {
 #[ignore = "d1 requires Xray: make -C tests/interop up"]
 #[tokio::test]
 async fn d1_bare_clienthello_no_rst() {
-    use proxy_tls::ClientHelloBuilder;
+    use blackwire_tls::ClientHelloBuilder;
 
     let mut rng = rand::rngs::SmallRng::seed_from_u64(0xBAD_FEED);
     // Zero random and zero session_id = no REALITY auth token.

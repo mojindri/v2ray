@@ -1,13 +1,13 @@
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
-use proxy_common::Address;
-use proxy_protocol::http_connect::parse_connect_request;
-use proxy_protocol::trojan::codec as trojan_codec;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_protocol::vmess::auth as vmess_auth;
-use proxy_protocol::vmess::codec as vmess_codec;
-use proxy_protocol::vmess::codec::Security as VmessSecurity;
+use blackwire_common::Address;
+use blackwire_protocol::http_connect::parse_connect_request;
+use blackwire_protocol::trojan::codec as trojan_codec;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_protocol::vmess::auth as vmess_auth;
+use blackwire_protocol::vmess::codec as vmess_codec;
+use blackwire_protocol::vmess::codec::Security as VmessSecurity;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt, ReadBuf};
 
 struct ChunkedRead<S> {

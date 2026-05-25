@@ -34,8 +34,8 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Semaphore;
 use tracing::{debug, error, info, warn};
 
-use proxy_app::features::ConnectionHandler;
-use proxy_common::{BoxedStream, ProxyError, TCP_CONNECT_TIMEOUT};
+use blackwire_app::features::ConnectionHandler;
+use blackwire_common::{BoxedStream, ProxyError, TCP_CONNECT_TIMEOUT};
 
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone, Default)]

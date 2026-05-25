@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_core::Instance;
+use blackwire_core::Instance;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[path = "../common/harness.rs"]

@@ -30,7 +30,7 @@ use aes_gcm::{
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use proxy_common::BoxedStream;
+use blackwire_common::BoxedStream;
 
 /// Maximum plaintext chunk payload size (16 KiB).
 const MAX_CHUNK_SIZE: usize = 16 * 1024;

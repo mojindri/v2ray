@@ -51,7 +51,7 @@ static ENV_VAR_RE: Lazy<Regex> = Lazy::new(|| {
 /// # Example
 /// ```
 /// std::env::set_var("MY_PORT", "8443");
-/// let result = proxy_config::env::substitute("port: ${MY_PORT}");
+/// let result = blackwire_config::env::substitute("port: ${MY_PORT}");
 /// assert_eq!(result, "port: 8443");
 /// ```
 pub fn substitute(raw: &str) -> String {

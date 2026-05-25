@@ -1,11 +1,11 @@
-//! proxy-core — instance lifecycle and feature registry.
+//! blackwire-core — instance lifecycle and feature registry.
 //!
 //! This crate owns the running proxy instance. It is the glue that connects:
-//!   - The config (from proxy-config)
-//!   - The inbound handlers (from proxy-protocol)
-//!   - The outbound handlers (from proxy-protocol)
-//!   - The dispatcher (from proxy-app)
-//!   - The router (from proxy-app)
+//!   - The config (from blackwire-config)
+//!   - The inbound handlers (from blackwire-protocol)
+//!   - The outbound handlers (from blackwire-protocol)
+//!   - The dispatcher (from blackwire-app)
+//!   - The router (from blackwire-app)
 //!
 //! # Lifecycle
 //!

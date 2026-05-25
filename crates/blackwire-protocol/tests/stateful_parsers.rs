@@ -1,7 +1,7 @@
+use blackwire_common::Address;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_transport::{decode_grpc_frame, encode_grpc_frame};
 use bytes::BytesMut;
-use proxy_common::Address;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_transport::{decode_grpc_frame, encode_grpc_frame};
 use tokio::io::AsyncWriteExt;
 
 #[tokio::test]

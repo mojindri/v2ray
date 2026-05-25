@@ -1,4 +1,4 @@
-//! proxy-transport — transport layer implementations.
+//! blackwire-transport — transport layer implementations.
 //!
 //! A "transport" is the underlying mechanism used to move bytes between two
 //! endpoints. This crate contains implementations for:

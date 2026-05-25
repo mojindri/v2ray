@@ -1,5 +1,5 @@
 [package]
-name = "proxy-benches"
+name = "blackwire-benches"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

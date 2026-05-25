@@ -35,9 +35,9 @@ use anyhow::Result;
 use dashmap::DashMap;
 use tracing::info;
 
-use proxy_app::router::LiveRouter;
-use proxy_config::schema::{Config, Protocol};
-use proxy_protocol::vless::VlessUserRegistry;
+use blackwire_app::router::LiveRouter;
+use blackwire_config::schema::{Config, Protocol};
+use blackwire_protocol::vless::VlessUserRegistry;
 
 use crate::instance::{build_rules, load_geo_data, populate_vless_registry};
 

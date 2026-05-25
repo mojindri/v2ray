@@ -42,7 +42,7 @@ pub use server::{shadowtls_accept, shadowtls_marker_accept, write_marker_record}
 
 fn pseudo_server_random(dest: &str) -> [u8; 32] {
     let mut hasher = Sha256::new();
-    hasher.update(b"proxy-rs-shadowtls-marker-v1");
+    hasher.update(b"blackwire-rs-shadowtls-marker-v1");
     hasher.update(dest.as_bytes());
     hasher.finalize().into()
 }

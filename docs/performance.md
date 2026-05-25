@@ -3,14 +3,14 @@
 This repository has two performance layers:
 
 1. Lab-style performance and soak (`labs/realistic/scripts/run-bench-*.sh`, `run-soak.sh`).
-2. Criterion microbenchmarks (`cargo bench -p proxy-benches`).
+2. Criterion microbenchmarks (`cargo bench -p blackwire-benches`).
 
 ## Benchmarks
 
 Run:
 
 ```bash
-cargo bench -p proxy-benches
+cargo bench -p blackwire-benches
 ```
 
 Covered benchmark groups:

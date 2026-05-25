@@ -16,7 +16,7 @@
 //! ```no_run
 //! use std::net::IpAddr;
 //!
-//! use proxy_app::dns::{DnsModule, DnsModuleConfig};
+//! use blackwire_app::dns::{DnsModule, DnsModuleConfig};
 //!
 //! #[tokio::main]
 //! async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,7 +45,7 @@ pub mod resolver;
 
 use std::net::{IpAddr, Ipv4Addr};
 
-use proxy_common::ProxyError;
+use blackwire_common::ProxyError;
 
 pub use cache::DnsCache;
 pub use fakeip::FakeIpPool;

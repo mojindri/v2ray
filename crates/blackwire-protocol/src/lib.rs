@@ -1,4 +1,4 @@
-//! proxy-protocol — proxy protocol implementations.
+//! blackwire-protocol — proxy protocol implementations.
 //!
 //! Each sub-module implements one proxy protocol. Every protocol is completely
 //! isolated: no protocol module imports from another protocol module.
@@ -20,7 +20,7 @@ pub mod vless;
 pub mod vmess;
 
 // Phase 2+
-// pub mod reality; (transport — handled in proxy-transport)
+// pub mod reality; (transport — handled in blackwire-transport)
 
 // Phase 3+
 // pub mod hysteria2;

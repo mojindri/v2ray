@@ -1,5 +1,5 @@
 [package]
-name        = "proxy-transport"
+name        = "blackwire-transport"
 description = "Transport layer implementations: TCP, WebSocket, TLS, REALITY, gRPC, QUIC, mKCP, TUN."
 version.workspace = true
 edition.workspace = true
@@ -11,14 +11,14 @@ default  = []
 fuzzing  = []
 # Enables privileged integration tests that require root / CAP_NET_ADMIN and
 # a Linux host.  Run with:
-#   sudo -E cargo test -p proxy-transport --features priv-test -- --include-ignored
+#   sudo -E cargo test -p blackwire-transport --features priv-test -- --include-ignored
 priv-test = []
 
 [dependencies]
-proxy-common          = { path = "../proxy-common" }
-proxy-config          = { path = "../proxy-config" }
-proxy-tls             = { path = "../proxy-tls" }
-proxy-app             = { path = "../proxy-app" }
+blackwire-common          = { path = "../blackwire-common" }
+blackwire-config          = { path = "../blackwire-config" }
+blackwire-tls             = { path = "../blackwire-tls" }
+blackwire-app             = { path = "../blackwire-app" }
 
 tokio.workspace             = true
 tokio-util.workspace        = true

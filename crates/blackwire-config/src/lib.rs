@@ -1,4 +1,4 @@
-//! proxy-config — configuration schema, parsing, validation, and hot-reload.
+//! blackwire-config — configuration schema, parsing, validation, and hot-reload.
 //!
 //! This crate owns everything related to the config file that the user writes.
 //! No other crate should parse JSON directly — they receive typed Rust structs

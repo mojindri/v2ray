@@ -4,13 +4,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::InboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_protocol::vless::{VlessInbound, VlessUser, VlessUserRegistry};
-use proxy_transport::{dev_self_signed_for_names, tls_accept, tls_connect};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::InboundHandler;
+use blackwire_common::{Address, BoxedStream, ProxyError};
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_protocol::vless::{VlessInbound, VlessUser, VlessUserRegistry};
+use blackwire_transport::{dev_self_signed_for_names, tls_accept, tls_connect};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 #[path = "../common/harness.rs"]
@@ -93,7 +93,7 @@ async fn tls_verification_fails_closed_on_sni_mismatch() {
 
 #[tokio::test]
 async fn fakeip_filtered_domain_does_not_allocate_fake_ip() {
-    let dns = proxy_app::dns::DnsModule::new(proxy_app::dns::DnsModuleConfig {
+    let dns = blackwire_app::dns::DnsModule::new(blackwire_app::dns::DnsModuleConfig {
         fake_ip_enabled: true,
         fake_ip_filter: vec!["blocked.test".into()],
         ..Default::default()
@@ -126,7 +126,7 @@ async fn reload_cannot_enable_empty_vless_auth_set() {
         }],
         "outbounds": [{ "tag": "direct", "protocol": "freedom" }]
     }));
-    let instance = proxy_core::Instance::from_config(cfg.clone())
+    let instance = blackwire_core::Instance::from_config(cfg.clone())
         .await
         .expect("start");
 
@@ -169,7 +169,9 @@ async fn routing_rule_cannot_bypass_intended_outbound() {
             }]
         }
     }));
-    let _instance = proxy_core::Instance::from_config(cfg).await.expect("start");
+    let _instance = blackwire_core::Instance::from_config(cfg)
+        .await
+        .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
 
     let mut s = tokio::net::TcpStream::connect(("127.0.0.1", socks_port))
@@ -203,7 +205,7 @@ async fn routing_rule_cannot_bypass_intended_outbound() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn tun_loop_prevention_so_mark_fails_closed_without_privilege() {
-    use proxy_transport::tcp::{TcpClientTransport, TcpConfig};
+    use blackwire_transport::tcp::{TcpClientTransport, TcpConfig};
 
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await

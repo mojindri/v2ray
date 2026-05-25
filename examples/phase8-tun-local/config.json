@@ -14,7 +14,7 @@
     }
   },
   "tun": {
-    "name": "proxy-tun",
+    "name": "blackwire-tun",
     "address": "198.18.0.1",
     "netmask": "255.255.0.0",
     "mtu": 1500,

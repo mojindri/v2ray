@@ -81,7 +81,7 @@ sleep 2
 # Run a short interop smoke if available. Do not make pcap helper responsible for correctness.
 if [ -f tests/interop/Makefile ]; then
   make -C tests/interop up > "$LOG_DIR/interop-up-$TS.log" 2>&1 || true
-  cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture \
+  cargo test -p blackwire-transport --test interop d1 -- --ignored --nocapture \
     > "$LOG_DIR/interop-d1-$TS.log" 2>&1 || true
 fi
 

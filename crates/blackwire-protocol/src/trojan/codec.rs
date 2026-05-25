@@ -35,14 +35,14 @@ use bytes::{BufMut, Bytes, BytesMut};
 use sha2::{Digest, Sha224};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use proxy_common::{read_socks5_address, write_socks5_address, Address, ProxyError};
+use blackwire_common::{read_socks5_address, write_socks5_address, Address, ProxyError};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
 /// Length of a Trojan auth token: SHA224 produces 28 bytes → 56 hex chars.
 pub const TOKEN_LEN: usize = 56;
 
-pub use proxy_common::{ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
+pub use blackwire_common::{ATYP_DOMAIN, ATYP_IPV4, ATYP_IPV6};
 
 /// Trojan command byte for TCP CONNECT.
 pub const CMD_CONNECT: u8 = 0x01;

@@ -64,11 +64,11 @@ async fn socks5_connect(socks_port: u16, dest_host: &str, dest_port: u16) -> Tcp
     stream
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
-fn server_config(vless_port: u16) -> Arc<proxy_config::schema::Config> {
+fn server_config(vless_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -97,7 +97,7 @@ fn server_config(vless_port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn client_config(socks_port: u16, vless_port: u16) -> Arc<proxy_config::schema::Config> {
+fn client_config(socks_port: u16, vless_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -139,10 +139,10 @@ async fn phase8_vless_over_mkcp_transfers_data() {
     let vless_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(vless_port))
+    let _server = blackwire_core::Instance::from_config(server_config(vless_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(client_config(socks_port, vless_port))
+    let _client = blackwire_core::Instance::from_config(client_config(socks_port, vless_port))
         .await
         .expect("client start failed");
 
@@ -167,10 +167,10 @@ async fn phase8_vless_over_mkcp_accepts_concurrent_sessions() {
     let vless_port = unused_local_port();
     let socks_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(vless_port))
+    let _server = blackwire_core::Instance::from_config(server_config(vless_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(client_config(socks_port, vless_port))
+    let _client = blackwire_core::Instance::from_config(client_config(socks_port, vless_port))
         .await
         .expect("client start failed");
 

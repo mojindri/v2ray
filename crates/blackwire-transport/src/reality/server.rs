@@ -11,7 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, warn};
 use x25519_dalek::{PublicKey, StaticSecret};
 
-use proxy_common::{
+use blackwire_common::{
     copy_bidirectional_with_idle, tcp_connect, BoxedStream, PrependedStream, ProxyError,
     CONNECTION_IDLE_TIMEOUT,
 };

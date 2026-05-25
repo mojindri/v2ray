@@ -1,4 +1,4 @@
-//! Production-readiness tests for proxy-transport.
+//! Production-readiness tests for blackwire-transport.
 //!
 //! These are not fuzz tests. They are deterministic tests for:
 //! - stream byte preservation
@@ -23,14 +23,14 @@ use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, DuplexStream, ReadBuf};
 use tokio::time::timeout;
 
-use proxy_transport::{
+use blackwire_transport::{
     decode_grpc_frame, encode_grpc_frame, ws_accept, ws_connect, GrpcStream, WsConnectConfig,
 };
 
-use proxy_transport::mkcp::header::HeaderType;
-use proxy_transport::mkcp::segment::{Segment, CMD_ACK, CMD_PUSH, OVERHEAD};
-use proxy_transport::reality::parse_client_hello;
-use proxy_transport::tun::{
+use blackwire_transport::mkcp::header::HeaderType;
+use blackwire_transport::mkcp::segment::{Segment, CMD_ACK, CMD_PUSH, OVERHEAD};
+use blackwire_transport::reality::parse_client_hello;
+use blackwire_transport::tun::{
     build_udp_response_packet, parse_ip_packet, TransportProtocol, TunSessionTable,
 };
 

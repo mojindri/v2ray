@@ -37,15 +37,15 @@ use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tracing::{error, info};
 
-use proxy_app::dispatcher::{DefaultDispatcher, Dispatcher};
-use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
-use proxy_app::health::HealthChecker;
-use proxy_app::router::LiveRouter;
-use proxy_app::Balancer;
-use proxy_config::schema::{Config, Protocol};
-use proxy_protocol::freedom::FreedomOutbound;
-use proxy_protocol::socks::Socks5Inbound;
-use proxy_transport::{mkcp_accept_sessions, TunRuntime};
+use blackwire_app::dispatcher::{DefaultDispatcher, Dispatcher};
+use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
+use blackwire_app::health::HealthChecker;
+use blackwire_app::router::LiveRouter;
+use blackwire_app::Balancer;
+use blackwire_config::schema::{Config, Protocol};
+use blackwire_protocol::freedom::FreedomOutbound;
+use blackwire_protocol::socks::Socks5Inbound;
+use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
 
 use crate::http::build_http_inbound;
 use crate::hysteria2::{build_hysteria2_outbound, start_hysteria2_inbound};
@@ -106,7 +106,7 @@ impl Instance {
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
         if let Some(tun_cfg) = &config.tun {
-            use proxy_transport::TunConfig;
+            use blackwire_transport::TunConfig;
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
                 address: tun_cfg
@@ -122,7 +122,7 @@ impl Instance {
                 redirect_port: tun_cfg.redirect_port,
                 dns_port: tun_cfg.dns_port,
             };
-            let device = proxy_transport::create_tun(&tc)
+            let device = blackwire_transport::create_tun(&tc)
                 .context("TUN device creation failed (are we running as root?)")?;
             let (tx, rx) = tokio::sync::watch::channel(false);
             shutdown_tx = Some(tx);
@@ -352,7 +352,7 @@ impl Instance {
             };
 
             // Start the TCP accept loop for this inbound.
-            let tcp_config = proxy_transport::tcp::TcpConfig {
+            let tcp_config = blackwire_transport::tcp::TcpConfig {
                 max_connections: in_cfg
                     .limits
                     .as_ref()
@@ -362,7 +362,7 @@ impl Instance {
                 ..Default::default()
             };
 
-            let transport = proxy_transport::TcpServerTransport::new(tcp_config);
+            let transport = blackwire_transport::TcpServerTransport::new(tcp_config);
             let listener = tokio::net::TcpListener::bind(addr)
                 .await
                 .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;
@@ -376,7 +376,7 @@ impl Instance {
 
         // ── Optional: start metrics/health HTTP server ───────────────────────
         if let Some(metrics_addr) = &config.metrics_addr {
-            let handle = proxy_app::metrics::start_metrics_server(metrics_addr)
+            let handle = blackwire_app::metrics::start_metrics_server(metrics_addr)
                 .with_context(|| format!("starting metrics server on '{metrics_addr}'"))?;
             info!(addr = %metrics_addr, "metrics server started");
             tasks.push(handle);

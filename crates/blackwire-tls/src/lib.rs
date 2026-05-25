@@ -1,4 +1,4 @@
-//! proxy-tls — raw TLS ClientHello builder and browser fingerprint profiles.
+//! blackwire-tls — raw TLS ClientHello builder and browser fingerprint profiles.
 //!
 //! # What this crate does
 //!
@@ -28,7 +28,7 @@
 //!
 //! # Relationship to REALITY
 //!
-//! The REALITY transport (`proxy-transport/src/reality.rs`) uses this crate to:
+//! The REALITY transport (`blackwire-transport/src/reality.rs`) uses this crate to:
 //!   1. Build a Chrome-identical ClientHello.
 //!   2. Override the `random` field with ECDH+HKDF-derived bytes.
 //!   3. Override the `session_id` field with the AES-128-GCM encrypted token.

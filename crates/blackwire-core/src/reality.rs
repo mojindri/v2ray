@@ -8,14 +8,14 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
-use proxy_common::{with_handshake_timeout, BoxedStream, ProxyError};
-use proxy_config::schema::{SecurityType, StreamSettingsConfig};
-use proxy_protocol::vless::connect_vless_on_stream;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
+use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
+use blackwire_config::schema::{SecurityType, StreamSettingsConfig};
+use blackwire_protocol::vless::connect_vless_on_stream;
 use tracing::warn;
 
-use proxy_transport::{
+use blackwire_transport::{
     complete_tls13_server_handshake, RealityClient, RealityClientConfig, RealityServer,
     RealityServerConfig, Tls13Stream,
 };
@@ -122,8 +122,8 @@ impl OutboundHandler for RealityVlessOutbound {
 
     async fn connect(
         &self,
-        _ctx: &proxy_app::context::Context,
-        dest: &proxy_common::Address,
+        _ctx: &blackwire_app::context::Context,
+        dest: &blackwire_common::Address,
     ) -> Result<BoxedStream, ProxyError> {
         let stream = self.reality.dial().await?;
         connect_vless_on_stream(stream, &self.uuid, &self.flow, dest).await
@@ -131,7 +131,7 @@ impl OutboundHandler for RealityVlessOutbound {
 }
 
 pub(crate) fn build_reality_client(
-    cfg: &proxy_config::schema::OutboundConfig,
+    cfg: &blackwire_config::schema::OutboundConfig,
     server: SocketAddr,
 ) -> Result<RealityClient> {
     let reality = cfg
@@ -152,7 +152,7 @@ pub(crate) fn build_reality_client(
 }
 
 pub(crate) fn build_reality_server(
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
 ) -> Result<Arc<RealityServer>> {
     let reality = cfg
         .stream_settings

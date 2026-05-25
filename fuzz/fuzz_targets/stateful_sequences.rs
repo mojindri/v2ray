@@ -5,9 +5,9 @@ mod common;
 
 use bytes::{Bytes, BytesMut};
 use libfuzzer_sys::fuzz_target;
-use proxy_common::Address;
-use proxy_protocol::vless::codec as vless_codec;
-use proxy_transport::{decode_grpc_frame, encode_grpc_frame};
+use blackwire_common::Address;
+use blackwire_protocol::vless::codec as vless_codec;
+use blackwire_transport::{decode_grpc_frame, encode_grpc_frame};
 
 fuzz_target!(|data: &[u8]| {
     let data = common::bounded(data, 4096);

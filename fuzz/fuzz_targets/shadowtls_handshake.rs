@@ -4,7 +4,7 @@
 mod common;
 
 use libfuzzer_sys::fuzz_target;
-use proxy_transport::shadowtls::{compute_marker, validate_first_application_record};
+use blackwire_transport::shadowtls::{compute_marker, validate_first_application_record};
 
 const SERVER_RANDOM: [u8; 32] = [0x42; 32];
 

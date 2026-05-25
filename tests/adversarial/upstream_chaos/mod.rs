@@ -1,6 +1,6 @@
 use std::time::Duration;
 
-use proxy_core::Instance;
+use blackwire_core::Instance;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 
@@ -9,7 +9,7 @@ mod harness;
 #[path = "../../common/leak_check.rs"]
 mod leak_check;
 
-fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<proxy_config::schema::Config> {
+fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<blackwire_config::schema::Config> {
     harness::parse_config(serde_json::json!({
         "inbounds": [{
             "tag": "socks-in",
@@ -202,7 +202,7 @@ async fn upstream_huge_response_is_relayed_without_parser_breakage() {
 #[tokio::test]
 async fn malformed_dns_upstream_response_is_handled() {
     let (dns_port, _task) = spawn_malformed_dns_udp_server().await;
-    let dns = proxy_app::dns::DnsModule::new(proxy_app::dns::DnsModuleConfig {
+    let dns = blackwire_app::dns::DnsModule::new(blackwire_app::dns::DnsModuleConfig {
         servers: vec![format!("127.0.0.1:{dns_port}")],
         ..Default::default()
     })

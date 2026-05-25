@@ -75,11 +75,11 @@ async fn http_connect(proxy_port: u16, target_host: &str, target_port: u16) -> T
     stream
 }
 
-fn parse_config(json: String) -> Arc<proxy_config::schema::Config> {
+fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
     Arc::new(serde_json::from_str(&json).expect("config parse failed"))
 }
 
-fn server_config(vmess_port: u16) -> Arc<proxy_config::schema::Config> {
+fn server_config(vmess_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -103,7 +103,7 @@ fn server_config(vmess_port: u16) -> Arc<proxy_config::schema::Config> {
     ))
 }
 
-fn client_config(http_port: u16, vmess_port: u16) -> Arc<proxy_config::schema::Config> {
+fn client_config(http_port: u16, vmess_port: u16) -> Arc<blackwire_config::schema::Config> {
     parse_config(format!(
         r#"{{
             "log": {{ "level": "info", "json": false }},
@@ -140,10 +140,10 @@ async fn phase5_http_connect_vmess_grpc_transfers_data() {
     let vmess_port = unused_local_port();
     let http_port = unused_local_port();
 
-    let _server = proxy_core::Instance::from_config(server_config(vmess_port))
+    let _server = blackwire_core::Instance::from_config(server_config(vmess_port))
         .await
         .expect("server start failed");
-    let _client = proxy_core::Instance::from_config(client_config(http_port, vmess_port))
+    let _client = blackwire_core::Instance::from_config(client_config(http_port, vmess_port))
         .await
         .expect("client start failed");
 

@@ -8,14 +8,16 @@ use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 
-use proxy_app::features::{InboundHandler, OutboundHandler};
-use proxy_protocol::vmess::{VmessInbound, VmessOutbound, VmessOutboundConfig, VmessUserRegistry};
+use blackwire_app::features::{InboundHandler, OutboundHandler};
+use blackwire_protocol::vmess::{
+    VmessInbound, VmessOutbound, VmessOutboundConfig, VmessUserRegistry,
+};
 
 use crate::outbound_transport::{uses_outbound_transport, TransportVmessOutbound};
 
 /// Build a VMess inbound handler from config.
 pub(crate) fn build_vmess_inbound(
-    cfg: &proxy_config::schema::InboundConfig,
+    cfg: &blackwire_config::schema::InboundConfig,
 ) -> Result<Arc<dyn InboundHandler>> {
     let registry = VmessUserRegistry::new();
 
@@ -42,7 +44,7 @@ pub(crate) fn build_vmess_inbound(
 
 /// Build a VMess outbound handler from config.
 pub(crate) fn build_vmess_outbound(
-    cfg: &proxy_config::schema::OutboundConfig,
+    cfg: &blackwire_config::schema::OutboundConfig,
 ) -> Result<Arc<dyn OutboundHandler>> {
     let settings = &cfg.settings;
 

@@ -35,7 +35,7 @@
 use bytes::{BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use proxy_common::{domain_wire_len, Address, ProxyError};
+use blackwire_common::{domain_wire_len, Address, ProxyError};
 
 // ── Command byte constants ────────────────────────────────────────────────────
 

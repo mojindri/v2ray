@@ -46,7 +46,7 @@ use rand::{Rng, RngExt};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
-use proxy_common::{domain_wire_len, Address, ProxyError};
+use blackwire_common::{domain_wire_len, Address, ProxyError};
 
 use super::kdf::kdf;
 
@@ -580,7 +580,7 @@ fn fnv32a(data: &[u8]) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use proxy_common::Address;
+    use blackwire_common::Address;
 
     fn test_cmd_key() -> [u8; 16] {
         let uuid = *uuid::Uuid::parse_str("a3482e88-686a-4a58-8126-99c9df64b7bf")

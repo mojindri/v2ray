@@ -1,6 +1,6 @@
 //! TCP proxy over Hysteria2 QUIC streams.
 
-use proxy_common::{Address, ProxyError};
+use blackwire_common::{Address, ProxyError};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use super::proto::{

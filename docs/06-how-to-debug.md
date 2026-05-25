@@ -16,27 +16,27 @@ Ask:
 
 Look at:
 
-- `proxy-config`
-- `proxy-core`
+- `blackwire-config`
+- `blackwire-core`
 
 ### Is routing or dispatch wrong?
 
 Look at:
 
-- `proxy-app`
+- `blackwire-app`
 
 ### Is a protocol header wrong?
 
 Look at:
 
-- `proxy-protocol`
+- `blackwire-protocol`
 
 ### Is TLS, WebSocket, REALITY, gRPC, QUIC, or stream wrapping wrong?
 
 Look at:
 
-- `proxy-transport`
-- `proxy-tls` for REALITY `ClientHello`
+- `blackwire-transport`
+- `blackwire-tls` for REALITY `ClientHello`
 
 This one decision saves a lot of wasted time.
 
@@ -49,21 +49,21 @@ Examples:
 ### Protocol bug
 
 ```bash
-cargo test -p proxy-protocol
+cargo test -p blackwire-protocol
 ```
 
 ### Transport bug
 
 ```bash
-cargo test -p proxy-transport
+cargo test -p blackwire-transport
 ```
 
 ### Production-readiness edge case
 
 ```bash
-cargo test -p proxy-transport --test production_readiness --all-features
-cargo test -p proxy-protocol --test production_readiness --all-features
-cargo test -p proxy-core --test production_readiness --all-features
+cargo test -p blackwire-transport --test production_readiness --all-features
+cargo test -p blackwire-protocol --test production_readiness --all-features
+cargo test -p blackwire-core --test production_readiness --all-features
 ```
 
 ### Specific test name
@@ -86,9 +86,9 @@ The test often tells you:
 
 Good places:
 
-- [crates/proxy-transport/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/tests/production_readiness.rs)
-- [crates/proxy-protocol/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/tests/production_readiness.rs)
-- [crates/proxy-core/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/tests/production_readiness.rs)
+- [crates/blackwire-transport/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/tests/production_readiness.rs)
+- [crates/blackwire-protocol/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/tests/production_readiness.rs)
+- [crates/blackwire-core/tests/production_readiness.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/tests/production_readiness.rs)
 
 ## Rule 4: Distinguish "Stuck" From "Failed"
 
@@ -127,8 +127,8 @@ Symptoms:
 
 Where to look:
 
-- stream wrappers in `proxy-transport`
-- encrypted/framed streams in `proxy-protocol`
+- stream wrappers in `blackwire-transport`
+- encrypted/framed streams in `blackwire-protocol`
 
 What usually went wrong:
 
@@ -191,8 +191,8 @@ The live peer can reveal requirements your self-interop does not enforce.
 
 Read:
 
-- [crates/proxy-cli/src/main.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-cli/src/main.rs)
-- [crates/proxy-core/src/instance.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/instance.rs)
+- [crates/blackwire-cli/src/main.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-cli/src/main.rs)
+- [crates/blackwire-core/src/instance.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/src/instance.rs)
 
 Check:
 
@@ -205,8 +205,8 @@ Check:
 
 Read:
 
-- [crates/proxy-app/src/router.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-app/src/router.rs)
-- [crates/proxy-app/src/dispatcher.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-app/src/dispatcher.rs)
+- [crates/blackwire-app/src/router.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-app/src/router.rs)
+- [crates/blackwire-app/src/dispatcher.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-app/src/dispatcher.rs)
 
 Check:
 
@@ -219,8 +219,8 @@ Check:
 
 Read:
 
-- [crates/proxy-protocol/src/socks.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/socks.rs)
-- [crates/proxy-protocol/src/http_connect.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-protocol/src/http_connect.rs)
+- [crates/blackwire-protocol/src/socks.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/socks.rs)
+- [crates/blackwire-protocol/src/http_connect.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-protocol/src/http_connect.rs)
 
 ## VLESS / Trojan / VMess issues
 
@@ -235,9 +235,9 @@ Read:
 
 - [docs/04-reality-for-dummies.md](/Users/mojnader/RustroverProjects/v2ray/docs/04-reality-for-dummies.md)
 - [tests/interop/README.md](/Users/mojnader/RustroverProjects/v2ray/tests/interop/README.md)
-- [crates/proxy-transport/src/reality/client.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/reality/client.rs)
-- [crates/proxy-transport/src/reality/server.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-transport/src/reality/server.rs)
-- [crates/proxy-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/proxy-core/src/reality.rs)
+- [crates/blackwire-transport/src/reality/client.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/reality/client.rs)
+- [crates/blackwire-transport/src/reality/server.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/reality/server.rs)
+- [crates/blackwire-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/src/reality.rs)
 
 Look specifically for:
 
@@ -272,13 +272,13 @@ Good starting point:
 ### Run one package
 
 ```bash
-cargo test -p proxy-transport
+cargo test -p blackwire-transport
 ```
 
 ### Run one exact test target
 
 ```bash
-cargo test -p proxy-core --test production_readiness --all-features
+cargo test -p blackwire-core --test production_readiness --all-features
 ```
 
 ### Run one named test with output
@@ -291,7 +291,7 @@ cargo test some_test_name -- --nocapture
 
 ```bash
 make -C tests/interop up
-cargo test -p proxy-transport --test interop d1 -- --ignored --nocapture
+cargo test -p blackwire-transport --test interop d1 -- --ignored --nocapture
 make -C tests/interop down
 ```
 

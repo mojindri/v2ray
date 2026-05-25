@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
-use proxy_config::schema::Config;
-use proxy_core::Instance;
+use blackwire_config::schema::Config;
+use blackwire_core::Instance;
 use serde_json::{json, Value};
 
 fn cfg(inbounds: Value, outbounds: Value, extra: Option<Value>) -> Config {

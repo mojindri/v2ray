@@ -19,10 +19,10 @@ use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
 
 use anyhow::Result;
-use proxy_app::context::Context;
-use proxy_app::dispatcher::Dispatcher;
-use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError, ReunionStream};
+use blackwire_app::context::Context;
+use blackwire_app::dispatcher::Dispatcher;
+use blackwire_app::features::OutboundHandler;
+use blackwire_common::{Address, BoxedStream, ProxyError, ReunionStream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Semaphore;
 use tracing::{info, warn};

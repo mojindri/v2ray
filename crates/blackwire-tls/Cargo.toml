@@ -1,5 +1,5 @@
 [package]
-name        = "proxy-tls"
+name        = "blackwire-tls"
 description = "Raw TLS ClientHello builder for browser fingerprint mimicry (Chrome 131). Used by the REALITY client outbound."
 version.workspace = true
 edition.workspace = true
@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-proxy-common          = { path = "../proxy-common" }
+blackwire-common          = { path = "../blackwire-common" }
 bytes.workspace       = true
 rand.workspace        = true
 serde.workspace       = true

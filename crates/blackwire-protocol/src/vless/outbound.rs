@@ -21,9 +21,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tracing::debug;
 
-use proxy_app::context::Context;
-use proxy_app::features::OutboundHandler;
-use proxy_common::{Address, BoxedStream, ProxyError};
+use blackwire_app::context::Context;
+use blackwire_app::features::OutboundHandler;
+use blackwire_common::{Address, BoxedStream, ProxyError};
 
 use super::codec::{encode_request, Command};
 
