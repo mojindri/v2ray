@@ -31,6 +31,8 @@ invocations.
 
 Tune waits: `MATRIX_PORT_WAIT_TRIES`, `MATRIX_PORT_WAIT_SLEEP`, `MATRIX_SOCKS_WAIT_TRIES`, `MATRIX_SOCKS_WAIT_SLEEP`.
 
+**12 protocols** in `scenarios.env` (48 matrix rows). Some rows **SKIP** Xray when upstream removed a transport (e.g. legacy QUIC in Xray 26+) or client framing differs (SplitHTTP).
+
 ## Commands
 
 From `labs/realistic`:

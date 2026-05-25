@@ -11,13 +11,15 @@ SSH_PORT ?= 22
 SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
-.PHONY: help build build-amd64 build-linux-bin docker-up stable interop-docker interop-server-docker interop-client-reality interop-server-vps \
+.PHONY: help build build-amd64 build-linux-bin docker-up stable finalize interop-docker interop-server-docker interop-client-reality interop-server-vps \
 	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
 
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
+
+finalize: stable advanced-features-smoke interop-server-docker ## Full local gate: unit/e2e + advanced smoke + external-client matrix
 
 build: ## Build blackwire:latest (native platform; fast local interop on arm64 Mac)
 	@mkdir -p $(REPORTS)
@@ -66,9 +68,13 @@ xray: ## Deprecated: use make interop-client-reality
 	@echo "Deprecated alias: use make interop-client-reality"
 	$(MAKE) interop-client-reality
 
-advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, health/failover, DNS/geo routing guards
+advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, QUIC/SplitHTTP VLESS, health/failover, DNS/geo routing guards
 	@mkdir -p $(REPORTS)
-	@echo "=== [advanced-features-smoke] ShadowTLS v3 ===" | tee $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] VLESS QUIC ===" | tee $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p integration-tests phase6_vless_quic_echo 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] VLESS SplitHTTP ===" | tee -a $(REPORTS)/advanced-features-smoke.log
+	cd $(ROOT) && cargo test -p integration-tests phase6_vless_splithttp_echo 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
+	@echo "=== [advanced-features-smoke] ShadowTLS v3 ===" | tee -a $(REPORTS)/advanced-features-smoke.log
 	cd $(ROOT) && cargo test -p integration-tests phase7_vless_over_shadowtls_v3_transfers_data 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log
 	@echo "=== [advanced-features-smoke] mKCP ===" | tee -a $(REPORTS)/advanced-features-smoke.log
 	cd $(ROOT) && cargo test -p integration-tests phase8_vless_over_mkcp 2>&1 | tee -a $(REPORTS)/advanced-features-smoke.log

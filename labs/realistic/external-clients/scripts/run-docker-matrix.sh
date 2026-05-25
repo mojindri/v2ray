@@ -36,6 +36,8 @@ port_for_protocol() {
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
         vless-httpupgrade) echo 8446 ;;
+        vless-quic) echo 8447 ;;
+        vless-splithttp) echo 8448 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
         hysteria2) echo 4433 ;;
@@ -149,7 +151,7 @@ wait_for_server_port() {
     local port
     port="$(port_for_protocol "$protocol")"
     [[ -z "$port" ]] && return 0
-    if [[ "$protocol" == "hysteria2" ]]; then
+    if [[ "$protocol" == "hysteria2" || "$protocol" == "vless-quic" ]]; then
         sleep 2
         return 0
     fi

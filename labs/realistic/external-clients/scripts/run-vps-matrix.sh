@@ -77,6 +77,8 @@ port_for_protocol() {
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
         vless-httpupgrade) echo 8446 ;;
+        vless-quic) echo 8447 ;;
+        vless-splithttp) echo 8448 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
         hysteria2) echo 4433 ;;
@@ -151,7 +153,7 @@ run_one() {
     ssh_server "nohup /usr/local/bin/blackwire run -c '/etc/blackwire/generated/${server_cfg}' > '/tmp/blackwire-external-${protocol}.log' 2>&1 & echo \$! > /tmp/blackwire-external.pid" \
         >> "$log" 2>&1
 
-    if [[ "$protocol" != "hysteria2" ]]; then
+    if [[ "$protocol" != "hysteria2" && "$protocol" != "vless-quic" ]]; then
         ssh_client "for i in \$(seq 1 15); do nc -z '${SERVER_HOST}' '${port}' && exit 0; sleep 1; done; exit 1" \
             >> "$log" 2>&1 || {
             echo "FAIL ${label} server-port-${port}" | tee -a "$SUMMARY"
@@ -205,7 +207,7 @@ run_negative() {
     ssh_server "nohup /usr/local/bin/blackwire run -c '/etc/blackwire/generated/${server_cfg}' > '/tmp/blackwire-external-${protocol}.log' 2>&1 & echo \$! > /tmp/blackwire-external.pid" \
         >> "$log" 2>&1
 
-    if [[ "$protocol" != "hysteria2" ]]; then
+    if [[ "$protocol" != "hysteria2" && "$protocol" != "vless-quic" ]]; then
         ssh_client "for i in \$(seq 1 15); do nc -z '${SERVER_HOST}' '${port}' && exit 0; sleep 1; done; exit 1" \
             >> "$log" 2>&1 || {
             echo "FAIL ${label} server-port-${port}" | tee -a "$SUMMARY"

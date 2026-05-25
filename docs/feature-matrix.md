@@ -79,11 +79,11 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | REALITY | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_phase2_reality.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test |
 | ShadowTLS v3 | **Experimental** | `transport/shadowtls/` (v3 only); e2e `e2e_phase7_shadowtls.rs`; lab advanced-features smoke, not mandatory green |
 | mKCP | **Experimental** | `transport/mkcp/`; e2e `e2e_phase8_mkcp.rs`; lab advanced-features smoke |
-| QUIC (`network: quic` for VLESS/VMess) | **Unsupported** | `NetworkType::Quic` in schema only; QUIC used inside Hysteria2, not generic stream stack |
+| QUIC (`network: quic` for VLESS/VMess) | **Experimental** | `v2rayquic.rs`; e2e `e2e_phase6_vless_quic.rs`; lab row `vless-quic` (sing-box; Xray 26+ SKIP — QUIC migrated to XHTTP/H3) |
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
-| HTTPUpgrade | **Partial** | Inbound `accept_httpupgrade` + outbound dial; lab row `vless-httpupgrade` (external-client proof pending) |
-| SplitHTTP / xHTTP | **Unsupported** | `NetworkType::SplitHttp` in schema only; no transport implementation |
+| HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
+| SplitHTTP / xHTTP | **Experimental** | `splithttp.rs` (HTTP/1.1 PUT chunked tunnel); e2e `e2e_phase6_vless_splithttp.rs`; lab `vless-splithttp` (sing-box HTTP transport; Xray SKIP) |
 
 ---
 
@@ -134,7 +134,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Per-inbound / global `max_connections` | **Partial** | TCP accept path in `transport/tcp.rs` + config limits; not all protocols share the same limit surface |
 | Prometheus HTTP (`metricsAddr`) | **Supported** | `metrics.rs` — `/metrics`, `/healthz`, `/readyz`, `/version` |
 | Per-connection Prometheus counters | **Supported** | `record_connection_*` called from `dispatcher` after each relay |
-| v2ray gRPC Stats / Handler API | **Unsupported** | `blackwire-api` is a Phase 6 stub; `stats` / `api` config keys unused in core |
+| v2ray gRPC Stats API | **Experimental** | `blackwire-api` StatsService + `runtime_stats`; starts when `api` listen set; Handler API still unsupported |
 
 ---
 
@@ -151,7 +151,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | `make deny` / `cargo-deny` | **Supported** | `deny.toml` license/advisory policy |
 | Adversarial integration tests | **Supported** | `tests/tests/adversarial_*.rs` — fragmentation, cancellation, backpressure, etc. |
 | Leak / resource tests | **Partial** | `leak_assertions`, `resource_limits` (some `#[ignore]`) |
-| External-client Docker lab | **Experimental** | `labs/realistic/` — mandatory matrix documented in lab README |
+| External-client Docker lab | **Supported** | `labs/realistic/` — 12 protocols × 4 cases (48 rows); fast harness in `run-docker-matrix.sh` |
 | TLS/REALITY byte-level fingerprint diff vs Chrome | **Unsupported** | Functional interop ≠ identical ClientHello bytes |
 | Packet capture on failure | **Unsupported** | `run-pcap-local.sh` helper exists; not automated in CI |
 
