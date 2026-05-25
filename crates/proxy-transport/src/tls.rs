@@ -62,6 +62,7 @@ pub async fn tls_connect(
 
 /// Build a rustls `ClientConfig` for outbound TLS.
 fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig, ProxyError> {
+    crate::quic::ensure_crypto_provider();
     let mut config = if skip_verify {
         ClientConfig::builder()
             .dangerous()
@@ -137,6 +138,7 @@ pub fn build_server_config(
     key_pem: &str,
     alpn: &[&str],
 ) -> Result<ServerConfig, ProxyError> {
+    crate::quic::ensure_crypto_provider();
     let certs = crate::pem::parse_certs(cert_pem)?;
     let key = crate::pem::parse_private_key(key_pem)?;
 
@@ -154,6 +156,7 @@ fn build_tls13_server_config(
     key_pem: &str,
     alpn: &[&str],
 ) -> Result<ServerConfig, ProxyError> {
+    crate::quic::ensure_crypto_provider();
     let certs = crate::pem::parse_certs(cert_pem)?;
     let key = crate::pem::parse_private_key(key_pem)?;
 
