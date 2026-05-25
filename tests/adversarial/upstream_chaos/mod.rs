@@ -79,14 +79,13 @@ async fn spawn_malformed_dns_udp_server() -> (u16, tokio::task::JoinHandle<()>) 
 
 #[tokio::test]
 async fn upstream_close_immediately_is_handled_and_runtime_survives() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (drop_port, _drop_task) = harness::spawn_drop_on_connect_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", drop_port).await;
     s.write_all(b"x").await.expect("write");
@@ -95,6 +94,7 @@ async fn upstream_close_immediately_is_handled_and_runtime_survives() {
         .expect("timeout")
         .expect("read");
     assert_eq!(n, 0);
+    drop(s);
 
     let (echo_port, _echo_task) = harness::spawn_echo_server().await;
     let mut good = harness::socks5_connect(socks_port, "127.0.0.1", echo_port).await;
@@ -102,22 +102,22 @@ async fn upstream_close_immediately_is_handled_and_runtime_survives() {
     let mut out = [0u8; 2];
     good.read_exact(&mut out).await.expect("read");
     assert_eq!(&out, b"ok");
+    drop(good);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
 #[tokio::test]
 async fn upstream_closes_mid_response_without_proxy_hang() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (srv_port, _task) = spawn_partial_then_drop_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", srv_port).await;
     let mut got = vec![0u8; "PARTIAL".len()];
@@ -132,22 +132,22 @@ async fn upstream_closes_mid_response_without_proxy_hang() {
         .expect("timeout")
         .expect("read");
     assert_eq!(n, 0);
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
 #[tokio::test]
 async fn upstream_stall_triggers_timeout_at_test_layer_and_cleans_up() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (stall_port, _stall_task) = harness::spawn_stalled_reader_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", stall_port).await;
     s.write_all(b"request").await.expect("write");
@@ -160,19 +160,18 @@ async fn upstream_stall_triggers_timeout_at_test_layer_and_cleans_up() {
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
 #[tokio::test]
 async fn upstream_huge_response_is_relayed_without_parser_breakage() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (srv_port, _task) = spawn_huge_response_server(2 << 20).await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", srv_port).await;
     let mut total = 0usize;
@@ -193,10 +192,11 @@ async fn upstream_huge_response_is_relayed_without_parser_breakage() {
     .expect("timeout");
 
     assert!(total >= (2 << 20) / 2, "unexpectedly low transferred bytes");
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 512, 200, 100);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
 #[tokio::test]

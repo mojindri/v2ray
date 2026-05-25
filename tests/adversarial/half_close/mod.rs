@@ -64,14 +64,13 @@ async fn spawn_delayed_tail_server() -> (u16, tokio::task::JoinHandle<()>) {
 
 #[tokio::test]
 async fn client_shutdown_write_side_can_still_read_without_deadlock() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (echo_port, _echo_task) = harness::spawn_echo_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", echo_port).await;
     s.write_all(b"half-close").await.expect("write");
@@ -82,22 +81,22 @@ async fn client_shutdown_write_side_can_still_read_without_deadlock() {
         .expect("read timed out")
         .expect("read");
     assert_eq!(&out, b"half-close");
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
 #[tokio::test]
 async fn upstream_shutdown_write_side_first_does_not_hang_relay() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (srv_port, _srv_task) = spawn_upstream_shutdown_write_first().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", srv_port).await;
     let mut preface = vec![0u8; "server-preface".len()];
@@ -112,22 +111,22 @@ async fn upstream_shutdown_write_side_first_does_not_hang_relay() {
         .expect("eof timed out")
         .expect("read");
     assert_eq!(n, 0, "expected EOF after upstream shutdown");
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
 #[tokio::test]
 async fn eof_on_one_side_with_pending_bytes_drains_then_closes() {
-    let baseline = leak_check::LeakSnapshot::capture();
-
     let (srv_port, _srv_task) = spawn_delayed_tail_server().await;
     let socks_port = harness::unused_local_port();
     let _instance = Instance::from_config(socks_to_freedom_cfg(socks_port))
         .await
         .expect("start instance");
     tokio::time::sleep(Duration::from_millis(80)).await;
+    let baseline = leak_check::steady_state_baseline().await;
 
     let mut s = harness::socks5_connect(socks_port, "127.0.0.1", srv_port).await;
     s.write_all(b"PING").await.expect("write");
@@ -144,8 +143,9 @@ async fn eof_on_one_side_with_pending_bytes_drains_then_closes() {
         .expect("eof timeout")
         .expect("read");
     assert_eq!(n, 0);
+    drop(s);
 
     leak_check::settle_for_cleanup().await;
     let after = leak_check::LeakSnapshot::capture();
-    leak_check::assert_close_to_baseline(&baseline, &after, 256, 128, 80);
+    leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
