@@ -1,7 +1,7 @@
 //! TLS 1.3 server handshake for REALITY (post-auth camouflage).
 
 use ed25519_dalek::{Signer, SigningKey};
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use x25519_dalek::{PublicKey, StaticSecret};
 
 use proxy_common::{BoxedStream, ProxyError};

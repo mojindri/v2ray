@@ -16,7 +16,7 @@
 
 use proxy_common::{BoxedStream, ProxyError};
 use proxy_tls::ClientHelloBuilder;
-use rand::{Rng, RngExt};
+use rand::RngExt;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use super::marker::compute_marker;
