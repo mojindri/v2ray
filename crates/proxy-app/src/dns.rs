@@ -31,7 +31,7 @@
 //!     assert!(!ips.is_empty());
 //!
 //!     // FakeIP:
-//!     let fake = module.resolve_fake("example.com");
+//!     let fake = module.resolve_fake("example.com").expect("fake IP enabled");
 //!     let domain = module.reverse_fake(fake);
 //!     assert_eq!(domain.as_deref(), Some("example.com"));
 //!     assert!(module.is_fake_ip(IpAddr::V4(fake)));
