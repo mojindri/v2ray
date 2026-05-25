@@ -97,7 +97,7 @@ pub fn assert_fd_tasks_close_to_baseline(
 fn proc_fd_count() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
-        return std::fs::read_dir("/proc/self/fd").ok().map(|it| it.count());
+        std::fs::read_dir("/proc/self/fd").ok().map(|it| it.count())
     }
     #[cfg(target_os = "macos")]
     {
@@ -116,9 +116,9 @@ fn proc_fd_count() -> Option<usize> {
 fn proc_task_count() -> Option<usize> {
     #[cfg(target_os = "linux")]
     {
-        return std::fs::read_dir("/proc/self/task")
+        std::fs::read_dir("/proc/self/task")
             .ok()
-            .map(|it| it.count());
+            .map(|it| it.count())
     }
     #[cfg(not(target_os = "linux"))]
     {
