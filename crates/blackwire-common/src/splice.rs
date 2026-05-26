@@ -41,7 +41,7 @@
 //! # Async integration
 //!
 //! `splice(2)` bypasses Tokio's I/O driver. We integrate it with Tokio using
-//! [`TcpStream::try_io`] so readiness notifications stay accurate.
+//! `tokio::net::TcpStream::try_io` so readiness notifications stay accurate.
 
 #[cfg(target_os = "linux")]
 mod linux {
@@ -158,7 +158,7 @@ mod linux {
 
     /// Relay bytes from `src` to `dst` using splice, until EOF or error.
     ///
-    /// Uses [`TcpStream::try_io`] so splice syscalls stay in sync with Tokio
+    /// Uses `tokio::net::TcpStream::try_io` so splice syscalls stay in sync with Tokio
     /// readiness. Raw `readable()`/`writable()` waits can miss wakeups because
     /// splice moves data without touching the runtime's I/O driver.
     async fn splice_one_direction(src: &TcpStream, dst: &TcpStream) -> io::Result<u64> {
