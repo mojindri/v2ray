@@ -107,6 +107,25 @@ mod ktls {
         set_tls_key(fd, TLS_RX, seq_rx, secrets_rx)
     }
 
+    pub(super) fn enable_ulp(fd: libc::c_int) -> io::Result<()> {
+        let ulp = b"tls\0";
+        // SAFETY: setsockopt with a NUL-terminated "tls" string.
+        let rc = unsafe {
+            libc::setsockopt(
+                fd,
+                libc::IPPROTO_TCP,
+                TCP_ULP,
+                ulp.as_ptr() as *const libc::c_void,
+                (ulp.len() - 1) as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+
     fn set_tls_key(
         fd: libc::c_int,
         direction: libc::c_int,
@@ -237,6 +256,15 @@ fn ktls_enabled() -> bool {
     )
 }
 
+#[cfg(target_os = "linux")]
+fn ktls_upgrade_safe(conn: &rustls::ServerConnection) -> bool {
+    // `dangerous_extract_secrets` rejects pending TLS writes internally, but
+    // checking first lets us fall back to rustls before mutating the socket with
+    // TCP_ULP. `wants_read == false` after the handshake can mean rustls already
+    // has plaintext buffered; consuming the connection there would drop bytes.
+    !conn.is_handshaking() && !conn.wants_write() && conn.wants_read()
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 
 /// Perform a TLS client handshake over an existing stream.
@@ -343,6 +371,11 @@ pub async fn tls_accept(
             return Ok(Box::new(tls_stream));
         }
 
+        if !ktls_upgrade_safe(tls_stream.get_ref().1) {
+            tracing::debug!("kTLS skipped because rustls has pending post-handshake TLS state");
+            return Ok(Box::new(tls_stream));
+        }
+
         // Probe (scoped so the borrow of tls_stream ends before into_inner()).
         let maybe_fd: Option<libc::c_int> = {
             // Cast to &dyn AsyncReadWrite to force vtable dispatch on as_any();
@@ -350,27 +383,13 @@ pub async fn tls_accept(
             // and return the Box type rather than the concrete inner type.
             let inner_dyn: &dyn AsyncReadWrite = tls_stream.get_ref().0.as_ref();
             if inner_dyn.as_any().is::<TcpStream>() {
-                let fd = inner_dyn
-                    .as_any()
-                    .downcast_ref::<TcpStream>()
-                    .unwrap()
-                    .as_raw_fd();
-                let ulp = b"tls\0";
-                // SAFETY: setsockopt with a NUL-terminated "tls" string.
-                let ok = unsafe {
-                    libc::setsockopt(
-                        fd,
-                        libc::IPPROTO_TCP,
-                        ktls::TCP_ULP,
-                        ulp.as_ptr() as *const libc::c_void,
-                        (ulp.len() - 1) as libc::socklen_t,
-                    ) == 0
-                };
-                if ok {
-                    Some(fd)
-                } else {
-                    None
-                }
+                Some(
+                    inner_dyn
+                        .as_any()
+                        .downcast_ref::<TcpStream>()
+                        .unwrap()
+                        .as_raw_fd(),
+                )
             } else {
                 None
             }
@@ -384,7 +403,9 @@ pub async fn tls_accept(
                 Ok(secrets) => {
                     let seq_tx = secrets.tx.0;
                     let seq_rx = secrets.rx.0;
-                    match ktls::install_keys(fd, seq_tx, &secrets.tx.1, seq_rx, &secrets.rx.1) {
+                    match ktls::enable_ulp(fd).and_then(|()| {
+                        ktls::install_keys(fd, seq_tx, &secrets.tx.1, seq_rx, &secrets.rx.1)
+                    }) {
                         Ok(()) => {
                             let tcp = *inner
                                 .into_any()
