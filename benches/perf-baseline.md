@@ -83,3 +83,17 @@ Record when updating this file:
 - Commit SHA
 
 _Current snapshot: informal dev machine, not a regression gate._
+
+## Latest serial quick verification (2026-05-26)
+
+Command shape:
+
+```bash
+BENCH_QUICK=1 BENCH_BULK_ONLY=1 BENCH_ITER_TIMEOUT_MS=20000 BENCH_IO_TIMEOUT_MS=3000 \
+  cargo bench -p blackwire-benches --bench e2e_<path> -- bulk_relay/steady_state/chunk_65536/65536 --quick
+```
+
+- `ss2022`: time `[2.2002 ms 2.2964 ms 2.3204 ms]`, thrpt `[26.935 MiB/s 27.217 MiB/s 28.406 MiB/s]`
+- `vmess_grpc`: time `[2.3214 ms 2.3412 ms 2.3461 ms]`, thrpt `[26.639 MiB/s 26.696 MiB/s 26.924 MiB/s]`
+
+Both paths completed without relay stalls after stream progress fixes.
