@@ -175,8 +175,7 @@ mod linux {
                     Ok(0) => {
                         // Source EOF — half-close the write side of dst so the peer
                         // receives a FIN and knows no more data will arrive.
-                        // SAFETY: dst_fd is valid for the lifetime of this call.
-                        unsafe { libc::shutdown(dst_fd, libc::SHUT_WR) };
+                        let _ = dst.shutdown().await;
                         return Ok(total);
                     }
                     Ok(n) => break n,
@@ -234,22 +233,23 @@ mod linux {
     /// upload-only flows), the idle direction is unblocked and given a short drain
     /// window so the relay does not hang waiting for data that will never arrive.
     pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> io::Result<(u64, u64)> {
-        let a_fd = a.as_raw_fd();
-
         let mut ab = std::pin::pin!(splice_one_direction(a, b));
         let mut ba = std::pin::pin!(splice_one_direction(b, a));
 
         tokio::select! {
             res = ab.as_mut() => {
                 let up = res?;
+                // Client finished sending (or half-closed). Tell upstream no more uploads.
+                let _ = b.shutdown().await;
                 let down = drain_peer(ba.as_mut()).await?;
                 Ok((up, down))
             }
             res = ba.as_mut() => {
                 let down = res?;
-                // Download-only flows leave a→b waiting for client payload forever.
-                // Stop reading from the client side so the idle direction can exit.
-                unsafe { libc::shutdown(a_fd, libc::SHUT_RD) };
+                // Upstream finished responding. Half-close the client read side so
+                // `read_exact` can complete; do not SHUT_RD here — that can RST kTLS
+                // peers before they drain the response (trojan_over_tls_large_payload).
+                let _ = a.shutdown().await;
                 let up = drain_peer(ab.as_mut()).await?;
                 Ok((up, down))
             }
