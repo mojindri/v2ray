@@ -14,7 +14,7 @@ Gap tracker ordered **strictly** by [xray-parity-source-of-truth.md](xray-parity
 | ~~**P0**~~ | ~~Trojan UDP ASSOCIATE (`CMD 0x03`, framed packets, max 8192 B)~~    | Xray `proxy/trojan` (`server.go`, `packet.go`)                                               | **PASS** `trojan-udp` Xray+sing-box                              | **Supported** — matrix-proven                         |
 | ~~**P0**~~ | ~~VLESS Mux.Cool TCP (`CMD 0x03` / `v1.mux.cool`)~~                  | Xray `common/mux` + [Mux.Cool](https://xtls.github.io/en/development/protocols/muxcool.html) | **PASS** `vless-mux` Xray; sing-box SKIP                         | **Supported** — matrix-proven                         |
 | ~~**P1**~~ | ~~VLESS XUDP (session `0`, 8-byte GlobalID, Keep per-packet dest)~~  | Xray `common/xudp` + `common/mux/frame.go`                                                   | **PASS** `vless-udp` Xray+sing-box                               | **Supported** — matrix-proven                         |
-| **P1** | SplitHTTP **stream-one** (lab profile)                           | Xray `splithttp` + sing-box HTTP transport                                                   | Existing `vless-splithttp` matrix PASS                           | Shipped in matrix                                     |
+| ~~**P1**~~ | ~~SplitHTTP **stream-one** (xHTTP over HTTP/2, ALPN h2)~~         | Xray `splithttp` + sing-box HTTP transport                                                   | **PASS** `vless-splithttp` Xray+sing-box                         | **Supported** — matrix-proven                         |
 | **P2** | SplitHTTP **packet-up** (seq, Xmux, padding, `downloadSettings`) | sing-box `transport/http` xHTTP                                                              | New row only after sing-box client PASS; no invented framing     | **Not upstream-complete** — do not enable in matrix   |
 | **P2** | SS2022 UDP (SIP022)                                              | Xray / sing-box shadowsocks 2022 UDP                                                         | New `ss2022-udp` row                                             | **Unsupported**                                       |
 | **P3** | Trojan / VLESS UDP **outbound** (client role)                    | Xray outbound `PacketWriter`                                                                 | Client-leg lab or in-process client instance                     | Trojan outbound: CONNECT only                         |
@@ -37,7 +37,7 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 | DoH / DoT DNS upstream                                                             | Done                                                                      |
 | HTTPUpgrade + lab row                                                              | Done                                                                      |
 | QUIC server; matrix Xray SKIP / sing-box PASS                                      | Done                                                                      |
-| SplitHTTP stream-one + `vless-splithttp`                                           | Done                                                                      |
+| **SplitHTTP / xHTTP stream-one** (HTTP/2 via ALPN h2)                              | **matrix `vless-splithttp` Xray+sing-box PASS**                           |
 | XTLS Vision + `vless-vision`                                                       | Experimental (splice TBD)                                                 |
 | Hot-reload routing/users                                                           | Done                                                                      |
 | Stats + Handler gRPC (VLESS user ops)                                              | Done                                                                      |
@@ -54,7 +54,7 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 
 | Focus                          | Upstream alignment               | Next gate                                       |
 | ------------------------------ | -------------------------------- | ----------------------------------------------- |
-| SplitHTTP packet-up            | **Not** sing-box-complete        | sing-box client PASS; no matrix until green     |
+| SplitHTTP packet-up (P2)       | **Not** sing-box-complete        | No matrix until full Xmux/seq implementation    |
 | Health failover                | Xray-like selection              | `health-failover` matrix                        |
 
 
