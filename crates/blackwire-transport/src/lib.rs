@@ -75,8 +75,8 @@ pub use shadowtls::{
     shadowtls_marker_connect, shadowtls_v3_connect, write_marker_record,
 };
 pub use splithttp::{
-    normalize_splithttp_mode, splithttp_accept, splithttp_connect, splithttp_listen_params,
-    SplitHttpAcceptResult, SplitHttpMode,
+    normalize_splithttp_mode, splithttp_accept, splithttp_accept_h2, splithttp_connect,
+    splithttp_listen_params, SplitHttpAcceptResult, SplitHttpMode,
 };
 pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{
