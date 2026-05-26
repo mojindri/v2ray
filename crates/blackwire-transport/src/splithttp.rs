@@ -18,10 +18,13 @@ use std::task::{Context, Poll};
 use blackwire_common::{BoxedStream, ProxyError};
 use dashmap::DashMap;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
-use tokio::sync::Mutex;
 use tracing::debug;
 
 use blackwire_config::schema::{SplitHttpConfig, StreamSettingsConfig};
+
+use crate::splithttp_packet_up::{
+    extract_session_seq, UploadPacket, UploadQueue, UploadQueueReader,
+};
 
 /// Result of an inbound SplitHTTP handshake.
 pub enum SplitHttpAcceptResult {
@@ -96,7 +99,14 @@ pub async fn splithttp_connect(
     Ok(Box::new(SplitHttpStream::new(stream)))
 }
 
-static PACKET_UP_SESSIONS: LazyLock<DashMap<String, Arc<Mutex<Vec<u8>>>>> = LazyLock::new(DashMap::new);
+static PACKET_UP_SESSIONS: LazyLock<DashMap<String, Arc<UploadQueue>>> = LazyLock::new(DashMap::new);
+
+fn upsert_packet_up_session(session_id: &str) -> Arc<UploadQueue> {
+    PACKET_UP_SESSIONS
+        .entry(session_id.to_string())
+        .or_insert_with(|| UploadQueue::new(64))
+        .clone()
+}
 
 /// Accept SplitHTTP/xHTTP: auto-detects HTTP/2 (ALPN h2, Xray 26.x / sing-box)
 /// vs HTTP/1.1 and dispatches accordingly.
@@ -361,54 +371,118 @@ async fn packet_up_accept(
     method: &str,
     request: &str,
 ) -> Result<SplitHttpAcceptResult, ProxyError> {
-    let path_only = request
+    let base = expected_path.unwrap_or("/");
+    let path_and_query = request
         .lines()
         .next()
         .and_then(|l| l.split_whitespace().nth(1))
-        .map(|p| p.split('?').next().unwrap_or(p))
-        .unwrap_or("");
-    if let Some(expected) = expected_path {
-        if path_only != expected {
-            return Err(ProxyError::Protocol(format!(
-                "SplitHTTP path mismatch: got '{path_only}', want '{expected}'"
-            )));
-        }
+        .unwrap_or("/");
+    let prefix = crate::splithttp_packet_up::normalized_path_prefix(base);
+    if !path_and_query.starts_with(prefix.trim_end_matches('/')) {
+        return Err(ProxyError::Protocol(format!(
+            "SplitHTTP path mismatch: got '{path_and_query}', want prefix '{prefix}'"
+        )));
     }
 
-    let headers = parse_http_headers(request);
-    let session = headers
-        .get("x-session")
-        .cloned()
-        .unwrap_or_else(|| "default".to_string());
+    let (session, seq) = extract_session_seq(path_and_query, base);
 
-    if method.eq_ignore_ascii_case("GET") {
-        write_stream_one_response(&mut stream).await?;
-        let buf = if let Some(entry) = PACKET_UP_SESSIONS.get(&session) {
-            entry.value().lock().await.clone()
-        } else {
-            Vec::new()
-        };
-        return Ok(SplitHttpAcceptResult::Tunnel(Box::new(PrependedChunkStream::new(
-            stream, buf,
-        ))));
+    if method.eq_ignore_ascii_case("OPTIONS") {
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nConnection: keep-alive\r\nAccess-Control-Allow-Origin: *\r\nContent-Length: 0\r\n\r\n",
+            )
+            .await?;
+        stream.flush().await?;
+        return Ok(SplitHttpAcceptResult::Preflight);
     }
 
     if method.eq_ignore_ascii_case("POST") {
+        if session.is_empty() {
+            return Err(ProxyError::Protocol(
+                "packet-up POST requires session id in path".into(),
+            ));
+        }
+        let seq_num: u64 = seq.parse().map_err(|_| {
+            ProxyError::Protocol(format!("packet-up invalid seq '{seq}'"))
+        })?;
         let body = read_request_body(&mut stream, request).await?;
-        let slot = PACKET_UP_SESSIONS
-            .entry(session)
-            .or_insert_with(|| Arc::new(Mutex::new(Vec::new())));
-        slot.lock().await.extend_from_slice(&body);
+        let queue = upsert_packet_up_session(&session);
+        queue
+            .push(UploadPacket {
+                seq: seq_num,
+                payload: body,
+            })
+            .await
+            .map_err(|e| ProxyError::Protocol(format!("packet-up push: {e}")))?;
         stream
-            .write_all(b"HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+            .write_all(b"HTTP/1.1 200 OK\r\nConnection: keep-alive\r\nCache-Control: no-store\r\nContent-Length: 0\r\n\r\n")
             .await?;
         stream.flush().await?;
         return Ok(SplitHttpAcceptResult::UploadOnly);
     }
 
+    if method.eq_ignore_ascii_case("GET") {
+        if session.is_empty() {
+            return Err(ProxyError::Protocol(
+                "packet-up GET requires session id in path".into(),
+            ));
+        }
+        if !seq.is_empty() {
+            return Err(ProxyError::Protocol(
+                "packet-up GET with seq (stream-up) not implemented".into(),
+            ));
+        }
+        let queue = upsert_packet_up_session(&session);
+        stream
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nConnection: keep-alive\r\nCache-Control: no-store\r\nX-Accel-Buffering: no\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\n\r\n",
+            )
+            .await?;
+        stream.flush().await?;
+        let reader = UploadQueueReader::new(queue);
+        return Ok(SplitHttpAcceptResult::Tunnel(Box::new(PacketUpConn {
+            reader,
+            writer: stream,
+        })));
+    }
+
     Err(ProxyError::Protocol(format!(
         "SplitHTTP packet-up: unsupported method '{method}'"
     )))
+}
+
+/// Download GET leg: read uplink bytes from the session queue, write downlink on HTTP body.
+struct PacketUpConn {
+    reader: UploadQueueReader,
+    writer: BoxedStream,
+}
+
+impl AsyncRead for PacketUpConn {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.reader).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for PacketUpConn {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.writer).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.writer).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.writer).poll_shutdown(cx)
+    }
 }
 
 fn parse_http_headers(request: &str) -> HashMap<String, String> {
@@ -690,8 +764,11 @@ mod tests {
         assert!(resp.contains("text/event-stream"));
         assert!(resp.contains("chunked"));
 
-        let tunnel = accept_task.await.unwrap().expect("accept failed");
-        let mut tunnel = tunnel;
+        let SplitHttpAcceptResult::Tunnel(mut tunnel) =
+            accept_task.await.unwrap().expect("accept failed")
+        else {
+            panic!("expected stream-one tunnel");
+        };
         let mut buf = [0u8; 8];
         let n = tunnel.read(&mut buf).await.unwrap();
         assert_eq!(&buf[..n], b"hello");
