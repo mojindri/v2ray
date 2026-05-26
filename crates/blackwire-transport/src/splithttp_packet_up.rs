@@ -2,6 +2,7 @@
 
 use std::cmp::Reverse;
 use std::collections::BinaryHeap;
+use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -115,58 +116,45 @@ impl tokio::io::AsyncRead for UploadQueueReader {
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
         let queue = &self.queue;
-        loop {
-            if buf.remaining() == 0 {
-                return Poll::Ready(Ok(()));
-            }
+        if buf.remaining() == 0 {
+            return Poll::Ready(Ok(()));
+        }
 
-            let mut st = match queue.state.try_lock() {
-                Ok(g) => g,
-                Err(_) => {
-                    let notify = Arc::clone(&queue.notify);
-                    let waker = cx.waker().clone();
-                    tokio::spawn(async move {
-                        notify.notified().await;
-                        waker.wake();
-                    });
+        let mut st = match queue.state.try_lock() {
+            Ok(g) => g,
+            Err(_) => {
+                let mut notified = std::pin::pin!(queue.notify.notified());
+                if notified.as_mut().poll(cx).is_pending() {
                     return Poll::Pending;
                 }
-            };
-
-            match st.fill_pending() {
-                Ok(()) => {}
-                Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                    return Poll::Ready(Ok(()));
-                }
-                Err(e) => return Poll::Ready(Err(e)),
+                // lock may be free now; retry on next wake
+                return Poll::Pending;
             }
+        };
 
-            if !st.pending.is_empty() {
-                let n = buf.remaining().min(st.pending.len());
-                buf.put_slice(&st.pending[..n]);
-                st.pending.drain(..n);
-                if buf.remaining() > 0 && !st.pending.is_empty() {
-                    continue;
-                }
-                if buf.filled().is_empty() {
-                    // wait for more POSTs
-                } else {
-                    return Poll::Ready(Ok(()));
-                }
-            }
+        match st.fill_pending() {
+            Ok(()) => {}
+            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Poll::Ready(Ok(())),
+            Err(e) => return Poll::Ready(Err(e)),
+        }
 
-            if st.closed {
-                return Poll::Ready(Ok(()));
-            }
+        if !st.pending.is_empty() {
+            let n = buf.remaining().min(st.pending.len());
+            buf.put_slice(&st.pending[..n]);
+            st.pending.drain(..n);
+            return Poll::Ready(Ok(()));
+        }
 
-            drop(st);
-            let notify = Arc::clone(&queue.notify);
-            let waker = cx.waker().clone();
-            tokio::spawn(async move {
-                notify.notified().await;
-                waker.wake();
-            });
-            return Poll::Pending;
+        if st.closed {
+            return Poll::Ready(Ok(()));
+        }
+
+        drop(st);
+        let mut notified = std::pin::pin!(queue.notify.notified());
+        if notified.as_mut().poll(cx).is_pending() {
+            Poll::Pending
+        } else {
+            Poll::Pending
         }
     }
 }
