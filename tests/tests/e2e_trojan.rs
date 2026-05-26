@@ -1,4 +1,4 @@
-//! Phase 4 integration tests: Trojan protocol plus WebSocket/TLS transports.
+//! Trojan integration tests: Trojan protocol plus WebSocket/TLS transports.
 //!
 //! Keep this target file tiny. The actual tests live in smaller files under
 //! `tests/e2e_trojan/` so each source file stays easy to scan.

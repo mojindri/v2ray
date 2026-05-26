@@ -3,7 +3,7 @@
 //! VLESS is a lightweight proxy protocol designed to disguise traffic as HTTPS.
 //! It was created by the v2ray/Xray project and is the recommended protocol
 //! for bypassing censorship in China and Russia (especially when combined with
-//! the REALITY transport in Phase 2).
+//! the REALITY transport).
 //!
 //! # How VLESS works
 //!

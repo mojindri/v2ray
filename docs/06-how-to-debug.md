@@ -164,8 +164,8 @@ Symptoms:
 
 Typical case:
 
-- Phase 2 tests expecting raw post-auth bytes
-- implementation now completes TLS 1.3 before returning app stream
+- Phase 2 tests expecting raw post-auth bytes (no Phase 3 TLS completion)
+- implementation now completes Phase 3 TLS 1.3 before returning app stream
 
 When this happens, do not blindly "fix code to satisfy old tests."
 Decide whether the implementation contract or the test contract is the current truth.
@@ -263,9 +263,9 @@ Use the nearest example as a reduced reproduction case.
 
 Good starting point:
 
-- [examples/phase2-reality-client-server/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/phase2-reality-client-server/README.md)
-- [examples/phase4-vless-ws-local/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/phase4-vless-ws-local/README.md)
-- [examples/phase5-http-vmess-grpc-local/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/phase5-http-vmess-grpc-local/README.md)
+- [examples/reality-client-server/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/reality-client-server/README.md)
+- [examples/vless-ws-local/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/vless-ws-local/README.md)
+- [examples/http-vmess-grpc-local/README.md](/Users/mojnader/RustroverProjects/v2ray/examples/http-vmess-grpc-local/README.md)
 
 ## Useful Commands
 

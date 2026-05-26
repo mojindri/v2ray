@@ -3,7 +3,7 @@ use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 
-pub(crate) const TEST_PASSWORD: &str = "phase4-test-password";
+pub(crate) const TEST_PASSWORD: &str = "trojan-test-password";
 pub(crate) const TEST_UUID: &str = "b45c5b86-1234-4321-abcd-0123456789ab";
 
 pub(crate) fn unused_local_port() -> u16 {
@@ -83,7 +83,7 @@ pub(crate) fn write_dev_cert_files() -> (String, String) {
     let (cert_pem, key_pem) = blackwire_transport::dev_self_signed().unwrap();
     let dir = std::env::temp_dir();
     let unique = format!(
-        "blackwire-phase4-{}-{}",
+        "blackwire-trojan-{}-{}",
         std::process::id(),
         unused_local_port()
     );

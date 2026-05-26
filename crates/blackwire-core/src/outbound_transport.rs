@@ -1,7 +1,7 @@
 //! Outbound transport wrapping for protocol clients.
 //!
 //! Protocol outbounds such as VLESS and Trojan first dial a server, then write
-//! their protocol header. Phase 4 adds optional transport layers in between:
+//! their protocol header. Optional transport layers can stack in between:
 //!
 //! ```text
 //! TCP -> [TLS] -> [WebSocket] -> VLESS/Trojan header -> proxied bytes
@@ -70,7 +70,7 @@ impl OutboundHandler for TransportVlessOutbound {
     }
 }
 
-/// Trojan outbound that honors Phase 4 transport settings before sending the
+/// Trojan outbound that honors stream transport settings before sending the
 /// Trojan auth token and destination header.
 pub(crate) struct TransportTrojanOutbound {
     tag: String,
@@ -108,7 +108,7 @@ impl OutboundHandler for TransportTrojanOutbound {
     }
 }
 
-/// VMess outbound that honors Phase 5 transport settings before sending the
+/// VMess outbound that honors stream transport settings before sending the
 /// VMess AEAD handshake.
 pub(crate) struct TransportVmessOutbound {
     tag: String,

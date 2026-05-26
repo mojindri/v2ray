@@ -143,7 +143,7 @@ enum Socks5Request {
 /// After this function returns `Ok(dest)`, the stream is positioned at the
 /// start of the proxied data — no more SOCKS5 framing, just raw bytes.
 async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Socks5Request, ProxyError> {
-    // ── Phase 1: Greeting ────────────────────────────────────────────────────
+    // ── SOCKS5 greeting ──────────────────────────────────────────────────────
     //
     // The client sends:
     //   VER (1)   — version, must be 5
@@ -178,7 +178,7 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Socks5Request, Pro
     // Tell the client we chose "no authentication".
     stream.write_all(&[SOCKS_VERSION, METHOD_NO_AUTH]).await?;
 
-    // ── Phase 2: Request ─────────────────────────────────────────────────────
+    // ── SOCKS5 request ───────────────────────────────────────────────────────
     //
     // The client sends:
     //   VER (1)   — version again

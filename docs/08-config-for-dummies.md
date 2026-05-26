@@ -312,7 +312,7 @@ From the examples:
     "address": "127.0.0.1",
     "port": 16388,
     "method": "2022-blake3-aes-256-gcm",
-    "password": "phase6-local-ss2022-password"
+    "password": "local-ss2022-password"
   }
 }
 ```
@@ -397,7 +397,7 @@ From the examples:
   "network": "ws",
   "security": "none",
   "wsSettings": {
-    "path": "/phase4",
+    "path": "/vless-ws",
     "headers": {
       "Host": "localhost"
     }
@@ -409,7 +409,7 @@ Meaning:
 
 - use WebSocket as the transport
 - no TLS wrapper in this local example
-- use path `/phase4`
+- use path `/vless-ws`
 
 ## Example: VLESS over REALITY
 
@@ -511,23 +511,23 @@ That progression matches how the code is easiest to understand too.
 
 Good starter examples:
 
-- [examples/phase1-client-server/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase1-client-server/client.json)
-- [examples/phase1-client-server/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase1-client-server/server.json)
+- [examples/vless-client-server/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/vless-client-server/client.json)
+- [examples/vless-client-server/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/vless-client-server/server.json)
 
 REALITY examples:
 
-- [examples/phase2-reality-client-server/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase2-reality-client-server/client.json)
-- [examples/phase2-reality-client-server/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase2-reality-client-server/server.json)
+- [examples/reality-client-server/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/reality-client-server/client.json)
+- [examples/reality-client-server/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/reality-client-server/server.json)
 
 WebSocket examples:
 
-- [examples/phase4-vless-ws-local/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase4-vless-ws-local/client.json)
-- [examples/phase4-vless-ws-local/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase4-vless-ws-local/server.json)
+- [examples/vless-ws-local/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/vless-ws-local/client.json)
+- [examples/vless-ws-local/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/vless-ws-local/server.json)
 
 SS-2022 examples:
 
-- [examples/phase6-ss2022-local/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase6-ss2022-local/client.json)
-- [examples/phase6-ss2022-local/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/phase6-ss2022-local/server.json)
+- [examples/ss2022-local/client.json](/Users/mojnader/RustroverProjects/v2ray/examples/ss2022-local/client.json)
+- [examples/ss2022-local/server.json](/Users/mojnader/RustroverProjects/v2ray/examples/ss2022-local/server.json)
 
 ## Common Beginner Mistakes
 

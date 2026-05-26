@@ -1,0 +1,43 @@
+{
+  "_comment": "REALITY client config: SOCKS5 inbound + VLESS over REALITY outbound.",
+  "_comment2": "Point your browser at socks5://127.0.0.1:1080 to use the proxy.",
+  "_comment3": "Replace SERVER_IP, publicKey, and UUID to match your server.",
+
+  "log": { "level": "info" },
+
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1080
+    }
+  ],
+
+  "outbounds": [
+    {
+      "tag": "vless-reality-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "SERVER_IP",
+        "port": 10443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "serverName": "www.microsoft.com",
+          "fingerprint": "chrome",
+          "publicKey": "REPLACE_WITH_BASE64_PUBLIC_KEY",
+          "shortId": "cafebabe01234567"
+        }
+      }
+    }
+  ]
+}

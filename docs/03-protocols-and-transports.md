@@ -407,7 +407,7 @@ Examples:
 
 ### VLESS inbound over REALITY
 
-- transport path: TCP -> REALITY auth -> TLS 1.3 completion
+- transport path: TCP -> REALITY auth (Phase 2) -> TLS 1.3 completion (Phase 3)
 - protocol: VLESS inbound
 
 ### VLESS over WebSocket over TLS

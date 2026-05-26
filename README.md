@@ -196,17 +196,17 @@ and Make command guide:
 
 If you learn better from runnable examples, start here:
 
-- [Phase 1 Client/Server](examples/phase1-client-server/README.md)
-- [Phase 2 REALITY Client/Server](examples/phase2-reality-client-server/README.md)
-- [Phase 3 Hysteria2 Client/Server](examples/phase3-hysteria2-client-server/README.md)
-- [Phase 4 VLESS + WebSocket Local](examples/phase4-vless-ws-local/README.md)
-- [Phase 5 HTTP + VMess + gRPC Local](examples/phase5-http-vmess-grpc-local/README.md)
-- [Phase 6 SS2022 Local](examples/phase6-ss2022-local/README.md)
-- [Phase 7 DNS + FakeIP Routing](examples/phase7-dns-fakeip-routing/README.md)
-- [Phase 7 ShadowTLS + VLESS](examples/phase7-shadowtls-vless/README.md)
-- [Phase 8 Health + Failover](examples/phase8-health-failover/README.md)
-- [Phase 8 mKCP + VLESS](examples/phase8-mkcp-vless/README.md)
-- [Phase 8 TUN Local](examples/phase8-tun-local/README.md)
+- [VLESS Client/Server](examples/vless-client-server/README.md)
+- [REALITY Client/Server](examples/reality-client-server/README.md)
+- [Hysteria2 Client/Server](examples/hysteria2-client-server/README.md)
+- [VLESS + WebSocket Local](examples/vless-ws-local/README.md)
+- [HTTP + VMess + gRPC Local](examples/http-vmess-grpc-local/README.md)
+- [SS2022 Local](examples/ss2022-local/README.md)
+- [DNS + FakeIP Routing](examples/dns-fakeip-routing/README.md)
+- [ShadowTLS + VLESS](examples/shadowtls-vless/README.md)
+- [Health + Failover](examples/health-failover/README.md)
+- [mKCP + VLESS](examples/mkcp-vless/README.md)
+- [TUN Local](examples/tun-local/README.md)
 
 ## Deeper Reading
 

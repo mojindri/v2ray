@@ -1,0 +1,42 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "vless-ws-in",
+      "protocol": "vless",
+      "listen": "127.0.0.1",
+      "port": 13443,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "vless-ws@example.test"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/vless-ws"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}

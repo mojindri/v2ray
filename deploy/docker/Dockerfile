@@ -71,7 +71,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /build/target/release/blackwire /usr/local/bin/blackwire
 
 # Copy GeoIP/GeoSite data files if they are present in the build context.
-# These are optional — the router works without them in Phase 1-3.
+# These are optional — the router works without them.
 COPY --from=builder /build/fingerprints/ /usr/local/share/blackwire/fingerprints/
 
 # The config file is mounted at runtime via a Docker volume or bind mount.

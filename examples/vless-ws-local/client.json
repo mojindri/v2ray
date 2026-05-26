@@ -1,0 +1,47 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 13080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-ws-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 13443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/vless-ws",
+          "headers": {
+            "Host": "localhost"
+          }
+        }
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "vless-ws-out"
+      }
+    ]
+  }
+}

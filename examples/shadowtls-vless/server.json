@@ -1,0 +1,44 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "vless-shadowtls-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "shadowtls@example.test"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "shadowtls",
+        "shadowTlsSettings": {
+          "version": 3,
+          "password": "CHANGE_ME_USE_A_STRONG_RANDOM_PASSWORD",
+          "dest": "www.apple.com:443"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}

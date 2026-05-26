@@ -1,0 +1,35 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 12080
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "hysteria2-out",
+      "protocol": "hysteria2",
+      "settings": {
+        "server": "127.0.0.1:12443",
+        "serverName": "localhost",
+        "auth": "hysteria2-demo-password",
+        "upMbps": 50,
+        "downMbps": 50,
+        "skipCertVerify": true
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "hysteria2-out"
+      }
+    ]
+  }
+}

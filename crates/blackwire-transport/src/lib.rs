@@ -3,14 +3,14 @@
 //! A "transport" is the underlying mechanism used to move bytes between two
 //! endpoints. This crate contains implementations for:
 //!
-//!   - **TCP** (Phase 1) — raw TCP sockets, the most common transport
-//!   - **TLS** (Phase 2) — TLS encryption on top of TCP
-//!   - **WebSocket** (Phase 2) — HTTP upgrade to WebSocket protocol
-//!   - **REALITY** (Phase 2) — TLS camouflage using a real destination site
-//!   - **gRPC** (Phase 5) — HTTP/2 framing via tonic
-//!   - **QUIC** (Phase 3) — UDP-based transport for Hysteria2
-//!   - **mKCP** (Phase 5) — KCP ARQ over UDP for lossy links
-//!   - **TUN** (Phase 4) — OS network interface for full-device routing
+//!   - **TCP** — raw TCP sockets, the most common transport
+//!   - **TLS** — TLS encryption on top of TCP
+//!   - **WebSocket** — HTTP upgrade to WebSocket protocol
+//!   - **REALITY** — TLS camouflage using a real destination site
+//!   - **gRPC** — HTTP/2 framing via tonic
+//!   - **QUIC** — UDP-based transport for VLESS/VMess and Hysteria2
+//!   - **mKCP** — KCP ARQ over UDP for lossy links
+//!   - **TUN** — OS network interface for full-device routing
 //!
 //! Each transport converts its connection type into a `BoxedStream`, which
 //! is what the protocol layer receives. The protocol layer never knows which
@@ -20,11 +20,11 @@ mod pem;
 pub mod reality;
 pub mod tcp;
 
-// Phase 3: QUIC and Hysteria2
+// QUIC and Hysteria2
 pub mod hysteria2;
 pub mod quic;
 
-// Phase 4: TLS and WebSocket transports
+// TLS and WebSocket transports
 pub mod tls;
 pub mod ws;
 
@@ -36,11 +36,10 @@ mod splithttp_packet_up;
 /// SplitHTTP / xHTTP transport.
 pub mod splithttp;
 
-// Phase 4+
 /// TUN transport runtime and packet helpers for full-device proxying.
 pub mod tun;
 
-// Phase 5: gRPC transport
+// gRPC transport
 pub mod grpc;
 
 // mKCP transport
@@ -50,7 +49,7 @@ pub mod mkcp;
 /// Generic QUIC transport for VLESS / VMess stream protocols.
 pub mod v2rayquic;
 
-// Phase 7: ShadowTLS v3 transport
+// ShadowTLS v3 transport
 pub mod shadowtls;
 
 pub use grpc::{decode_grpc_frame, encode_grpc_frame, grpc_accept, grpc_connect, GrpcStream};

@@ -58,8 +58,8 @@ Third-wave practical docs:
 
 Example-driven learning:
 
-- [../examples/phase1-client-server/README.md](../examples/phase1-client-server/README.md)
-- [../examples/phase2-reality-client-server/README.md](../examples/phase2-reality-client-server/README.md)
-- [../examples/phase4-vless-ws-local/README.md](../examples/phase4-vless-ws-local/README.md)
-- [../examples/phase5-http-vmess-grpc-local/README.md](../examples/phase5-http-vmess-grpc-local/README.md)
-- [../examples/phase6-ss2022-local/README.md](../examples/phase6-ss2022-local/README.md)
+- [../examples/vless-client-server/README.md](../examples/vless-client-server/README.md)
+- [../examples/reality-client-server/README.md](../examples/reality-client-server/README.md)
+- [../examples/vless-ws-local/README.md](../examples/vless-ws-local/README.md)
+- [../examples/http-vmess-grpc-local/README.md](../examples/http-vmess-grpc-local/README.md)
+- [../examples/ss2022-local/README.md](../examples/ss2022-local/README.md)

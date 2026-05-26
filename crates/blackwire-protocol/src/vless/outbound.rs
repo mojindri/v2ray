@@ -9,9 +9,8 @@
 //!   4. Returns the stream, now positioned at the start of proxied data,
 //!      ready for bidirectional relay.
 //!
-//! The outbound does not handle TLS — in Phase 1 it connects over plain TCP.
-//! In Phase 2, a TLS or REALITY transport layer will wrap the stream before
-//! the VLESS header is sent.
+//! Transport layering (TLS, REALITY, WebSocket, etc.) is handled in
+//! `blackwire-core` — this handler dials plain TCP and writes the VLESS header.
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -114,8 +113,7 @@ impl OutboundHandler for VlessOutbound {
     }
 
     async fn connect(&self, _ctx: &Context, dest: &Address) -> Result<BoxedStream, ProxyError> {
-        // Step 1: Connect to the VLESS server over TCP.
-        // In Phase 2, a TLS/REALITY transport layer will wrap this.
+        // Plain TCP dial; transport-wrapped outbounds use TransportVlessOutbound instead.
         let mut stream = TcpStream::connect(self.config.server).await?;
         stream.set_nodelay(true)?;
 

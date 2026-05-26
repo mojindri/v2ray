@@ -77,7 +77,7 @@ impl ConnectionHandler for RealityConnectionHandler {
         )
         .await
         .map_err(|e| {
-            warn!(error = %e, sni = %self.cover_sni, "REALITY post-auth TLS handshake failed");
+            warn!(error = %e, sni = %self.cover_sni, "REALITY Phase 3 TLS handshake failed");
             e
         })?;
         let stream = Box::new(Tls13Stream::new_server(stream, app_keys));

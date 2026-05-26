@@ -12,7 +12,7 @@
 //! 3. The instance holds `JoinHandle`s for all tasks. If any task panics,
 //!    the error is logged but the other tasks keep running.
 //!
-//! # Transport layering (Phase 4)
+//! # Transport layering
 //!
 //! Each inbound now goes through a layered handler stack:
 //!
@@ -472,7 +472,7 @@ impl Instance {
                 || uses_splithttp(&in_cfg.stream_settings)
                 || uses_httpupgrade(&in_cfg.stream_settings)
             {
-                // Phase 4/5: TLS, WebSocket, HTTPUpgrade, and/or gRPC layering.
+                // Layered transports: TLS, WebSocket, HTTPUpgrade, and/or gRPC.
                 build_conn_handler(
                     handler,
                     dispatcher_for_handler,

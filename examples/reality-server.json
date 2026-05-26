@@ -1,0 +1,43 @@
+{
+  "_comment": "REALITY server config: VLESS over REALITY transport.",
+  "_comment2": "Run on port 443 to blend with real HTTPS traffic.",
+  "_comment3": "Generate keys with: blackwire x25519",
+  "_comment4": "Then fill in privateKey below and give publicKey to your clients.",
+
+  "log": { "level": "info" },
+
+  "inbounds": [
+    {
+      "tag": "vless-reality-in",
+      "protocol": "vless",
+      "listen": "0.0.0.0",
+      "port": 10443,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "user1@example.com",
+            "flow": ""
+          }
+        ],
+        "fallback": {
+          "dest": "127.0.0.1:80"
+        }
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "www.microsoft.com:443",
+          "serverName": "www.microsoft.com",
+          "privateKey": "REPLACE_WITH_BASE64_PRIVATE_KEY",
+          "shortIds": ["cafebabe01234567", "deadbeef"]
+        }
+      }
+    }
+  ],
+
+  "outbounds": [
+    { "tag": "freedom", "protocol": "freedom" }
+  ]
+}

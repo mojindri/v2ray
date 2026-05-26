@@ -279,11 +279,11 @@ pub async fn tls_accept(
 
     // ── Linux kTLS upgrade ────────────────────────────────────────────────────
     //
-    // Phase 1 (probe): borrow the TlsStream to get the inner TcpStream fd and
+    // Probe step: borrow the TlsStream to get the inner TcpStream fd and
     //   try setsockopt(TCP_ULP, "tls").  The borrow ends before we consume the
-    //   TlsStream so that Phase 2 can call into_inner() without conflict.
+    //   TlsStream so that the commit step can call into_inner() without conflict.
     //
-    // Phase 2 (commit): only after the probe succeeds, consume the TlsStream,
+    // Commit step: only after the probe succeeds, consume the TlsStream,
     //   extract traffic secrets from the rustls connection, and install keys.
     //
     // Either phase failing falls through to the normal TlsStream path.
@@ -293,8 +293,7 @@ pub async fn tls_accept(
         use std::os::unix::io::AsRawFd;
         use tokio::net::TcpStream;
 
-        // Phase 1 — probe (scoped so the borrow of tls_stream ends before
-        // into_inner() is called below).
+        // Probe (scoped so the borrow of tls_stream ends before into_inner()).
         let maybe_fd: Option<libc::c_int> = {
             // Cast to &dyn AsyncReadWrite to force vtable dispatch on as_any();
             // calling stream.as_any() would use the blanket impl on Box<dyn ..>
@@ -329,7 +328,7 @@ pub async fn tls_accept(
         };
 
         if let Some(fd) = maybe_fd {
-            // Phase 2 — commit: tls_stream borrow has ended; consume it.
+            // Commit: tls_stream borrow has ended; consume it.
             let (inner, server_conn) = tls_stream.into_inner();
             match server_conn.dangerous_extract_secrets() {
                 Ok(secrets) => {

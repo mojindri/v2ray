@@ -10,9 +10,9 @@
 //!
 //! - **VER**: Always 0x00. If 0x01 is received, it is a future version — reject it.
 //! - **UUID**: 16 raw bytes (not the hyphenated string form). Used to identify the user.
-//! - **ADDONS_LEN**: Length of the optional addons field. Usually 0 in Phase 1.
-//!   When non-zero, contains protobuf-encoded data including the `flow` field
-//!   (e.g. `"xtls-rprx-vision"` for the XTLS Vision splice mode).
+//! - **ADDONS_LEN**: Length of the optional addons field. Usually 0 unless
+//!   flow or other addons are needed. When non-zero, contains protobuf-encoded
+//!   data including the `flow` field (e.g. `"xtls-rprx-vision"` for XTLS Vision).
 //! - **CMD**: 0x01 = TCP CONNECT, 0x02 = UDP ASSOCIATE, 0x03 = Mux.Cool (deprecated).
 //! - **PORT**: 2 bytes, big-endian.
 //! - **ATYP**: 0x01 = IPv4 (4 bytes), 0x02 = domain (1-byte len + bytes), 0x03 = IPv6 (16 bytes).
@@ -127,7 +127,7 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
     reader.read_exact(&mut uuid).await?;
 
     // Read addons length and the addons bytes.
-    // In Phase 1 we read the bytes but only look for the `flow` field.
+    // Parse addons primarily to extract the `flow` field.
     let addons_len = reader.read_u8().await? as usize;
     let flow = if addons_len > 0 {
         let mut addons_buf = vec![0u8; addons_len];

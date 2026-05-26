@@ -59,8 +59,8 @@ impl OutboundHandler for FreedomOutbound {
 ///
 /// - IPv4/IPv6 addresses are returned as-is.
 /// - Domain names are resolved using the OS default DNS resolver
-///   (the same one used by `getaddrinfo`). In Phase 4, this will be
-///   replaced by the `DnsModule` which supports DoT/DoH and FakeIP.
+///   (the same one used by `getaddrinfo`). Routing DNS uses `DnsModule`; freedom
+///   still resolves destinations via the OS resolver.
 async fn resolve(dest: &Address) -> Result<SocketAddr, ProxyError> {
     match dest {
         Address::Ipv4(ip, port) => Ok(SocketAddr::new(std::net::IpAddr::V4(*ip), *port)),

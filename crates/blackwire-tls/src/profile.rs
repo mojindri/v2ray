@@ -23,8 +23,8 @@
 //! The `ClientHelloBuilder` reads this profile and constructs a ClientHello byte
 //! buffer that matches Chrome's JA3/JA4 fingerprint exactly.
 //!
-//! In Phase 2, we load the profile from `fingerprints/chrome-131.json` at
-//! startup so operators can update the fingerprint without recompiling.
+//! Operators can load the profile from `fingerprints/chrome-131.json` at
+//! startup so the fingerprint can be updated without recompiling.
 
 use serde::{Deserialize, Serialize};
 

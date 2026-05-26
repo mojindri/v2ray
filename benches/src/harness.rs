@@ -332,7 +332,7 @@ pub fn vmess_grpc_server(port: u16) -> Arc<blackwire_config::schema::Config> {
     ))
 }
 
-/// Client uses HTTP CONNECT ingress (matches `e2e_phase5_http_vmess_grpc`).
+/// Client uses HTTP CONNECT ingress (matches `e2e_http_vmess_grpc`).
 pub fn vmess_grpc_client(
     http_port: u16,
     server_port: u16,

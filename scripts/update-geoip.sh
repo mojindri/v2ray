@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # update-geoip.sh — Download the latest GeoIP and GeoSite data files.
 #
-# These files are used by the router in Phase 4+ to match traffic by country
+# These files are used by the router to match traffic by country
 # (e.g. route traffic destined for Chinese IPs directly, and everything else
 # through the proxy).
 #

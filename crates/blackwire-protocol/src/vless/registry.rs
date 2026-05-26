@@ -35,7 +35,7 @@ pub struct VlessUser {
     pub uuid: [u8; 16],
 
     /// The optional XTLS flow for this user.
-    /// "xtls-rprx-vision" = XTLS Vision splice mode (Phase 2).
+    /// "xtls-rprx-vision" = XTLS Vision splice mode.
     /// Empty = no special flow.
     pub flow: String,
 }

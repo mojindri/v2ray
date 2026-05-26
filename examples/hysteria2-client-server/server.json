@@ -1,0 +1,40 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "hysteria2-in",
+      "protocol": "hysteria2",
+      "listen": "127.0.0.1",
+      "port": 12443,
+      "settings": {
+        "auth": "hysteria2-demo-password",
+        "upMbps": 100,
+        "downMbps": 100
+      },
+      "streamSettings": {
+        "network": "quic",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "examples/hysteria2-client-server/cert.pem",
+          "keyFile": "examples/hysteria2-client-server/key.pem"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}

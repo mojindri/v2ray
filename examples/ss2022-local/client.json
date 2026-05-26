@@ -1,0 +1,40 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "metricsAddr": "127.0.0.1:16090",
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 16080
+    },
+    {
+      "tag": "http-local",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 16118
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "ss2022-out",
+      "protocol": "shadowsocks",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 16388,
+        "method": "2022-blake3-aes-256-gcm",
+        "password": "local-ss2022-password"
+      }
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "ss2022-out"
+      }
+    ]
+  }
+}

@@ -63,7 +63,7 @@ impl RealityServer {
         }
     }
 
-    /// Accept a connection and replay the ClientHello for post-auth TLS.
+    /// Accept a connection and replay the ClientHello for Phase 3 post-auth TLS.
     ///
     /// The returned [`PrependedStream`] replays the exact ClientHello bytes for
     /// [`complete_tls13_server_handshake`](crate::reality::complete_tls13_server_handshake).
@@ -84,8 +84,8 @@ impl RealityServer {
 
     /// Accept a connection without replaying the ClientHello.
     ///
-    /// Phase 2 uses this direct mode because full TLS completion is not wired
-    /// yet. After authentication, the next readable byte is the VLESS header.
+    /// Phase 2 direct mode: after authentication, the next readable byte is the
+    /// VLESS header (no Phase 3 TLS 1.3 completion on this path).
     pub async fn accept_direct(&self, stream: BoxedStream) -> Result<BoxedStream, ProxyError> {
         Ok(self
             .accept_inner(stream, ReplayMode::ConsumeClientHello)

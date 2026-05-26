@@ -290,7 +290,7 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
         }
     });
 
-    // Connect with the wrong short ID. Phase 3 dial now attempts a full TLS
+    // Connect with the wrong short ID. Phase 3 dial attempts a full TLS
     // handshake, so the fallback plaintext path must surface as an error here.
     let client = RealityClient::new(RealityClientConfig {
         server: server_addr,

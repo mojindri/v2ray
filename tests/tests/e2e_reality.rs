@@ -10,7 +10,7 @@
 //!
 //! This test verifies that:
 //!   1. A legitimate client (correct X25519 key + short_id) can authenticate.
-//!   2. After authentication, TLS 1.3 completes and data flows bidirectionally.
+//!   2. After authentication, Phase 3 TLS 1.3 completes and data flows bidirectionally.
 //!   3. An illegitimate client (wrong key) fails authentication and is forwarded
 //!      to the fallback server.
 

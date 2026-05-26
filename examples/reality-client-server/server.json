@@ -1,0 +1,47 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "vless-reality-in",
+      "protocol": "vless",
+      "listen": "127.0.0.1",
+      "port": 11443,
+      "settings": {
+        "clients": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "email": "reality@example.test",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "dest": "127.0.0.1:18080",
+          "privateKey": "8cb13706aa547712de8f687dc32e66b0ec2e753ba310e734b72fb52ce5e6a4a8",
+          "shortIds": ["0123456789abcdef"],
+          "serverName": "www.example.com",
+          "maxTimeDiff": 120
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}

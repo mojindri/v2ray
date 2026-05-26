@@ -58,9 +58,9 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
 | Trojan UDP | Yes | Yes | **Supported** | Xray `CMD 0x03`; inbound: matrix `trojan-udp` Xray+sing-box **PASS**; outbound: `connect_trojan_on_stream_udp()`; e2e `e2e_trojan_udp_outbound.rs` PASS |
-| Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
+| Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_ss2022_local.rs` |
 | SS2022 UDP relay (SIP022) | Yes | Yes | **Supported** | `ss2022/udp.rs` (sing-box SIP022 wire); e2e `e2e_ss2022_udp.rs` PASS; matrix `ss2022-udp` Xray+sing-box **PASS** |
-| Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
+| Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_hysteria2_vless.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
 | ShadowTLS as `protocol` enum | No | No | **Unsupported** | Only `security: shadowtls` on TCP inbounds/outbounds |
 | DNS / dokodemo / tun inbound protocol | No | No | **Unsupported** | Not in `Protocol` enum |
 
@@ -75,16 +75,16 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 |---|---|---|
 | TCP | **Supported** | `blackwire-transport/tcp.rs` |
 | TLS (rustls) | **Supported** | `transport/tls.rs` |
-| WebSocket | **Supported** | `transport/ws.rs`; e2e `e2e_phase4_vless_ws.rs` |
-| gRPC (Gun-style) | **Supported** | `transport/grpc.rs`; e2e `e2e_phase5_http_vmess_grpc.rs` |
-| REALITY | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_phase2_reality.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test |
+| WebSocket | **Supported** | `transport/ws.rs`; e2e `e2e_vless_ws.rs` |
+| gRPC (Gun-style) | **Supported** | `transport/grpc.rs`; e2e `e2e_http_vmess_grpc.rs` |
+| REALITY | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_reality_vless.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test |
 | ShadowTLS v3 | **Experimental** | Server: `transport/shadowtls/` + e2e. Matrix: both clients **SKIP** (Xray 26+ outbound model; sing-box inbound model) — not “unsupported on server” |
 | mKCP | **Experimental** | Server: `transport/mkcp/` + e2e. Matrix: both clients **SKIP** (sing-box no mKCP; Xray 26 finalmask) — not “unsupported on server” |
 | QUIC (`network: quic` for VLESS/VMess) | **Experimental** | Server: `v2rayquic.rs` + e2e. Matrix: **sing-box PASS**, Xray **SKIP** (Xray 26+ removed legacy QUIC client transport) |
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
 | HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
-| SplitHTTP / xHTTP | **Supported** | **stream-one** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. **packet-up** (seq reorder, H2 `GET /split/<uuid>` + `POST /split/<uuid>/<seq>`): matrix `vless-splithttp-packet-up` **Xray PASS**; sing-box **SKIP** (upstream has no packet-up); in-process e2e `phase6_vless_splithttp_packet_up_h2_echo` **PASS**. Xmux/padding/`downloadSettings` remain backlog. |
+| SplitHTTP / xHTTP | **Supported** | **stream-one** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. **packet-up** (seq reorder, H2 `GET /split/<uuid>` + `POST /split/<uuid>/<seq>`): matrix `vless-splithttp-packet-up` **Xray PASS**; sing-box **SKIP** (upstream has no packet-up); in-process e2e `vless_splithttp_packet_up_h2_echo` **PASS**. Xmux/padding/`downloadSettings` remain backlog. |
 
 ---
 

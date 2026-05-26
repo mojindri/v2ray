@@ -1,6 +1,6 @@
 //! End-to-end example: SOCKS5 client proxy -> VLESS server proxy -> Freedom.
 //!
-//! This test spins up a complete Phase 1 proxy chain in a single process:
+//! This test spins up a complete basic VLESS proxy chain in a single process:
 //!
 //!   Test client
 //!       -> SOCKS5 inbound on the client proxy
@@ -82,7 +82,7 @@ async fn spawn_http_server() -> (u16, tokio::task::JoinHandle<()>) {
 
         let request = String::from_utf8(request).expect("HTTP request was not UTF-8");
         assert!(
-            request.starts_with("GET /phase1 HTTP/1.1\r\n"),
+            request.starts_with("GET /demo HTTP/1.1\r\n"),
             "unexpected HTTP request: {request:?}"
         );
         assert!(
@@ -90,7 +90,7 @@ async fn spawn_http_server() -> (u16, tokio::task::JoinHandle<()>) {
             "HTTP request did not preserve Host header: {request:?}"
         );
 
-        let body = "phase1 http response\n";
+        let body = "demo http response\n";
         let response = format!(
             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
             body.len(),
@@ -246,7 +246,7 @@ async fn e2e_socks5_to_vless_to_freedom_transfers_http() {
 
     let mut stream = socks5_connect(socks_port, "127.0.0.1", http_port).await;
     stream
-        .write_all(b"GET /phase1 HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n")
+        .write_all(b"GET /demo HTTP/1.1\r\nHost: example.test\r\nConnection: close\r\n\r\n")
         .await
         .unwrap();
 
@@ -259,7 +259,7 @@ async fn e2e_socks5_to_vless_to_freedom_transfers_http() {
         "unexpected HTTP response: {response:?}"
     );
     assert!(
-        response.contains("\r\n\r\nphase1 http response\n"),
+        response.contains("\r\n\r\ndemo http response\n"),
         "HTTP response body was not relayed: {response:?}"
     );
 

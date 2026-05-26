@@ -1,8 +1,8 @@
 //! TCP transport: accept inbound connections and dial outbound connections.
 //!
 //! TCP is the most basic transport — bytes flow directly over a TCP socket
-//! with no extra framing. It is used in Phase 1 before TLS or WebSocket are
-//! added.
+//! with no extra framing. Plain TCP is the base layer; TLS, WebSocket, and
+//! other transports stack on top.
 //!
 //! # Socket options applied
 //!
@@ -68,7 +68,7 @@ pub struct TcpConfig {
 /// `ConnectionHandler`. This way, one slow or stuck connection cannot block
 /// other connections from being accepted.
 pub struct TcpServerTransport {
-    /// Stored for future use (Phase 2: SO_MARK on accepted streams, TFO).
+    /// Stored for future use (SO_MARK on accepted streams, TFO).
     #[allow(dead_code)]
     config: TcpConfig,
 }
