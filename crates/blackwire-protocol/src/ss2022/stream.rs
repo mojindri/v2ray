@@ -21,19 +21,25 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use aes_gcm::{
-    aead::{generic_array::GenericArray, Aead, Payload},
+    aead::{generic_array::GenericArray, Aead, AeadInPlace, Payload},
     Aes256Gcm, KeyInit,
 };
 use bytes::{Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use blackwire_common::BoxedStream;
+use blackwire_common::{BoxedStream, BufferPool};
 
 /// Maximum plaintext chunk payload size (16 KiB).
 const MAX_CHUNK_SIZE: usize = 16 * 1024;
+
+fn ss2022_buffer_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
 
 // ── Nonce helper ──────────────────────────────────────────────────────────────
 
@@ -57,7 +63,7 @@ pub struct Ss2022Stream {
 
     // Read state
     read_counter: u64,
-    read_buf: BytesMut, // decrypted plaintext waiting to be consumed
+    read_buf: Bytes, // decrypted plaintext waiting to be consumed
     read_raw: BytesMut, // raw ciphertext accumulated from inner
 
     // Write state
@@ -102,10 +108,10 @@ impl Ss2022Stream {
             read_cipher: Aes256Gcm::new(GenericArray::from_slice(read_subkey)),
             write_cipher: Aes256Gcm::new(GenericArray::from_slice(write_subkey)),
             read_counter: read_start_nonce,
-            read_buf: initial_read,
-            read_raw: BytesMut::new(),
+            read_buf: initial_read.freeze(),
+            read_raw: ss2022_buffer_pool().acquire(MAX_CHUNK_SIZE + 256),
             write_counter: write_start_nonce,
-            write_buf: BytesMut::new(),
+            write_buf: ss2022_buffer_pool().acquire(MAX_CHUNK_SIZE + 256),
             response_header,
         }
     }
@@ -179,76 +185,79 @@ impl Ss2022Stream {
         Some(Ok(Bytes::from(plaintext)))
     }
 
-    /// Encrypt `data` and return the wire bytes (length ciphertext + data ciphertext).
-    fn encrypt_chunk(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
+    fn encrypt_append(
+        cipher: &Aes256Gcm,
+        nonce: &[u8; 12],
+        dst: &mut BytesMut,
+        data: &[u8],
+        error: &'static str,
+    ) -> io::Result<()> {
+        let start = dst.len();
+        dst.extend_from_slice(data);
+        let tag = cipher
+            .encrypt_in_place_detached(GenericArray::from_slice(nonce), &[], &mut dst[start..])
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, error))?;
+        dst.extend_from_slice(tag.as_slice());
+        Ok(())
+    }
+
+    /// Encrypt `data` directly into the write buffer (length ciphertext + data ciphertext).
+    fn append_encrypted_chunk(&mut self, dst: &mut BytesMut, data: &[u8]) -> io::Result<()> {
         if let Some(mut fixed_header) = self.response_header.take() {
             fixed_header[41..43].copy_from_slice(&(data.len() as u16).to_be_bytes());
 
             let header_nonce = make_nonce(self.write_counter);
-            let header_ct = self
-                .write_cipher
-                .encrypt(
-                    GenericArray::from_slice(&header_nonce),
-                    fixed_header.as_slice(),
-                )
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "SS-2022: response header encrypt failed",
-                    )
-                })?;
+            dst.reserve(fixed_header.len() + 16 + data.len() + 16);
+            Self::encrypt_append(
+                &self.write_cipher,
+                &header_nonce,
+                dst,
+                fixed_header.as_slice(),
+                "SS-2022: response header encrypt failed",
+            )?;
             self.write_counter += 1;
 
             let data_nonce = make_nonce(self.write_counter);
-            let data_ct = self
-                .write_cipher
-                .encrypt(GenericArray::from_slice(&data_nonce), data)
-                .map_err(|_| {
-                    io::Error::new(
-                        io::ErrorKind::InvalidData,
-                        "SS-2022: response payload encrypt failed",
-                    )
-                })?;
+            Self::encrypt_append(
+                &self.write_cipher,
+                &data_nonce,
+                dst,
+                data,
+                "SS-2022: response payload encrypt failed",
+            )?;
             self.write_counter += 1;
-
-            let mut out = Vec::with_capacity(header_ct.len() + data_ct.len());
-            out.extend_from_slice(&header_ct);
-            out.extend_from_slice(&data_ct);
-            return Ok(out);
+            return Ok(());
         }
 
         let len_nonce = make_nonce(self.write_counter);
         let data_len = data.len() as u16;
-        let len_ct = self
-            .write_cipher
-            .encrypt(
-                GenericArray::from_slice(&len_nonce),
-                data_len.to_be_bytes().as_slice(),
-            )
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "SS-2022: chunk length encrypt failed",
-                )
-            })?;
+        dst.reserve(18 + data.len() + 16);
+        Self::encrypt_append(
+            &self.write_cipher,
+            &len_nonce,
+            dst,
+            data_len.to_be_bytes().as_slice(),
+            "SS-2022: chunk length encrypt failed",
+        )?;
         self.write_counter += 1;
 
         let data_nonce = make_nonce(self.write_counter);
-        let data_ct = self
-            .write_cipher
-            .encrypt(GenericArray::from_slice(&data_nonce), data)
-            .map_err(|_| {
-                io::Error::new(
-                    io::ErrorKind::InvalidData,
-                    "SS-2022: chunk payload encrypt failed",
-                )
-            })?;
+        Self::encrypt_append(
+            &self.write_cipher,
+            &data_nonce,
+            dst,
+            data,
+            "SS-2022: chunk payload encrypt failed",
+        )?;
         self.write_counter += 1;
+        Ok(())
+    }
+}
 
-        let mut out = Vec::with_capacity(len_ct.len() + data_ct.len());
-        out.extend_from_slice(&len_ct);
-        out.extend_from_slice(&data_ct);
-        Ok(out)
+impl Drop for Ss2022Stream {
+    fn drop(&mut self) {
+        ss2022_buffer_pool().release(std::mem::take(&mut self.read_raw));
+        ss2022_buffer_pool().release(std::mem::take(&mut self.write_buf));
     }
 }
 
@@ -286,7 +295,7 @@ impl AsyncRead for Ss2022Stream {
                                     self.read_raw = raw;
                                     return Poll::Ready(Ok(())); // stream end
                                 }
-                                self.read_buf.extend_from_slice(&plaintext);
+                                self.read_buf = plaintext;
                             }
                             Some(Err(e)) => {
                                 self.read_raw = raw;
@@ -309,12 +318,13 @@ impl AsyncWrite for Ss2022Stream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let chunk = &buf[..buf.len().min(MAX_CHUNK_SIZE)];
-        let encrypted = match self.encrypt_chunk(chunk) {
-            Ok(v) => v,
+        let mut staged = std::mem::take(&mut self.write_buf);
+        let result = self.append_encrypted_chunk(&mut staged, chunk);
+        self.write_buf = staged;
+        match result {
+            Ok(()) => Poll::Ready(Ok(chunk.len())),
             Err(e) => return Poll::Ready(Err(e)),
-        };
-        self.write_buf.extend_from_slice(&encrypted);
-        Poll::Ready(Ok(chunk.len()))
+        }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

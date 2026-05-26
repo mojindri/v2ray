@@ -151,6 +151,12 @@ wait_for_server_port() {
         return 0
     fi
     [[ -z "$port" ]] && return 0
+    if [[ "$protocol" == "ss2022-udp" ]]; then
+        ssh_server "for i in \$(seq 1 ${PORT_WAIT_TRIES}); do \
+            ss -H -uln 2>/dev/null | grep -qE ':${port}\\b' && exit 0; \
+            sleep ${PORT_WAIT_SLEEP}; done; exit 1" || return 1
+        return 0
+    fi
     ssh_client "for i in \$(seq 1 ${PORT_WAIT_TRIES}); do \
         nc -z '${SERVER_HOST}' '${port}' && exit 0; sleep ${PORT_WAIT_SLEEP}; done; exit 1"
 }
@@ -165,6 +171,13 @@ start_server() {
 requires_udp_probe() {
     case "$1" in
         trojan-udp|ss2022-udp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+udp_only_protocol() {
+    case "$1" in
+        ss2022-udp) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -232,6 +245,29 @@ run_client_case() {
     assert_single_client
     start_client "$client" "$client_cfg" "$neg_root"
     assert_single_client
+
+    if udp_only_protocol "$protocol"; then
+        if wait_for_socks_udp >>"$log" 2>&1; then
+            if [[ "$expect_pass" == "pass" ]]; then
+                echo "PASS ${label}" | tee -a "$SUMMARY"
+                stop_client
+                return 0
+            fi
+            echo "FAIL ${label} accepted" | tee -a "$SUMMARY"
+            append_logs "$log" "$protocol" "$client"
+            stop_client
+            return 1
+        fi
+        if [[ "$expect_pass" == "pass" ]]; then
+            echo "FAIL ${label} (udp socks probe)" | tee -a "$SUMMARY"
+            append_logs "$log" "$protocol" "$client"
+            stop_client
+            return 1
+        fi
+        echo "PASS ${label} rejected" | tee -a "$SUMMARY"
+        stop_client
+        return 0
+    fi
 
     if wait_for_socks >>"$log" 2>&1; then
         if [[ "$expect_pass" == "pass" ]]; then

@@ -177,6 +177,24 @@ wait_for_server_port() {
         sleep 2
         return 0
     fi
+    # SS2022 UDP inbound binds UDP only — TCP nc -z would always fail.
+    if [[ "$protocol" == "ss2022-udp" ]]; then
+        local i
+        for i in $(seq 1 "$PORT_WAIT_TRIES"); do
+            if "${COMPOSE[@]}" exec -T blackwire-server sh -c \
+                "ss -H -uln 2>/dev/null | grep -qE ':${port}\\b'" \
+                </dev/null >/dev/null 2>&1; then
+                return 0
+            fi
+            if "${COMPOSE[@]}" exec -T matrix-probe sh -c \
+                "nc -u -z -w1 blackwire-server ${port}" </dev/null >/dev/null 2>&1; then
+                return 0
+            fi
+            sleep "$PORT_WAIT_SLEEP"
+        done
+        echo "server UDP port $port not open for $protocol" >&2
+        return 1
+    fi
     local i
     for i in $(seq 1 "$PORT_WAIT_TRIES"); do
         if "${COMPOSE[@]}" exec -T matrix-probe sh -c \
@@ -192,6 +210,14 @@ wait_for_server_port() {
 requires_udp_probe() {
     case "$1" in
         trojan-udp|vless-udp|ss2022-udp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# UDP-only inbounds have no TCP listener — skip curl and use the SOCKS5 UDP probe only.
+udp_only_protocol() {
+    case "$1" in
+        ss2022-udp) return 0 ;;
         *) return 1 ;;
     esac
 }
@@ -294,6 +320,29 @@ run_client_case() {
         fi
     fi
     assert_single_client
+
+    if udp_only_protocol "$protocol"; then
+        if wait_for_socks_udp "${client}-client"; then
+            if [[ "$expect_pass" == "pass" ]]; then
+                echo "PASS ${label}" | tee -a "$REPORT_DIR/summary.txt"
+                if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
+                return 0
+            fi
+            echo "FAIL ${label} accepted" | tee -a "$REPORT_DIR/summary.txt"
+            append_logs "$log" "$client_service"
+            if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
+            return 1
+        fi
+        if [[ "$expect_pass" == "pass" ]]; then
+            echo "FAIL ${label} (udp socks probe)" | tee -a "$REPORT_DIR/summary.txt"
+            append_logs "$log" "$client_service"
+            if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
+            return 1
+        fi
+        echo "PASS ${label} rejected" | tee -a "$REPORT_DIR/summary.txt"
+        if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
+        return 0
+    fi
 
     if wait_for_socks "${client}-client"; then
         if [[ "$expect_pass" == "pass" ]]; then

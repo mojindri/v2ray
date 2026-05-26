@@ -44,3 +44,5 @@ pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream, ReunionStre
 // they never compile the splice relay path.
 #[cfg(target_os = "linux")]
 pub use stream::try_into_tcp_stream;
+#[cfg(target_os = "linux")]
+pub use stream::try_into_tcp_stream_with_prefix;
