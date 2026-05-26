@@ -23,9 +23,9 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Priority | Item | Matrix / proof today |
 |----------|------|----------------------|
-| **P0** | Trojan UDP (`CMD 0x03`, 8192 B frames) | Matrix row `trojan-udp` + SOCKS UDP probe (`udp-socks-probe.sh`); run `interop-server-docker` to confirm PASS |
-| **P0** | Mux.Cool TCP (`v1.mux.cool`) | **Xray** `vless-mux` matrix PASS; sing-box row SKIP (smux ≠ Mux.Cool) |
-| **P1** | XUDP (GlobalID, session 0) | Inbound + e2e; matrix `vless-udp` pending |
+| **P0** | Trojan UDP (`CMD 0x03`, 8192 B frames) | `trojan-udp` Xray+sing-box **PASS** (`udp-socks-probe.sh` Python SOCKS5 UDP ASSOCIATE) |
+| **P0** | Mux.Cool TCP (`v1.mux.cool`) | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool) |
+| **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
 | **P1** | SplitHTTP stream-one | `vless-splithttp` PASS |
 | **P2** | SplitHTTP packet-up (sing-box完整) | **Not in matrix** — stub must not be labeled Supported |
 | **P2** | SS2022 SIP022 UDP | Unsupported |
