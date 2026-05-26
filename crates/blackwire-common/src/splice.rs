@@ -51,9 +51,11 @@ mod linux {
     use std::pin::Pin;
     use std::time::Duration;
 
-    use tokio::io::AsyncWriteExt;
-    use tokio::io::Interest;
-    use tokio::net::TcpStream;
+    use tokio::io::{AsyncWriteExt, Interest};
+    use tokio::net::{
+        tcp::{ReadHalf, WriteHalf},
+        TcpStream,
+    };
 
     // The pipe capacity we request from the kernel.
     // Linux defaults to 65536 bytes (16 × 4096 page size).
@@ -162,9 +164,12 @@ mod linux {
     /// Uses `tokio::net::TcpStream::try_io` so splice syscalls stay in sync with Tokio
     /// readiness. Raw `readable()`/`writable()` waits can miss wakeups because
     /// splice moves data without touching the runtime's I/O driver.
-    async fn splice_one_direction(src: &TcpStream, dst: &TcpStream) -> io::Result<u64> {
-        let src_fd = src.as_raw_fd();
-        let dst_fd = dst.as_raw_fd();
+    async fn splice_one_direction(
+        src: &mut ReadHalf<'_>,
+        dst: &mut WriteHalf<'_>,
+    ) -> io::Result<u64> {
+        let src_fd = src.as_ref().as_raw_fd();
+        let dst_fd = dst.as_ref().as_raw_fd();
 
         let pipe = Pipe::new()?;
         let mut total: u64 = 0;
@@ -172,7 +177,10 @@ mod linux {
         loop {
             // --- Phase A: wait for src to be readable, then splice into pipe ---
             let in_bytes = loop {
-                match src.try_io(Interest::READABLE, || splice_in(src_fd, pipe.write_fd)) {
+                match src
+                    .as_ref()
+                    .try_io(Interest::READABLE, || splice_in(src_fd, pipe.write_fd))
+                {
                     Ok(0) => {
                         // Source EOF — half-close the write side of dst so the peer
                         // receives a FIN and knows no more data will arrive.
@@ -190,7 +198,7 @@ mod linux {
             // --- Phase B: drain the pipe into dst (may take multiple splice calls) ---
             let mut remaining = in_bytes;
             while remaining > 0 {
-                match dst.try_io(Interest::WRITABLE, || {
+                match dst.as_ref().try_io(Interest::WRITABLE, || {
                     splice_out(pipe.read_fd, dst_fd, remaining)
                 }) {
                     Ok(0) => {
@@ -233,24 +241,24 @@ mod linux {
     /// direction finishes while the other is idle (common for download-only or
     /// upload-only flows), the idle direction is unblocked and given a short drain
     /// window so the relay does not hang waiting for data that will never arrive.
-    pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> io::Result<(u64, u64)> {
-        let mut ab = std::pin::pin!(splice_one_direction(a, b));
-        let mut ba = std::pin::pin!(splice_one_direction(b, a));
+    pub async fn splice_bidirectional(
+        a: &mut TcpStream,
+        b: &mut TcpStream,
+    ) -> io::Result<(u64, u64)> {
+        let (mut a_read, mut a_write) = a.split();
+        let (mut b_read, mut b_write) = b.split();
+
+        let mut ab = std::pin::pin!(splice_one_direction(&mut a_read, &mut b_write));
+        let mut ba = std::pin::pin!(splice_one_direction(&mut b_read, &mut a_write));
 
         tokio::select! {
             res = ab.as_mut() => {
                 let up = res?;
-                // Client finished sending (or half-closed). Tell upstream no more uploads.
-                let _ = b.shutdown().await;
                 let down = drain_peer(ba.as_mut()).await?;
                 Ok((up, down))
             }
             res = ba.as_mut() => {
                 let down = res?;
-                // Upstream finished responding. Half-close the client read side so
-                // `read_exact` can complete; do not SHUT_RD here — that can RST kTLS
-                // peers before they drain the response (trojan_over_tls_large_payload).
-                let _ = a.shutdown().await;
                 let up = drain_peer(ab.as_mut()).await?;
                 Ok((up, down))
             }
@@ -284,7 +292,9 @@ mod linux {
         async fn splice_download_only_completes_without_client_upload() {
             let (mut client, inbound, mut upstream, outbound) = relay_pair().await;
             let relay = tokio::spawn(async move {
-                splice_bidirectional(&inbound, &outbound)
+                let mut inbound = inbound;
+                let mut outbound = outbound;
+                splice_bidirectional(&mut inbound, &mut outbound)
                     .await
                     .expect("relay")
             });
@@ -312,7 +322,9 @@ mod linux {
         async fn splice_echo_roundtrip_without_deadlock() {
             let (mut client, inbound, mut upstream, outbound) = relay_pair().await;
             let relay = tokio::spawn(async move {
-                splice_bidirectional(&inbound, &outbound)
+                let mut inbound = inbound;
+                let mut outbound = outbound;
+                splice_bidirectional(&mut inbound, &mut outbound)
                     .await
                     .expect("relay")
             });

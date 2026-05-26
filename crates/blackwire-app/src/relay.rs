@@ -62,7 +62,7 @@ pub async fn relay_bidirectional(
         }
 
         if let Ok((up, down)) =
-            blackwire_common::splice::splice_bidirectional(&inbound, &outbound).await
+            blackwire_common::splice::splice_bidirectional(&mut inbound, &mut outbound).await
         {
             return Ok((up + prefix_up, down + prefix_down));
         }
