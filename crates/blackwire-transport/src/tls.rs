@@ -36,9 +36,9 @@ use blackwire_common::{BoxedStream, ProxyError};
 //   1. The underlying transport is a raw TcpStream.
 //   2. The kernel supports SO_KTLS (Linux 4.13+ for TLS 1.2,  4.17+ for TLS 1.3).
 //
-// …we transfer TLS record encryption/decryption into the kernel. The resulting
-// fd still needs normal read/write relay semantics: kTLS sockets are not quite
-// equivalent to plain TCP for splice(2), especially on receive.
+// …we can transfer TLS record encryption/decryption into the kernel. This path
+// is opt-in because kTLS behavior is kernel-sensitive and has produced resets
+// on large payload relay in CI.
 //
 // Fallback: if TCP_ULP "tls" is rejected (old kernel, unsupported cipher, or
 // non-TCP transport) we silently keep the normal tokio-rustls TlsStream path.
@@ -229,6 +229,14 @@ impl tokio::io::AsyncWrite for KtlsTcpStream {
     }
 }
 
+#[cfg(target_os = "linux")]
+fn ktls_enabled() -> bool {
+    matches!(
+        std::env::var("BLACKWIRE_ENABLE_KTLS").ok().as_deref(),
+        Some("1" | "true" | "TRUE" | "yes" | "YES" | "on" | "ON")
+    )
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 
 /// Perform a TLS client handshake over an existing stream.
@@ -286,11 +294,11 @@ fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig,
 
 /// Perform a TLS server handshake over an existing stream.
 ///
-/// On Linux, when the underlying transport is a raw `TcpStream`, the handshake
-/// result is upgraded to kernel TLS (kTLS) by calling `setsockopt TCP_ULP "tls"`
-/// and installing the traffic keys. The returned `BoxedStream` uses normal
-/// read/write relay semantics because kTLS sockets are not equivalent to plain
-/// TCP for `splice(2)` on all kernels.
+/// On Linux, when `BLACKWIRE_ENABLE_KTLS=1` and the underlying transport is a
+/// raw `TcpStream`, the handshake result is upgraded to kernel TLS (kTLS) by
+/// calling `setsockopt TCP_ULP "tls"` and installing the traffic keys. The
+/// returned `BoxedStream` uses normal read/write relay semantics because kTLS
+/// sockets are not equivalent to plain TCP for `splice(2)` on all kernels.
 ///
 /// If the kernel rejects kTLS (old kernel, non-TCP transport, unsupported
 /// cipher) the function falls back to the normal tokio-rustls `TlsStream`.
@@ -330,6 +338,10 @@ pub async fn tls_accept(
         use blackwire_common::AsyncReadWrite;
         use std::os::unix::io::AsRawFd;
         use tokio::net::TcpStream;
+
+        if !ktls_enabled() {
+            return Ok(Box::new(tls_stream));
+        }
 
         // Probe (scoped so the borrow of tls_stream ends before into_inner()).
         let maybe_fd: Option<libc::c_int> = {

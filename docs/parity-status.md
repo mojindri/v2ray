@@ -68,7 +68,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Item | Work |
 |------|------|
 | SplitHTTP packet-up extras (Xmux, padding, `downloadSettings`) | Optional; hiddify-sing-box manual |
-| ~~Kernel TLS splice~~ | Implemented — `tls_accept()` sets `TCP_ULP "tls"` + `SOL_TLS` keys on Linux; graceful fallback on old kernels / ChaCha20 |
+| Kernel TLS (`SO_KTLS`) | Experimental opt-in via `BLACKWIRE_ENABLE_KTLS=1`; default TLS path stays on rustls after large-payload reset issues in CI |
 | In-place listener rebind | P4 |
 
 ## Related
