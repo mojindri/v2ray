@@ -62,6 +62,7 @@ matrix_bootstrap() {
     "${COMPOSE[@]}" down -v >> "$REPORT_DIR/compose.log" 2>&1 || true
     # xray-client is defined for compose run only (distroless image).
     "${COMPOSE[@]}" up -d target-http tls-cover matrix-probe blackwire-server sing-box-client \
+        hiddify-sing-box-client \
         >> "$REPORT_DIR/compose.log" 2>&1
 
     "${COMPOSE[@]}" exec -T matrix-probe sh -c \
@@ -146,10 +147,26 @@ start_sing_box() {
         sing-box run -c "/generated/${client_cfg}" </dev/null >> "$REPORT_DIR/compose.log" 2>&1
 }
 
+stop_hiddify() {
+    "${COMPOSE[@]}" exec -T hiddify-sing-box-client sh -c 'pkill -x sing-box 2>/dev/null || true' \
+        </dev/null >/dev/null 2>&1 || true
+    sleep 0.2
+}
+
+start_hiddify() {
+    local client_cfg="$1"
+    stop_hiddify
+    "${COMPOSE[@]}" exec -d hiddify-sing-box-client \
+        sing-box run -c "/generated/${client_cfg}" </dev/null >> "$REPORT_DIR/compose.log" 2>&1
+}
+
 assert_single_client() {
     local n=0
     client_container_running xray-client && n=$((n + 1))
     if "${COMPOSE[@]}" exec -T sing-box-client sh -c 'pgrep -x sing-box >/dev/null' </dev/null 2>/dev/null; then
+        n=$((n + 1))
+    fi
+    if "${COMPOSE[@]}" exec -T hiddify-sing-box-client sh -c 'pgrep -x sing-box >/dev/null' </dev/null 2>/dev/null; then
         n=$((n + 1))
     fi
     if [[ "$n" -gt 1 ]]; then
@@ -306,7 +323,12 @@ run_client_case() {
 
     assert_single_client
 
-    local client_service="${client}-client"
+    local client_service
+    case "$client" in
+        hiddify) client_service="hiddify-sing-box-client" ;;
+        *) client_service="${client}-client" ;;
+    esac
+
     if [[ "$client" == "xray" ]]; then
         if [[ "$client_cfg" == */* ]]; then
             start_xray "$client_cfg" || {
@@ -319,6 +341,12 @@ run_client_case() {
                 return 1
             }
         fi
+    elif [[ "$client" == "hiddify" ]]; then
+        if [[ "$client_cfg" == */* ]]; then
+            start_hiddify "$client_cfg"
+        else
+            start_hiddify "sing-box/${client_cfg}"
+        fi
     else
         if [[ "$client_cfg" == */* ]]; then
             start_sing_box "$client_cfg"
@@ -328,45 +356,43 @@ run_client_case() {
     fi
     assert_single_client
 
+    local client_host="$client_service"
+    [[ "$client" == "hiddify" ]] && client_host="hiddify-sing-box-client"
+
+    stop_client() { case "$client" in xray) stop_xray ;; hiddify) stop_hiddify ;; *) stop_sing_box ;; esac; }
+
     if udp_only_protocol "$protocol"; then
-        if wait_for_socks_udp "${client}-client"; then
+        if wait_for_socks_udp "$client_host"; then
             if [[ "$expect_pass" == "pass" ]]; then
                 echo "PASS ${label}" | tee -a "$REPORT_DIR/summary.txt"
-                if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-                return 0
+                stop_client; return 0
             fi
             echo "FAIL ${label} accepted" | tee -a "$REPORT_DIR/summary.txt"
             append_logs "$log" "$client_service"
-            if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-            return 1
+            stop_client; return 1
         fi
         if [[ "$expect_pass" == "pass" ]]; then
             echo "FAIL ${label} (udp socks probe)" | tee -a "$REPORT_DIR/summary.txt"
             append_logs "$log" "$client_service"
-            if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-            return 1
+            stop_client; return 1
         fi
         echo "PASS ${label} rejected" | tee -a "$REPORT_DIR/summary.txt"
-        if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-        return 0
+        stop_client; return 0
     fi
 
-    if wait_for_socks "${client}-client"; then
+    if wait_for_socks "$client_host"; then
         if [[ "$expect_pass" == "pass" ]]; then
-            if requires_udp_probe "$protocol" && ! wait_for_socks_udp "${client}-client"; then
+            if requires_udp_probe "$protocol" && ! wait_for_socks_udp "$client_host"; then
                 echo "FAIL ${label} (udp socks probe)" | tee -a "$REPORT_DIR/summary.txt"
                 append_logs "$log" "$client_service"
-                if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-                return 1
+                stop_client; return 1
             fi
             echo "PASS ${label}" | tee -a "$REPORT_DIR/summary.txt"
-            if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-            return 0
+            stop_client; return 0
         fi
         echo "FAIL ${label} accepted" | tee -a "$REPORT_DIR/summary.txt"
         append_logs "$log" "$client_service"
-        if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-        return 1
+        stop_client; return 1
     fi
 
     if [[ "$expect_pass" == "pass" ]]; then
@@ -376,13 +402,11 @@ run_client_case() {
             echo "--- triage ---"
             echo "See docs/external-client-failure-triage.md"
         } >> "$log"
-        if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-        return 1
+        stop_client; return 1
     fi
 
     echo "PASS ${label} rejected" | tee -a "$REPORT_DIR/summary.txt"
-    if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
-    return 0
+    stop_client; return 0
 }
 
 run_protocol() {
@@ -417,6 +441,7 @@ run_protocol() {
     stop_blackwire
     stop_xray
     stop_sing_box
+    stop_hiddify
     return "$overall"
 }
 
@@ -424,6 +449,7 @@ cleanup_all() {
     stop_blackwire
     stop_xray
     stop_sing_box
+    stop_hiddify
     "${COMPOSE[@]}" down -v >> "$REPORT_DIR/compose.log" 2>&1 || true
     rmdir "$LOCKDIR" 2>/dev/null || true
 }

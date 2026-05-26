@@ -113,6 +113,10 @@ fn upsert_packet_up_session(session_id: &str) -> Arc<UploadQueue> {
         .clone()
 }
 
+fn remove_packet_up_session(session_id: &str) {
+    PACKET_UP_SESSIONS.remove(session_id);
+}
+
 /// Accept SplitHTTP/xHTTP: auto-detects HTTP/2 (ALPN h2, Xray 26.x / sing-box)
 /// vs HTTP/1.1 and dispatches accordingly.
 pub async fn splithttp_accept(
@@ -478,6 +482,17 @@ pub async fn splithttp_accept_h2_packet_up(
             }
 
             let queue = upsert_packet_up_session(&session);
+            let mut body = request.into_body();
+            tokio::spawn(async move {
+                while let Some(chunk) = body.data().await {
+                    match chunk {
+                        Ok(chunk) => {
+                            let _ = body.flow_control().release_capacity(chunk.len());
+                        }
+                        Err(_) => break,
+                    }
+                }
+            });
             let response = http::Response::builder()
                 .status(200)
                 .header("cache-control", "no-store")
@@ -497,6 +512,7 @@ pub async fn splithttp_accept_h2_packet_up(
             let (mut proxy_reader, _) = tokio::io::split(proxy_end);
             let (_, user_writer) = tokio::io::split(user_end);
 
+            let cleanup_session = session.clone();
             tokio::spawn(async move {
                 let mut buf = [0u8; 8192];
                 loop {
@@ -510,6 +526,7 @@ pub async fn splithttp_accept_h2_packet_up(
                     }
                 }
                 let _ = send_stream.send_data(Bytes::new(), true);
+                remove_packet_up_session(&cleanup_session);
             });
 
             let tunnel = SplitHttpAcceptResult::Tunnel(Box::new(ReunionStream::new(

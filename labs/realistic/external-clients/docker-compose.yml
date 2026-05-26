@@ -49,6 +49,17 @@ services:
     depends_on:
       - target-http
 
+  # hiddify-sing-box: sing-box fork with xHTTP/packet-up support.
+  hiddify-sing-box-client:
+    image: ghcr.io/hiddify/hiddify-sing-box:latest
+    hostname: hiddify-sing-box-client
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["exec sleep infinity"]
+    volumes:
+      - ./generated:/generated:ro
+    depends_on:
+      - target-http
+
   # Xray-core is distroless (no shell). Not started via `compose up`; matrix uses
   # `compose run --name xray-client` per case (see run-docker-matrix.sh).
   xray-client:

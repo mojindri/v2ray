@@ -28,7 +28,7 @@ Docker labs with real upstream clients — not mock peers alone.
 
 | Area | Status | Notes |
 |---|---|---|
-| Xray / sing-box **wire interop** (as server) | **Experimental** | REALITY d1 interop in `blackwire-transport/tests/interop.rs` (`#[ignore]` without `tests/interop`); Docker matrix **56 PASS / 8 SKIP** on 16 rows — see [parity-status.md](parity-status.md) |
+| Xray / sing-box **wire interop** (as server) | **Experimental** | REALITY d1 interop in `blackwire-transport/tests/interop.rs` (`#[ignore]` without `tests/interop`); Docker matrix **56 PASS / 8 SKIP** on 16 rows (+ `vless-splithttp-packet-up` Xray+hiddify wired, pending PASS) — see [parity-status.md](parity-status.md) |
 | Native JSON config schema | **Supported** | `blackwire-config` — validated at load; fail-closed schema tests |
 | V2Ray JSON config | **Unsupported** | Not a goal |
 | Xray JSON config | **Unsupported** | Interop is wire-level only; configs must be translated |
@@ -84,7 +84,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
 | HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
-| SplitHTTP / xHTTP | **Supported** | **stream-one over HTTP/2** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. `packet-up` server path is in tree with in-process e2e, but remains outside Supported until matrix `vless-splithttp-packet-up` passes (P2). |
+| SplitHTTP / xHTTP | **Supported** | **stream-one** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. **packet-up** (seq reorder, H2 `GET /split/<uuid>` + `POST /split/<uuid>/<seq>`): matrix `vless-splithttp-packet-up` **Xray PASS**; sing-box **SKIP** (upstream has no packet-up); in-process e2e `phase6_vless_splithttp_packet_up_h2_echo` **PASS**. Xmux/padding/`downloadSettings` remain backlog. |
 
 ---
 
@@ -94,8 +94,9 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 
 | Row | Server in blackwire | Client proof in matrix |
 |-----|---------------------|-------------------------|
-| `vless-quic` | Yes | sing-box only |
+| `vless-quic` | Yes | sing-box only (Xray 26+ removed legacy QUIC client) |
 | `vless-splithttp` | Yes | Xray+sing-box **PASS** (HTTP/2 stream-one) |
+| `vless-splithttp-packet-up` | Yes | PASS | SKIP (upstream sing-box lacks packet-up) |
 | `vless-shadowtls` | Yes | None (e2e only) |
 | `vless-mkcp` | Yes | None (e2e only) |
 
@@ -221,7 +222,7 @@ production certification on all Experimental rows.
 | Stable integration | `make -C labs/realistic stable` | In-process protocol matrix |
 | Advanced smoke | `make -C labs/realistic advanced-features-smoke` | ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health guards + failover runtime |
 | Health failover lab | `make -C labs/realistic health-failover` | In-process failover e2e + optional Docker probe/echo services |
-| External clients | `make -C labs/realistic interop-server-docker` | Xray/sing-box → blackwire (**52 PASS / 8 SKIP** on 15 rows) |
+| External clients | `make -C labs/realistic interop-server-docker` | Xray/sing-box/hiddify → blackwire (**56 PASS / 8 SKIP** on 16 rows + packet-up wired) |
 | Full finalize | `make -C labs/realistic finalize` | All of the above |
 
 See [labs/realistic/README.md](../labs/realistic/README.md) and [parity-status.md](parity-status.md).

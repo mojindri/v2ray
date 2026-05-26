@@ -1,0 +1,24 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "::", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 8448,
+      "uuid": "${VLESS_UUID}",
+      "tls": { "enabled": true, "server_name": "${EXTERNAL_TLS_SERVER_NAME}", "insecure": true },
+      "transport": {
+        "type": "http",
+        "path": "/split",
+        "host": ["${EXTERNAL_TLS_SERVER_NAME}"],
+        "mode": "packet-up",
+        "method": "POST"
+      }
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

@@ -17,7 +17,7 @@ This document is the single reference for running every test tier in this projec
 | 7. Interop d0 self-consistency | REALITY token + TLS self-consistency (Rust only) | ~5s | Rust toolchain |
 | 8. Interop server-compat | Xray/sing-box clients → our server | ~5 min | Docker |
 | 9. Interop client-compat | Our Rust client → Xray REALITY server (d1) | ~30s | Docker |
-| 10. VPS external-client matrix | Same 15 rows as Docker (`scenarios.env`) over public network | ~10 min | Two Ubuntu 24.04 VPS |
+| 10. VPS external-client matrix | Same 16 rows as Docker (`scenarios.env`) over public network | ~10 min | Two Ubuntu 24.04 VPS |
 | 11. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
 
 ## Where You Run Things
@@ -58,11 +58,15 @@ Important:
 - SSH directly into a VPS only for debugging, service inspection, or manual recovery.
 
 The external-client lab (Docker and VPS) is the first gate for GUI/app compatibility.
-The automated scenario set is **15 protocol rows × 4 cases** (Xray + sing-box clients,
-plus negative-auth) in `labs/realistic/external-clients/scenarios.env`.
-Eight cases are expected **SKIP** when upstream clients lack that transport (QUIC on
-Xray 26+, SplitHTTP, ShadowTLS, mKCP) — see [parity-status.md](parity-status.md).
-Hiddify profiles are still generated for manual macOS validation.
+The automated scenario set is **16 protocol rows** in `labs/realistic/external-clients/scenarios.env`.
+Each row runs up to 4 cases: Xray positive + negative, and sing-box (or hiddify-sing-box where
+upstream sing-box lacks the feature) positive + negative.
+Eight cases are expected **SKIP** when upstream clients lack that transport (QUIC on Xray 26+,
+ShadowTLS, mKCP) — see [parity-status.md](parity-status.md).
+The `vless-splithttp-packet-up` row uses **Xray** as the matrix gate. Stock **sing-box** is
+**SKIP** (`scenarios.env` sing-box column `-`) because upstream sing-box has no xHTTP
+`packet-up` mode. Optional manual validation: [hiddify-sing-box](https://github.com/hiddify/hiddify-sing-box)
+`transport/v2rayxhttp` (fork).
 
 ---
 
@@ -254,10 +258,10 @@ See [tests/interop/README.md](../tests/interop/README.md) for the full protocol 
 
 ## Tier 9 — VPS external-client matrix
 
-Runs the **same 15 protocol rows** as Tier 8 (`external-clients/scenarios.env`) over a
+Runs the **same 16 protocol rows** as Tier 8 (`external-clients/scenarios.env`) over a
 real public network between two Ubuntu 24.04 VPS machines. One blackwire server config
-is started per row on the server VPS; Xray and sing-box clients run on the client VPS
-(see [external-clients/README.md](../labs/realistic/external-clients/README.md)).
+is started per row on the server VPS; Xray, sing-box, and hiddify-sing-box clients run
+on the client VPS (see [external-clients/README.md](../labs/realistic/external-clients/README.md)).
 
 ```sh
 SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
@@ -265,7 +269,7 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
 ```
 
 Reports land in `labs/realistic/reports/external-clients-vps/`. A green promotion run
-matches Docker: **52 PASS, 8 SKIP, 0 FAIL** (SKIPs are upstream client limits, not
+matches Docker: **56 PASS, 8 SKIP, 0 FAIL** (SKIPs are upstream client limits, not
 missing server transports).
 
 Preflight (optional):
@@ -472,9 +476,9 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
 | 5 | Advanced features (ShadowTLS, mKCP, health, DNS/routing) pass smoke tests |
 | 6 | No timing-sensitive flakiness in the data plane |
 | 7 | REALITY implementation is self-consistent (d0) |
-| 8 | Xray/sing-box clients can use our server (configured scenarios) |
+| 8 | Xray/sing-box/hiddify clients can use our server (configured scenarios) |
 | 9 | Our REALITY client interoperates with live xray-core (d1) |
-| 10 | External-client matrix (15 rows) passes over real public network; SKIPs documented |
+| 10 | External-client matrix (16 rows) passes over real public network; SKIPs documented |
 | 11 | TUN device, iptables routing, and UDP NAT work on real Linux |
 
 Tiers 1–9 are the mandatory green gate before any merge to main. Tiers 10–11 are required before a protocol or subsystem is marked production-ready.

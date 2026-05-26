@@ -27,26 +27,20 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | **P0** | Mux.Cool TCP (`v1.mux.cool`) | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool) |
 | **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
 | **P1** | SplitHTTP stream-one (HTTP/2 via ALPN h2) | `vless-splithttp` Xray+sing-box **PASS** |
-| **P2** | SplitHTTP packet-up (sing-box完整) | In tree with in-process e2e; **not in matrix** — must not be labeled Supported |
+| ~~**P2**~~ | ~~SplitHTTP packet-up (seq; H2 GET/POST)~~ | `vless-splithttp-packet-up` Xray **PASS**; sing-box **SKIP** (upstream has no packet-up) |
 | ~~**P2**~~ | ~~SS2022 SIP022 UDP~~ | `ss2022-udp` Xray+sing-box **PASS** |
 
 ## Shipped with upstream client proof (matrix or documented SKIP)
 
 | Area | Evidence |
 |------|----------|
-| External-client Docker matrix | `run-docker-matrix.sh` — 15 protocol rows |
+| External-client Docker matrix | `run-docker-matrix.sh` — 16 protocol rows (incl. `vless-splithttp-packet-up` Xray PASS; sing-box SKIP) |
 | VLESS UDP command `0x02`, sniffing, DNS DoH/DoT | Lab rows per feature matrix |
 | HTTPUpgrade, QUIC, SplitHTTP **stream-one** (HTTP/2) | Transports + e2e + `vless-splithttp` Xray+sing-box **PASS** |
 | Vision, hot-reload, Stats gRPC | `vision.rs`, `reload.rs`, `blackwire-api` |
 | Routing `IPIfNonMatch` / `IPOnDemand` | `router.rs`, `dispatcher.rs` |
 | Trojan TCP, VMess, SS2022 TCP/UDP, REALITY, WS, gRPC | Matrix rows + e2e |
 | Handler gRPC (VLESS user ops) | API listener user add/remove |
-
-## Wire in tree — not matrix-Supported yet (includes uncommitted batch)
-
-| Area | Upstream | Proof today | Gap to Supported |
-|------|----------|-------------|------------------|
-| SplitHTTP packet-up | sing-box xHTTP (partial) | H2 server path + in-process e2e | Full sing-box parity (P2); `vless-splithttp-packet-up` matrix still required |
 
 ## External-client matrix SKIPs (not “unsupported in blackwire”)
 
@@ -55,8 +49,9 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | `vless-quic` | Yes | SKIP | PASS | Xray 26+ removed legacy QUIC transport |
 | `vless-shadowtls` | Yes | SKIP | SKIP | Xray 26+ / sing-box model mismatch — server e2e |
 | `vless-mkcp` | Yes | SKIP | SKIP | sing-box no mKCP; Xray 26 finalmask |
+| `vless-splithttp-packet-up` | Yes | PASS | SKIP | Upstream [sing-box](https://github.com/SagerNet/sing-box) has no xHTTP `packet-up`; Xray proves row |
 
-`vless-splithttp` uses **stream-one** only (both clients). `vless-splithttp-packet-up` is the dedicated P2 row and still requires matrix PASS before any Supported claim.
+`vless-splithttp` uses **stream-one** only (both clients). `vless-splithttp-packet-up` is a separate row: **Xray PASS** is the matrix gate; stock sing-box is **SKIP** by design (same pattern as `vless-mux`).
 
 ## Accepted limits (not matrix blockers)
 
@@ -72,7 +67,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Item | Work |
 |------|------|
-| SplitHTTP full packet-up | P2 — sing-box reference |
+| SplitHTTP packet-up extras (Xmux, padding, `downloadSettings`) | Optional; hiddify-sing-box manual |
 | Kernel TLS splice audit | P4 |
 | In-place listener rebind | P4 |
 

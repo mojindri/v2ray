@@ -1,0 +1,34 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    { "tag": "socks-in", "listen": "0.0.0.0", "port": 1080, "protocol": "socks", "settings": { "auth": "noauth" } }
+  ],
+  "outbounds": [
+    {
+      "tag": "blackwire-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "${EXTERNAL_SERVER_ADDRESS}",
+            "port": 8448,
+            "users": [
+              { "id": "${VLESS_UUID}", "encryption": "none", "flow": "" }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "splithttp",
+        "security": "tls",
+        "tlsSettings": { "serverName": "${EXTERNAL_TLS_SERVER_NAME}", "allowInsecure": true },
+        "splithttpSettings": {
+          "path": "/split",
+          "host": "${EXTERNAL_TLS_SERVER_NAME}",
+          "mode": "packet-up",
+          "uplinkHTTPMethod": "POST"
+        }
+      }
+    }
+  ]
+}
