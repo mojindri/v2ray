@@ -30,6 +30,163 @@ use tokio_rustls::{TlsAcceptor, TlsConnector};
 
 use blackwire_common::{BoxedStream, ProxyError};
 
+// ── Linux kTLS (Kernel TLS) ───────────────────────────────────────────────────
+//
+// When both conditions hold:
+//   1. The underlying transport is a raw TcpStream.
+//   2. The kernel supports SO_KTLS (Linux 4.13+ for TLS 1.2,  4.17+ for TLS 1.3).
+//
+// …we transfer TLS record encryption/decryption into the kernel so that the
+// relay layer can use splice(2) on the resulting fd.  From the kernel's point
+// of view the fd is a regular TCP socket; reads/writes are automatically
+// en/decrypted without touching user-space buffers.
+//
+// Fallback: if TCP_ULP "tls" is rejected (old kernel, unsupported cipher, or
+// non-TCP transport) we silently keep the normal tokio-rustls TlsStream path.
+
+#[cfg(target_os = "linux")]
+mod ktls {
+    use std::io;
+
+    use rustls::ConnectionTrafficSecrets;
+
+    // ── linux/tls.h constants ─────────────────────────────────────────────────
+
+    // SOL_TLS is not in all libc versions; use the numeric value.
+    const SOL_TLS: libc::c_int = 282;
+    const TLS_TX: libc::c_int = 1;
+    const TLS_RX: libc::c_int = 2;
+    // TCP_ULP is not exported by libc; numeric value from <linux/tcp.h>.
+    pub(super) const TCP_ULP: libc::c_int = 31;
+
+    const TLS_1_3_VERSION: u16 = 0x0304;
+    const TLS_CIPHER_AES_GCM_128: u16 = 51;
+    const TLS_CIPHER_AES_GCM_256: u16 = 52;
+
+    // ── Kernel crypto-info structs (must match linux/tls.h exactly) ───────────
+
+    #[repr(C)]
+    struct TlsCryptoInfo {
+        version: u16,
+        cipher_type: u16,
+    }
+
+    // tls12_crypto_info_aes_gcm_128
+    #[repr(C)]
+    struct AesGcm128Info {
+        info: TlsCryptoInfo,
+        iv: [u8; 8],
+        key: [u8; 16],
+        salt: [u8; 4],
+        rec_seq: [u8; 8],
+    }
+
+    // tls12_crypto_info_aes_gcm_256
+    #[repr(C)]
+    struct AesGcm256Info {
+        info: TlsCryptoInfo,
+        iv: [u8; 8],
+        key: [u8; 32],
+        salt: [u8; 4],
+        rec_seq: [u8; 8],
+    }
+
+    // ── Public entry points ───────────────────────────────────────────────────
+
+    /// Install the TLS TX and RX keys on a socket that already has TCP_ULP set.
+    ///
+    /// Called after `setsockopt(TCP_ULP, "tls")` has succeeded.  Returns `Err`
+    /// if the cipher suite is not supported by the kernel TLS implementation.
+    pub(super) fn install_keys(
+        fd: libc::c_int,
+        seq_tx: u64,
+        secrets_tx: &ConnectionTrafficSecrets,
+        seq_rx: u64,
+        secrets_rx: &ConnectionTrafficSecrets,
+    ) -> io::Result<()> {
+        set_tls_key(fd, TLS_TX, seq_tx, secrets_tx)?;
+        set_tls_key(fd, TLS_RX, seq_rx, secrets_rx)
+    }
+
+    fn set_tls_key(
+        fd: libc::c_int,
+        direction: libc::c_int,
+        seq: u64,
+        secrets: &ConnectionTrafficSecrets,
+    ) -> io::Result<()> {
+        match secrets {
+            ConnectionTrafficSecrets::Aes128Gcm { key, iv } => {
+                let iv_bytes = iv.as_ref(); // 12 bytes
+                let key_bytes = key.as_ref(); // AES-128 uses first 16
+                if key_bytes.len() < 16 || iv_bytes.len() < 12 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "short AES-128-GCM key/iv",
+                    ));
+                }
+                // Rustls Iv for TLS 1.3: [fixed_iv_prefix(4) || implicit_nonce(8)]
+                // Linux kTLS splits as salt[4] || iv[8].
+                let info = AesGcm128Info {
+                    info: TlsCryptoInfo {
+                        version: TLS_1_3_VERSION,
+                        cipher_type: TLS_CIPHER_AES_GCM_128,
+                    },
+                    salt: iv_bytes[..4].try_into().unwrap(),
+                    iv: iv_bytes[4..12].try_into().unwrap(),
+                    key: key_bytes[..16].try_into().unwrap(),
+                    rec_seq: seq.to_be_bytes(),
+                };
+                setsockopt_tls(fd, direction, &info)
+            }
+            ConnectionTrafficSecrets::Aes256Gcm { key, iv } => {
+                let iv_bytes = iv.as_ref();
+                let key_bytes = key.as_ref();
+                if key_bytes.len() < 32 || iv_bytes.len() < 12 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        "short AES-256-GCM key/iv",
+                    ));
+                }
+                let info = AesGcm256Info {
+                    info: TlsCryptoInfo {
+                        version: TLS_1_3_VERSION,
+                        cipher_type: TLS_CIPHER_AES_GCM_256,
+                    },
+                    salt: iv_bytes[..4].try_into().unwrap(),
+                    iv: iv_bytes[4..12].try_into().unwrap(),
+                    key: key_bytes[..32].try_into().unwrap(),
+                    rec_seq: seq.to_be_bytes(),
+                };
+                setsockopt_tls(fd, direction, &info)
+            }
+            // ChaCha20-Poly1305 kTLS requires kernel 5.11+; defer to the
+            // user-space TLS path for now.
+            _ => Err(io::Error::new(
+                io::ErrorKind::Unsupported,
+                "cipher not supported by kTLS path",
+            )),
+        }
+    }
+
+    fn setsockopt_tls<T: Sized>(fd: libc::c_int, direction: libc::c_int, info: &T) -> io::Result<()> {
+        // SAFETY: `info` is a repr(C) struct whose layout matches the kernel struct.
+        let rc = unsafe {
+            libc::setsockopt(
+                fd,
+                SOL_TLS,
+                direction,
+                info as *const T as *const libc::c_void,
+                std::mem::size_of::<T>() as libc::socklen_t,
+            )
+        };
+        if rc != 0 {
+            Err(io::Error::last_os_error())
+        } else {
+            Ok(())
+        }
+    }
+}
+
 // ── Client ────────────────────────────────────────────────────────────────────
 
 /// Perform a TLS client handshake over an existing stream.
@@ -87,6 +244,15 @@ fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig,
 
 /// Perform a TLS server handshake over an existing stream.
 ///
+/// On Linux, when the underlying transport is a raw `TcpStream`, the handshake
+/// result is upgraded to kernel TLS (kTLS) by calling `setsockopt TCP_ULP "tls"`
+/// and installing the traffic keys.  The returned `BoxedStream` is then a plain
+/// `TcpStream` whose encryption is handled transparently by the kernel, which
+/// lets the relay layer use `splice(2)` for zero-copy forwarding.
+///
+/// If the kernel rejects kTLS (old kernel, non-TCP transport, unsupported
+/// cipher) the function falls back to the normal tokio-rustls `TlsStream`.
+///
 /// # Arguments
 /// * `stream`   — the inbound transport stream to upgrade
 /// * `cert_pem` — PEM-encoded certificate chain
@@ -106,6 +272,88 @@ pub async fn tls_accept(
         .accept(stream)
         .await
         .map_err(|e| ProxyError::Tls(format!("TLS accept failed: {e}")))?;
+
+    // ── Linux kTLS upgrade ────────────────────────────────────────────────────
+    //
+    // Phase 1 (probe): borrow the TlsStream to get the inner TcpStream fd and
+    //   try setsockopt(TCP_ULP, "tls").  The borrow ends before we consume the
+    //   TlsStream so that Phase 2 can call into_inner() without conflict.
+    //
+    // Phase 2 (commit): only after the probe succeeds, consume the TlsStream,
+    //   extract traffic secrets from the rustls connection, and install keys.
+    //
+    // Either phase failing falls through to the normal TlsStream path.
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        use blackwire_common::AsyncReadWrite;
+        use tokio::net::TcpStream;
+
+        // Phase 1 — probe (scoped so the borrow of tls_stream ends before
+        // into_inner() is called below).
+        let maybe_fd: Option<libc::c_int> = {
+            // Cast to &dyn AsyncReadWrite to force vtable dispatch on as_any();
+            // calling stream.as_any() would use the blanket impl on Box<dyn ..>
+            // and return the Box type rather than the concrete inner type.
+            let inner_dyn: &dyn AsyncReadWrite = tls_stream.get_ref().0.as_ref();
+            if inner_dyn.as_any().is::<TcpStream>() {
+                let fd = inner_dyn
+                    .as_any()
+                    .downcast_ref::<TcpStream>()
+                    .unwrap()
+                    .as_raw_fd();
+                let ulp = b"tls\0";
+                // SAFETY: setsockopt with a NUL-terminated "tls" string.
+                let ok = unsafe {
+                    libc::setsockopt(
+                        fd,
+                        libc::IPPROTO_TCP,
+                        ktls::TCP_ULP,
+                        ulp.as_ptr() as *const libc::c_void,
+                        (ulp.len() - 1) as libc::socklen_t,
+                    ) == 0
+                };
+                if ok { Some(fd) } else { None }
+            } else {
+                None
+            }
+            // inner_dyn borrow of tls_stream ends here.
+        };
+
+        if let Some(fd) = maybe_fd {
+            // Phase 2 — commit: tls_stream borrow has ended; consume it.
+            let (inner, server_conn) = tls_stream.into_inner();
+            match server_conn.dangerous_extract_secrets() {
+                Ok(secrets) => {
+                    let seq_tx = secrets.tx.0;
+                    let seq_rx = secrets.rx.0;
+                    match ktls::install_keys(fd, seq_tx, &secrets.tx.1, seq_rx, &secrets.rx.1) {
+                        Ok(()) => {
+                            let tcp = *inner
+                                .into_any()
+                                .downcast::<TcpStream>()
+                                .expect("confirmed TcpStream in phase 1");
+                            tracing::debug!("kTLS enabled on inbound TLS connection");
+                            return Ok(Box::new(tcp));
+                        }
+                        Err(e) => {
+                            tracing::warn!("kTLS key install failed: {e}; dropping connection");
+                            return Err(ProxyError::Tls(
+                                format!("kTLS key install failed: {e}"),
+                            ));
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!("kTLS secret extraction failed: {e}; dropping connection");
+                    return Err(ProxyError::Tls(
+                        format!("kTLS secret extraction failed: {e}"),
+                    ));
+                }
+            }
+        }
+        // ULP rejected or inner is not TCP: fall through to TlsStream.
+    }
 
     Ok(Box::new(tls_stream))
 }
@@ -148,6 +396,9 @@ pub fn build_server_config(
         .map_err(|e| ProxyError::Tls(format!("TLS server config error: {e}")))?;
 
     config.alpn_protocols = alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
+    // Enable secret extraction so the kTLS path can install kernel keys after
+    // the handshake.  On non-Linux this field still exists but is never used.
+    config.enable_secret_extraction = true;
     Ok(config)
 }
 
@@ -166,6 +417,7 @@ fn build_tls13_server_config(
         .map_err(|e| ProxyError::Tls(format!("TLS 1.3 server config error: {e}")))?;
 
     config.alpn_protocols = alpn.iter().map(|s| s.as_bytes().to_vec()).collect();
+    config.enable_secret_extraction = true;
     Ok(config)
 }
 
