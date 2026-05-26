@@ -13,7 +13,7 @@ SSH_KEY ?=
 SSH_EXTRA_OPTS ?=
 
 .PHONY: help build build-amd64 build-linux-bin docker-up stable ship finalize interop-docker interop-server-docker interop-client-reality interop-server-vps \
-	xray advanced-features-smoke negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
+	xray advanced-features-smoke health-failover negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean
 
@@ -90,8 +90,23 @@ advanced-features-smoke: ## Smoke tests: ShadowTLS, mKCP, QUIC/SplitHTTP VLESS, 
 	run "health / failover guards" -p blackwire-core --test production_readiness balancer_rejects_missing_selector_outbound; \
 	run "health / failover guards" -p blackwire-core --test production_readiness balancer_rejects_unsupported_health_check_scheme; \
 	run "health / failover guards" -p blackwire-core --test production_readiness routing_rule_can_target_registered_balancer; \
+	run "health / failover runtime" -p integration-tests --test e2e_health_failover health_failover_routes_to_backup_when_primary_unhealthy; \
 	run "DNS / geo / FakeIP guards" -p blackwire-core --test production_readiness routing_geo_database_paths_are_loaded_nonfatally_when_missing; \
 	run "DNS / geo / FakeIP guards" -p blackwire-core --test production_readiness dns_fakeip_rejects_invalid_pool_at_startup
+
+health-failover: ## Health-check balancer failover (in-process e2e + optional Docker probe/echo services)
+	@set -euo pipefail; \
+	log="$(CURDIR)/$(REPORTS)/health-failover.log"; \
+	mkdir -p "$(CURDIR)/$(REPORTS)"; \
+	: > "$$log"; \
+	echo "=== [health-failover] in-process failover e2e ===" | tee -a "$$log"; \
+	cd "$(ROOT)" && cargo test --locked -p integration-tests --test e2e_health_failover health_failover_routes_to_backup_when_primary_unhealthy -- --nocapture 2>&1 | tee -a "$$log"; \
+	if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then \
+	  echo "=== [health-failover] Docker lab ===" | tee -a "$$log"; \
+	  bash "$(CURDIR)/health-failover/run.sh" 2>&1 | tee -a "$$log"; \
+	else \
+	  echo "=== [health-failover] skipping Docker lab (docker unavailable) ===" | tee -a "$$log"; \
+	fi
 
 negative-auth: ## Run negative-auth scenarios that should be rejected/fallback
 	@mkdir -p $(REPORTS)

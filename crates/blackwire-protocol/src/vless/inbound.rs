@@ -38,6 +38,7 @@ use blackwire_common::{
 };
 
 use super::codec::{decode_request, encode_response, Command};
+use super::mux::{is_mux_request, relay_mux_cool};
 use super::registry::VlessUserRegistry;
 use super::udp::relay_vless_udp;
 use super::vision::wrap_vision_stream;
@@ -144,12 +145,6 @@ impl InboundHandler for VlessInbound {
                         if req.command == Command::Udp {
                             return relay_vless_udp(stream).await;
                         }
-                        if req.command == Command::Mux {
-                            tracing::debug!(
-                                source = %source,
-                                "VLESS CMD_MUX (Mux.Cool): relaying as TCP per Xray legacy path"
-                            );
-                        }
 
                         let mut relay_stream = stream;
                         if req.flow == "xtls-rprx-vision" {
@@ -163,6 +158,15 @@ impl InboundHandler for VlessInbound {
                         let ctx = Context::new(&self.tag, source)
                             .with_user(user.email.clone())
                             .with_vision(req.flow == "xtls-rprx-vision");
+
+                        if is_mux_request(req.command, &req.dest) {
+                            debug!(
+                                source = %source,
+                                "VLESS Mux.Cool — demux sub-connections"
+                            );
+                            return relay_mux_cool(relay_stream, ctx, dispatcher).await;
+                        }
+
                         dispatcher.dispatch(ctx, req.dest, relay_stream).await
                     }
                     None => {

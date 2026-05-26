@@ -10,7 +10,7 @@
 	remote-preflight remote-deploy remote-test-smoke remote-test-protocols \
 	remote-test-fingerprint remote-test-fallback remote-collect remote-clean \
 	security fuzz-long perf-remote soak \
-	advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable
+	advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable health-failover verify-health-failover health-failover
 
 LAB_DIR := labs/realistic
 REPORT_DOCKER := $(LAB_DIR)/reports/external-clients/summary.txt
@@ -186,8 +186,11 @@ verify-release:
 
 # ── Lab targets (root aliases → labs/realistic/Makefile) ─────────────────────
 
-advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable:
+advanced-features-smoke finalize ship interop-server-docker interop-server-vps stable health-failover:
 	$(MAKE) -C $(LAB_DIR) $@
+
+verify-health-failover:
+	$(MAKE) -C $(LAB_DIR) health-failover
 
 # ── Support targets ───────────────────────────────────────────────────────────
 

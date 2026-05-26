@@ -12,7 +12,8 @@ It has two jobs:
 | Goal | Command |
 |------|---------|
 | Everyday Rust confidence | `make -C labs/realistic stable` |
-| ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health/DNS guards | `make -C labs/realistic advanced-features-smoke` |
+| ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health/DNS guards + failover runtime | `make -C labs/realistic advanced-features-smoke` |
+| Health-check outbound failover (e2e + optional Docker) | `make -C labs/realistic health-failover` |
 | Xray/sing-box clients → our server (Docker) | `make -C labs/realistic interop-server-docker` |
 | All local pre-push checks | `make -C labs/realistic finalize` |
 | Same matrix on two VPS hosts | `SSH_SERVER=… SSH_CLIENT=… make -C labs/realistic interop-server-vps` |

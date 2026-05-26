@@ -25,6 +25,7 @@
 pub mod codec;
 pub mod inbound;
 pub mod outbound;
+pub mod udp;
 
 pub use codec::compute_token;
 pub use inbound::TrojanInbound;

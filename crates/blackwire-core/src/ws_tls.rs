@@ -24,7 +24,7 @@ use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use blackwire_transport::{
     accept_httpupgrade, grpc_accept, httpupgrade_listen_path, shadowtls_accept, splithttp_accept,
-    splithttp_listen_params, tls_accept, ws_accept,
+    splithttp_listen_params, normalize_splithttp_mode, SplitHttpAcceptResult, tls_accept, ws_accept,
 };
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -198,6 +198,7 @@ impl ConnectionHandler for WsConnectionHandler {
 pub(crate) struct SplitHttpConnectionHandler {
     expected_path: Option<String>,
     expected_method: Option<String>,
+    mode: blackwire_transport::SplitHttpMode,
     handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
@@ -206,12 +207,14 @@ impl SplitHttpConnectionHandler {
     pub(crate) fn new(
         expected_path: Option<String>,
         expected_method: Option<String>,
+        mode: blackwire_transport::SplitHttpMode,
         handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
         Arc::new(Self {
             expected_path,
             expected_method,
+            mode,
             handshake_timeout,
             inner,
         })
@@ -227,12 +230,17 @@ impl ConnectionHandler for SplitHttpConnectionHandler {
     ) -> Result<(), ProxyError> {
         let path = self.expected_path.as_deref();
         let method = self.expected_method.as_deref();
-        let stream = with_handshake_timeout(
+        let accepted = with_handshake_timeout(
             self.handshake_timeout,
-            splithttp_accept(stream, path, method),
+            splithttp_accept(stream, path, method, self.mode),
         )
         .await?;
-        self.inner.handle_connection(stream, source).await
+        match accepted {
+            SplitHttpAcceptResult::Tunnel(stream) => {
+                self.inner.handle_connection(stream, source).await
+            }
+            SplitHttpAcceptResult::UploadOnly | SplitHttpAcceptResult::Preflight => Ok(()),
+        }
     }
 }
 
@@ -372,13 +380,14 @@ pub(crate) fn build_conn_handler(
     }
 
     if uses_splithttp(stream_settings) {
-        let (expected_path, expected_method) = stream_settings
+        let (expected_path, expected_method, mode) = stream_settings
             .as_ref()
             .map(splithttp_listen_params)
-            .unwrap_or((None, None));
+            .unwrap_or((None, None, normalize_splithttp_mode("")));
         handler = SplitHttpConnectionHandler::new(
             expected_path,
             expected_method,
+            mode,
             handshake_timeout,
             handler,
         );
