@@ -155,8 +155,7 @@ fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Con
             "outbounds": [{{ "tag": "freedom", "protocol": "freedom" }}],
             "routing": {{ "rules": [{{ "outboundTag": "freedom" }}] }}
         }}"#,
-        cert,
-        key
+        cert, key
     ))
 }
 
