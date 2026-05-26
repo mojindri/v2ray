@@ -180,7 +180,7 @@ mod linux {
                         return Ok(total);
                     }
                     Ok(n) => break n,
-                    Err(e) if is_would_block(e) => {
+                    Err(e) if is_would_block(&e) => {
                         tokio::task::yield_now().await;
                     }
                     Err(e) => return Err(e),
@@ -205,7 +205,7 @@ mod linux {
                         remaining -= n;
                         total += n as u64;
                     }
-                    Err(e) if is_would_block(e) => {
+                    Err(e) if is_would_block(&e) => {
                         tokio::task::yield_now().await;
                     }
                     Err(e) => return Err(e),
@@ -302,8 +302,7 @@ mod linux {
             let (up, down) = tokio::time::timeout(Duration::from_secs(5), relay)
                 .await
                 .expect("relay timed out")
-                .expect("relay join")
-                .expect("relay result");
+                .expect("relay join");
             assert_eq!(up, 0);
             assert_eq!(down, payload.len() as u64);
         }
