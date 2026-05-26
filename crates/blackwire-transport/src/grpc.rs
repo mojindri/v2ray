@@ -44,7 +44,6 @@
 
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
@@ -62,26 +61,11 @@ const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 const FRAME_HEADER_LEN: usize = 5;
 /// IO bridge read chunk to reduce per-read overhead on bulk relay paths.
 const BRIDGE_READ_CHUNK: usize = 64 * 1024;
-const BENCH_TRACE_ENV: &str = "BENCH_TRACE_PROTOCOL";
 
 fn grpc_buffer_pool() -> &'static Arc<BufferPool> {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
     POOL.get_or_init(BufferPool::new)
 }
-
-fn trace_enabled() -> bool {
-    std::env::var(BENCH_TRACE_ENV).is_ok()
-}
-
-fn trace_once(flag: &AtomicBool, msg: impl FnOnce() -> String) {
-    if trace_enabled() && !flag.swap(true, Ordering::Relaxed) {
-        eprintln!("{}", msg());
-    }
-}
-
-static TRACE_GRPC_WRITE: AtomicBool = AtomicBool::new(false);
-static TRACE_GRPC_H2_CHUNK: AtomicBool = AtomicBool::new(false);
-static TRACE_GRPC_DECODED: AtomicBool = AtomicBool::new(false);
 
 // ── gRPC frame encode / decode ────────────────────────────────────────────────
 
@@ -251,9 +235,6 @@ impl GrpcStream {
     }
 
     fn ingest_h2_chunk(&mut self, chunk: Bytes) {
-        trace_once(&TRACE_GRPC_H2_CHUNK, || {
-            format!("[bench-trace][grpc] h2 recv chunk bytes={}", chunk.len())
-        });
         self.recv_buf.extend_from_slice(&chunk);
     }
 
@@ -277,12 +258,7 @@ impl GrpcStream {
                         return Ok(false);
                     }
                     match decode_hunk(payload) {
-                        Ok(data) => {
-                            trace_once(&TRACE_GRPC_DECODED, || {
-                                format!("[bench-trace][grpc] decoded hunk bytes={}", data.len())
-                            });
-                            self.read_buf = data
-                        }
+                        Ok(data) => self.read_buf = data,
                         Err(e) => {
                             return Err(io::Error::new(io::ErrorKind::InvalidData, e.to_string()));
                         }
@@ -395,13 +371,6 @@ impl AsyncWrite for GrpcStream {
             varint_len += 1;
         }
         let hunk_len = 1 + varint_len + data.len();
-        trace_once(&TRACE_GRPC_WRITE, || {
-            format!(
-                "[bench-trace][grpc] enqueue write plain={} grpc_payload={}",
-                data.len(),
-                hunk_len
-            )
-        });
         self.write_buf.reserve(FRAME_HEADER_LEN + hunk_len);
         append_grpc_frame_prefix(&mut self.write_buf, hunk_len);
         append_hunk(&mut self.write_buf, data);

@@ -21,7 +21,6 @@
 
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
@@ -45,7 +44,6 @@ use super::codec::Security;
 
 const MAX_CHUNK_SIZE: usize = 16 * 1024;
 const READ_CHUNK_SIZE: usize = 64 * 1024;
-const BENCH_TRACE_ENV: &str = "BENCH_TRACE_PROTOCOL";
 /// VMess request option bit that enables SHAKE-based chunk size masking.
 pub const REQUEST_OPTION_CHUNK_MASKING: u8 = 0x04;
 /// VMess request option bit that enables random global padding bytes per chunk.
@@ -55,20 +53,6 @@ fn vmess_buffer_pool() -> &'static Arc<BufferPool> {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
     POOL.get_or_init(BufferPool::new)
 }
-
-fn trace_enabled() -> bool {
-    std::env::var(BENCH_TRACE_ENV).is_ok()
-}
-
-fn trace_once(flag: &AtomicBool, msg: impl FnOnce() -> String) {
-    if trace_enabled() && !flag.swap(true, Ordering::Relaxed) {
-        eprintln!("{}", msg());
-    }
-}
-
-static TRACE_VMESS_WRITE: AtomicBool = AtomicBool::new(false);
-static TRACE_VMESS_INNER_READ: AtomicBool = AtomicBool::new(false);
-static TRACE_VMESS_DECRYPTED: AtomicBool = AtomicBool::new(false);
 
 fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {
     let mut nonce = [0u8; 12];
@@ -351,23 +335,12 @@ impl VmessStream {
         // Empty plaintext signals EOF (matches Xray body reader).
         let plaintext =
             Bytes::from(std::mem::replace(&mut self.decrypt_scratch, Vec::with_capacity(MAX_CHUNK_SIZE + 32)));
-        trace_once(&TRACE_VMESS_DECRYPTED, || {
-            format!("[bench-trace][vmess] decrypted chunk bytes={}", plaintext.len())
-        });
         Some(Ok(plaintext))
     }
 
     fn append_encrypted_chunk(&mut self, dst: &mut BytesMut, data: &[u8]) -> io::Result<()> {
         let nonce_arr = chunk_nonce(self.write_counter, &self.write_iv);
         let padding_len = self.next_write_padding_len();
-        trace_once(&TRACE_VMESS_WRITE, || {
-            format!(
-                "[bench-trace][vmess] encrypt chunk plain={} padding={} overhead={}",
-                data.len(),
-                padding_len,
-                self.write_cipher.overhead()
-            )
-        });
         let size = self.encode_size(data.len() + self.write_cipher.overhead() + padding_len);
         dst.reserve(size.len() + data.len() + self.write_cipher.overhead() + padding_len);
         dst.put_slice(&size);
@@ -440,9 +413,6 @@ impl AsyncRead for VmessStream {
                     if filled == 0 {
                         return Poll::Ready(Ok(()));
                     }
-                    trace_once(&TRACE_VMESS_INNER_READ, || {
-                        format!("[bench-trace][vmess] inner read bytes={filled}")
-                    });
                     self.read_raw_buf.extend_from_slice(&tmp[..filled]);
 
                     let mut raw = std::mem::take(&mut self.read_raw_buf);

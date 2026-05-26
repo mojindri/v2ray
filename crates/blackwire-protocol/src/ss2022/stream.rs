@@ -21,7 +21,6 @@
 
 use std::io;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
@@ -37,26 +36,11 @@ use blackwire_common::{BoxedStream, BufferPool};
 /// Maximum plaintext chunk payload size (16 KiB).
 const MAX_CHUNK_SIZE: usize = 16 * 1024;
 const READ_CHUNK_SIZE: usize = 64 * 1024;
-const BENCH_TRACE_ENV: &str = "BENCH_TRACE_PROTOCOL";
 
 fn ss2022_buffer_pool() -> &'static Arc<BufferPool> {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
     POOL.get_or_init(BufferPool::new)
 }
-
-fn trace_enabled() -> bool {
-    std::env::var(BENCH_TRACE_ENV).is_ok()
-}
-
-fn trace_once(flag: &AtomicBool, msg: impl FnOnce() -> String) {
-    if trace_enabled() && !flag.swap(true, Ordering::Relaxed) {
-        eprintln!("{}", msg());
-    }
-}
-
-static TRACE_SS2022_WRITE: AtomicBool = AtomicBool::new(false);
-static TRACE_SS2022_INNER_READ: AtomicBool = AtomicBool::new(false);
-static TRACE_SS2022_DECRYPTED: AtomicBool = AtomicBool::new(false);
 
 // ── Nonce helper ──────────────────────────────────────────────────────────────
 
@@ -203,9 +187,6 @@ impl Ss2022Stream {
         self.read_counter += 1;
 
         let plain = data_ct.freeze();
-        trace_once(&TRACE_SS2022_DECRYPTED, || {
-            format!("[bench-trace][ss2022] decrypted chunk bytes={}", plain.len())
-        });
         Some(Ok(plain))
     }
 
@@ -227,9 +208,6 @@ impl Ss2022Stream {
 
     /// Encrypt `data` directly into the write buffer (length ciphertext + data ciphertext).
     fn append_encrypted_chunk(&mut self, dst: &mut BytesMut, data: &[u8]) -> io::Result<()> {
-        trace_once(&TRACE_SS2022_WRITE, || {
-            format!("[bench-trace][ss2022] encrypt chunk plain={}", data.len())
-        });
         if let Some(mut fixed_header) = self.response_header.take() {
             fixed_header[41..43].copy_from_slice(&(data.len() as u16).to_be_bytes());
 
@@ -332,9 +310,6 @@ impl AsyncRead for Ss2022Stream {
                     if filled == 0 {
                         return Poll::Ready(Ok(())); // EOF
                     }
-                    trace_once(&TRACE_SS2022_INNER_READ, || {
-                        format!("[bench-trace][ss2022] inner read bytes={filled}")
-                    });
                     self.read_raw.extend_from_slice(&tmp[..filled]);
 
                     let mut raw = std::mem::take(&mut self.read_raw);
