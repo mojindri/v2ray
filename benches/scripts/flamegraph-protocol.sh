@@ -18,6 +18,7 @@ fi
 
 export BENCH_QUICK=1
 export RUST_LOG=warn
+export CARGO_PROFILE_BENCH_DEBUG="${CARGO_PROFILE_BENCH_DEBUG:-true}"
 
 BENCH="e2e_${PROTOCOL}"
 OUT="$PERF_DIR/${PROTOCOL}-${SCENARIO}-${TS}.svg"
@@ -33,11 +34,13 @@ esac
 
 echo "Profiling bench=$BENCH filter=$FILTER -> $OUT"
 cd "$PROJECT_ROOT"
+rm -f cargo-flamegraph.trace
 cargo flamegraph \
   --package blackwire-benches \
   --bench "$BENCH" \
   --output "$OUT" \
   -- \
+  "$FILTER" \
   --bench
 
 echo "flamegraph=$OUT"
