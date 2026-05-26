@@ -48,7 +48,7 @@ fn socks_to_freedom_cfg(socks_port: u16) -> std::sync::Arc<blackwire_config::sch
     }))
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn slow_client_reader_does_not_deadlock_or_leak() {
     let pushed = 128 * 1024usize;
     let (upstream_port, _upstream_task) = spawn_push_server(pushed).await;
@@ -87,7 +87,7 @@ async fn slow_client_reader_does_not_deadlock_or_leak() {
     leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 256, 128);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn stalled_upstream_reader_large_write_fails_or_times_out_safely() {
     let (upstream_port, _stall_task) = harness::spawn_stalled_reader_server().await;
     let socks_port = harness::unused_local_port();
@@ -118,7 +118,7 @@ async fn stalled_upstream_reader_large_write_fails_or_times_out_safely() {
     leak_check::assert_fd_tasks_close_to_baseline(&baseline, &after, 512, 200);
 }
 
-#[tokio::test]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn slow_upstream_reader_applies_backpressure_without_unbounded_growth() {
     // Keep this test bounded for CI debug builds: assert backpressure behavior
     // without letting a slow echo path trip libtest's >60s warning.

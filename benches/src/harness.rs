@@ -26,7 +26,15 @@ fn io_timeout() -> Duration {
         .and_then(|v| v.parse::<u64>().ok())
         .filter(|ms| *ms > 0)
         .map(Duration::from_millis)
-        .unwrap_or_else(|| Duration::from_secs(5))
+        .unwrap_or_else(|| {
+            if cfg!(debug_assertions) {
+                // `cargo test --all-targets` runs benches in debug profile during verify-local.
+                // Give slower CI runners more headroom to avoid flaky bulk relay stage timeouts.
+                Duration::from_secs(15)
+            } else {
+                Duration::from_secs(5)
+            }
+        })
 }
 
 // ── Port helpers ───────────────────────────────────────────────────────────────
