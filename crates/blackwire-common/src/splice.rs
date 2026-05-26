@@ -213,28 +213,33 @@ mod linux {
     /// upload-only flows), the idle task is aborted so the relay does not hang
     /// waiting for data that will never arrive on that half.
     pub async fn splice_bidirectional(a: &TcpStream, b: &TcpStream) -> std::io::Result<(u64, u64)> {
+        use std::time::Duration;
+
+        // Brief grace for the peer direction to drain after the first half closes.
+        // Avoids `try_join!` hanging when one side is idle (download-only), without
+        // requiring `tokio::spawn` (and `'static` clones).
+        const PEER_DRAIN: Duration = Duration::from_millis(250);
+
         let a_ab = a.clone();
         let b_ab = b.clone();
         let b_ba = b.clone();
         let a_ba = a.clone();
 
-        let mut ab = tokio::spawn(async move { splice_one_direction(&a_ab, &b_ab).await });
-        let mut ba = tokio::spawn(async move { splice_one_direction(&b_ba, &a_ba).await });
+        let mut ab = std::pin::pin!(async move { splice_one_direction(&a_ab, &b_ab).await });
+        let mut ba = std::pin::pin!(async move { splice_one_direction(&b_ba, &a_ba).await });
 
         tokio::select! {
-            res = &mut ab => {
-                ba.abort();
-                let up = res??;
-                let down = match ba.await {
+            res = ab.as_mut() => {
+                let up = res?;
+                let down = match tokio::time::timeout(PEER_DRAIN, ba).await {
                     Ok(Ok(n)) => n,
                     _ => 0,
                 };
                 Ok((up, down))
             }
-            res = &mut ba => {
-                ab.abort();
-                let down = res??;
-                let up = match ab.await {
+            res = ba.as_mut() => {
+                let down = res?;
+                let up = match tokio::time::timeout(PEER_DRAIN, ab).await {
                     Ok(Ok(n)) => n,
                     _ => 0,
                 };
