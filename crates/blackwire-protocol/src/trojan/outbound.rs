@@ -26,7 +26,7 @@ use blackwire_app::context::Context;
 use blackwire_app::features::OutboundHandler;
 use blackwire_common::{Address, BoxedStream, ProxyError};
 
-use super::codec::{compute_token, encode_request, CMD_CONNECT};
+use super::codec::{compute_token, encode_request, CMD_CONNECT, CMD_UDP_ASSOCIATE};
 
 /// Configuration for a Trojan outbound connection.
 #[derive(Debug, Clone)]
@@ -83,19 +83,7 @@ impl OutboundHandler for TrojanOutbound {
     }
 }
 
-/// Send a Trojan header over an already-established stream.
-///
-/// This is the key building block for both plain-TCP and TLS-wrapped Trojan.
-/// The caller is responsible for setting up the stream (TLS handshake, etc.)
-/// before calling this function.
-///
-/// # Arguments
-/// * `stream` — an already-connected stream (TCP or TLS)
-/// * `token`  — the 56-char hex token from `compute_token(password)`
-/// * `dest`   — the destination address and port
-///
-/// # Returns
-/// The same stream, positioned after the Trojan header, ready for relay.
+/// Send a Trojan TCP CONNECT header over an already-established stream.
 pub async fn connect_trojan_on_stream(
     mut stream: BoxedStream,
     token: &str,
@@ -103,7 +91,21 @@ pub async fn connect_trojan_on_stream(
 ) -> Result<BoxedStream, ProxyError> {
     let header = encode_request(token, CMD_CONNECT, dest)?;
     stream.write_all(&header).await?;
-    // No server-to-client handshake in Trojan — payload follows immediately.
+    Ok(stream)
+}
+
+/// Send a Trojan UDP ASSOCIATE header over an already-established stream.
+///
+/// After the header, the caller writes datagram frames using `encode_udp_datagram()`
+/// and reads replies using `parse_udp_datagram()`. The destination is conventionally
+/// `0.0.0.0:0` per Xray — actual per-packet destinations are in each frame header.
+pub async fn connect_trojan_on_stream_udp(
+    mut stream: BoxedStream,
+    token: &str,
+    initial_dest: &Address,
+) -> Result<BoxedStream, ProxyError> {
+    let header = encode_request(token, CMD_UDP_ASSOCIATE, initial_dest)?;
+    stream.write_all(&header).await?;
     Ok(stream)
 }
 

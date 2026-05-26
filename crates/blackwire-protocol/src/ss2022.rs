@@ -45,6 +45,7 @@ pub mod outbound;
 pub mod replay;
 pub mod stream;
 pub mod subkey;
+pub mod udp;
 mod variable_header;
 
 #[cfg(feature = "fuzzing")]

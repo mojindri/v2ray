@@ -40,6 +40,7 @@ port_for_protocol() {
         vless-splithttp) echo 8448 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
+        ss2022-udp) echo 8389 ;;
         hysteria2) echo 4433 ;;
         vless-reality) echo 10443 ;;
         vless-shadowtls) echo 8450 ;;
@@ -190,7 +191,7 @@ wait_for_server_port() {
 
 requires_udp_probe() {
     case "$1" in
-        trojan-udp|vless-udp) return 0 ;;
+        trojan-udp|vless-udp|ss2022-udp) return 0 ;;
         *) return 1 ;;
     esac
 }

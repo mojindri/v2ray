@@ -47,7 +47,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Area | Upstream | Proof today | Gap to Supported |
 |------|----------|-------------|------------------|
 | SplitHTTP packet-up stub | sing-box xHTTP (partial) | Code only if `mode: packet-up` | Full sing-box parity (P2); **not** matrix |
-| Health-check failover | Xray balancer patterns | e2e + lab dir | Confirm matrix PASS |
+| SS2022 UDP (SIP022) | Xray/sing-box `2022-blake3-aes-256-gcm` UDP | In-process e2e PASS; `ss2022-udp` lab row in scenarios.env | Xray+sing-box matrix PASS (external-client Docker lab) |
 
 ## External-client matrix SKIPs (not “unsupported in blackwire”)
 
@@ -64,7 +64,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Item | Notes |
 |------|--------|
 | Vision TLS splice | Direct-copy on TLS records; not kernel splice |
-| Trojan UDP outbound | Inbound ASSOCIATE only; Xray `PacketWriter` outbound not wired |
+| Trojan UDP outbound | `connect_trojan_on_stream_udp()`; in-process e2e PASS; no external-client lab row |
 | XUDP vs Mux.Cool UDP | XUDP: session `0` + GlobalID; Mux.Cool UDP: non-zero session id |
 | SS2022 UDP | SIP022 UDP wire not implemented |
 | Hot-reload listeners | `AddInbound`/`RemoveInbound` listener rebind UNIMPLEMENTED |
@@ -75,7 +75,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Item | Work |
 |------|------|
 | SOCKS UDP probe in matrix harness | Prove Trojan/VLESS UDP with real DNS datagram |
-| SS2022 SIP022 UDP relay | P2 |
+| SS2022 SIP022 UDP relay | P2 — in tree; matrix pending |
 | SplitHTTP full packet-up | P2 — sing-box reference |
 | Kernel TLS splice audit | P4 |
 | In-place listener rebind | P4 |

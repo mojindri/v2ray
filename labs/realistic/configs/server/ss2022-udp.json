@@ -1,0 +1,17 @@
+{
+  "log": { "level": "info" },
+  "inbounds": [
+    {
+      "tag": "ss-udp-in",
+      "protocol": "shadowsocks",
+      "listen": "0.0.0.0",
+      "port": 8389,
+      "settings": {
+        "method": "2022-blake3-aes-256-gcm",
+        "password": "${SS2022_PASSWORD}",
+        "network": "udp"
+      }
+    }
+  ],
+  "outbounds": [{ "tag": "freedom", "protocol": "freedom" }]
+}

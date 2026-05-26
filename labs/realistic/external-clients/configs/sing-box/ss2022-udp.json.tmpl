@@ -1,0 +1,18 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "::", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "shadowsocks",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 8389,
+      "method": "2022-blake3-aes-256-gcm",
+      "password": "${SS2022_PASSWORD}",
+      "network": "udp"
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

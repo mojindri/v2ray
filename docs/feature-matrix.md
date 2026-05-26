@@ -52,14 +52,14 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | HTTP CONNECT | Yes | No | **Supported** | `http_connect.rs`, `blackwire-core/http.rs`; e2e `e2e_http_connect.rs` |
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
-| VLESS UDP command | Yes | Partial | **Supported** | `vless/udp.rs` inbound relay; matrix `vless-udp` Xray+sing-box **PASS** |
+| VLESS UDP command | Yes | Yes | **Supported** | `vless/udp.rs` inbound relay; matrix `vless-udp` Xray+sing-box **PASS**; outbound `Command::Udp`; e2e `e2e_vless_udp_outbound.rs` PASS |
 | VLESS MUX command (0x03) | Partial | Partial | **Supported** | Mux.Cool + XUDP in `vless/mux.rs`; matrix `vless-mux` Xray **PASS**; `vless-udp` Xray XUDP **PASS** |
 | VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
-| Trojan UDP | Yes | No | **Supported** | Xray `CMD 0x03`; matrix `trojan-udp` Xray+sing-box **PASS** (`udp-socks-probe.sh`) |
+| Trojan UDP | Yes | Yes | **Supported** | Xray `CMD 0x03`; inbound: matrix `trojan-udp` Xray+sing-box **PASS**; outbound: `connect_trojan_on_stream_udp()`; e2e `e2e_trojan_udp_outbound.rs` PASS |
 | Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
-| SS2022 UDP relay | No | No | **Unsupported** | TCP stream cipher path only in crate |
+| SS2022 UDP relay (SIP022) | Yes | No | **Experimental** | `ss2022/udp.rs`; in-process e2e `e2e_ss2022_udp.rs` PASS; `ss2022-udp` lab row (matrix pending external-client PASS) |
 | Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
 | ShadowTLS as `protocol` enum | No | No | **Unsupported** | Only `security: shadowtls` on TCP inbounds/outbounds |
 | DNS / dokodemo / tun inbound protocol | No | No | **Unsupported** | Not in `Protocol` enum |
@@ -130,7 +130,7 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | `protocol` / sniffed domain rules | **Partial** | Requires inbound sniffing + `sniffed_protocol` on routing context; lab row `vless-sniff` |
 | GeoIP / geosite (`geoip:`, `geosite:`) | **Supported** | `geo/`; missing data files → empty matchers + warn |
 | Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; HTTP health probes; in-process failover e2e `e2e_health_failover.rs` |
-| Health-check failover under fault | **Partial** | Proven: dead primary outbound + live backup (`make -C labs/realistic health-failover`); not yet load/soak gated |
+| Health-check failover under fault | **Supported** | In-process e2e `e2e_health_failover.rs` + Docker lab (`make -C labs/realistic health-failover`) both **PASS** |
 | Route to balancer tag | **Supported** | `production_readiness` tests |
 
 ---
