@@ -15,7 +15,7 @@ Gap tracker ordered **strictly** by [xray-parity-source-of-truth.md](xray-parity
 | ~~**P0**~~ | ~~VLESS Mux.Cool TCP (`CMD 0x03` / `v1.mux.cool`)~~                  | Xray `common/mux` + [Mux.Cool](https://xtls.github.io/en/development/protocols/muxcool.html) | **PASS** `vless-mux` Xray; sing-box SKIP                         | **Supported** — matrix-proven                         |
 | ~~**P1**~~ | ~~VLESS XUDP (session `0`, 8-byte GlobalID, Keep per-packet dest)~~  | Xray `common/xudp` + `common/mux/frame.go`                                                   | **PASS** `vless-udp` Xray+sing-box                               | **Supported** — matrix-proven                         |
 | ~~**P1**~~ | ~~SplitHTTP **stream-one** (xHTTP over HTTP/2, ALPN h2)~~         | Xray `splithttp` + sing-box HTTP transport                                                   | **PASS** `vless-splithttp` Xray+sing-box                         | **Supported** — matrix-proven                         |
-| **P2** | SplitHTTP **packet-up** (seq, Xmux, padding, `downloadSettings`) | sing-box `transport/http` xHTTP                                                              | New row only after sing-box client PASS; no invented framing     | **Not upstream-complete** — do not enable in matrix   |
+| **P2** | SplitHTTP **packet-up** (seq, Xmux, padding, `downloadSettings`) | sing-box `transport/http` xHTTP                                                              | New row only after sing-box client PASS; no invented framing     | **H2 server path + in-process e2e in tree** — not Supported until matrix PASS   |
 | ~~**P2**~~ | ~~SS2022 UDP (SIP022)~~                                              | Xray / sing-box shadowsocks 2022 UDP                                                         | `ss2022-udp` Xray+sing-box                                       | **Supported** — matrix-proven                         |
 | ~~**P3**~~ | ~~Trojan / VLESS UDP **outbound** (client role)~~            | Xray outbound `PacketWriter`                                                                 | Client-leg lab or in-process client instance                     | **Supported** — `connect_trojan_on_stream_udp()` + VLESS `Command::Udp`; in-process e2e PASS |
 | ~~**P3**~~ | ~~Health-check outbound failover~~                               | Xray balancer / observatory patterns                                                         | `health-failover` lab + e2e                                      | **Supported** — in-process + Docker lab PASS          |
@@ -57,7 +57,7 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 
 | Focus                          | Upstream alignment               | Next gate                                       |
 | ------------------------------ | -------------------------------- | ----------------------------------------------- |
-| SplitHTTP packet-up (P2)       | **Not** sing-box-complete        | No matrix until full Xmux/seq implementation    |
+| SplitHTTP packet-up (P2)       | H2 packet-up server path + in-process e2e | No Supported label until `vless-splithttp-packet-up` matrix PASS    |
 
 
 ---

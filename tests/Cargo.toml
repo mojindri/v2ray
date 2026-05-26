@@ -33,6 +33,7 @@ x25519-dalek.workspace = true
 rand.workspace         = true
 uuid.workspace         = true
 http.workspace         = true
+h2.workspace           = true
 loom = "0.7"
 async-trait.workspace = true
 bytes.workspace = true

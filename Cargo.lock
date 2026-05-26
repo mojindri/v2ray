@@ -2266,6 +2266,7 @@ dependencies = [
  "blackwire-transport",
  "blake3",
  "bytes",
+ "h2",
  "hex",
  "http",
  "loom",

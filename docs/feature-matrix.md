@@ -84,7 +84,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
 | HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
-| SplitHTTP / xHTTP | **Supported** | **stream-one over HTTP/2** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. `packet-up` not in matrix (P2) |
+| SplitHTTP / xHTTP | **Supported** | **stream-one over HTTP/2** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. `packet-up` server path is in tree with in-process e2e, but remains outside Supported until matrix `vless-splithttp-packet-up` passes (P2). |
 
 ---
 

@@ -94,6 +94,7 @@ blackwire lacks the server transport. See [docs/parity-status.md](../../../docs/
 |-----|---------------------|
 | `vless-quic` | Xray 26+ removed QUIC client transport (sing-box proves row) |
 | `vless-splithttp` | stream-one only (not packet-up); was SKIP until mode aligned |
+| `vless-splithttp-packet-up` | dedicated P2 row; keep docs conservative until both clients PASS |
 | `vless-shadowtls` | Xray/sing-box client models differ from VLESS+`shadowtls` stream |
 | `vless-mkcp` | sing-box has no mKCP; Xray uses new finalmask — server proven in e2e |
 

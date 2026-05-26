@@ -27,7 +27,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | **P0** | Mux.Cool TCP (`v1.mux.cool`) | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool) |
 | **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
 | **P1** | SplitHTTP stream-one (HTTP/2 via ALPN h2) | `vless-splithttp` Xray+sing-box **PASS** |
-| **P2** | SplitHTTP packet-up (sing-box完整) | **Not in matrix** — stub must not be labeled Supported |
+| **P2** | SplitHTTP packet-up (sing-box完整) | In tree with in-process e2e; **not in matrix** — must not be labeled Supported |
 | ~~**P2**~~ | ~~SS2022 SIP022 UDP~~ | `ss2022-udp` Xray+sing-box **PASS** |
 
 ## Shipped with upstream client proof (matrix or documented SKIP)
@@ -46,7 +46,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Area | Upstream | Proof today | Gap to Supported |
 |------|----------|-------------|------------------|
-| SplitHTTP packet-up stub | sing-box xHTTP (partial) | Code only if `mode: packet-up` | Full sing-box parity (P2); **not** matrix |
+| SplitHTTP packet-up | sing-box xHTTP (partial) | H2 server path + in-process e2e | Full sing-box parity (P2); `vless-splithttp-packet-up` matrix still required |
 
 ## External-client matrix SKIPs (not “unsupported in blackwire”)
 
@@ -56,7 +56,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | `vless-shadowtls` | Yes | SKIP | SKIP | Xray 26+ / sing-box model mismatch — server e2e |
 | `vless-mkcp` | Yes | SKIP | SKIP | sing-box no mKCP; Xray 26 finalmask |
 
-`vless-splithttp` uses **stream-one** only (both clients). Do not set `mode: packet-up` in matrix until P2 is done.
+`vless-splithttp` uses **stream-one** only (both clients). `vless-splithttp-packet-up` is the dedicated P2 row and still requires matrix PASS before any Supported claim.
 
 ## Accepted limits (not matrix blockers)
 

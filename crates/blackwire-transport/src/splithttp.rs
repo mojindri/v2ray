@@ -15,7 +15,7 @@ use std::pin::Pin;
 use std::sync::{Arc, LazyLock};
 use std::task::{Context, Poll};
 
-use blackwire_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, ProxyError, ReunionStream};
 use dashmap::DashMap;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tracing::debug;
@@ -34,7 +34,12 @@ pub enum SplitHttpAcceptResult {
     UploadOnly,
     /// OPTIONS preflight completed.
     Preflight,
+    /// HTTP/2 packet-up: connection handled in the accept loop (one or more tunnels spawned via callback).
+    H2PacketUpManaged,
 }
+
+/// Invoked for each packet-up download GET on an HTTP/2 connection (sing-box may multiplex many sessions per conn).
+pub type PacketUpH2TunnelFn = Arc<dyn Fn(SplitHttpAcceptResult) + Send + Sync>;
 
 const MAX_HEADER_BYTES: usize = 16384;
 
@@ -115,6 +120,7 @@ pub async fn splithttp_accept(
     expected_path: Option<&str>,
     expected_method: Option<&str>,
     mode: SplitHttpMode,
+    packet_up_h2_tunnel: Option<PacketUpH2TunnelFn>,
 ) -> Result<SplitHttpAcceptResult, ProxyError> {
     // Peek at the first 3 bytes to distinguish HTTP/2 from HTTP/1.1.
     // HTTP/2 connection preface begins with "PRI" (RFC 7540 §3.5).
@@ -123,6 +129,15 @@ pub async fn splithttp_accept(
     if &peek == b"PRI" {
         // HTTP/2: reconstruct the stream by prepending the peeked bytes.
         let stream: BoxedStream = Box::new(PrependStream::new(stream, peek.to_vec()));
+        if mode == SplitHttpMode::PacketUp {
+            let on_tunnel = packet_up_h2_tunnel.ok_or_else(|| {
+                ProxyError::Protocol(
+                    "xHTTP h2 packet-up requires a per-session tunnel handler".into(),
+                )
+            })?;
+            splithttp_accept_h2_packet_up(stream, expected_path, on_tunnel).await?;
+            return Ok(SplitHttpAcceptResult::H2PacketUpManaged);
+        }
         return splithttp_accept_h2(stream, expected_path, expected_method).await;
     }
     // HTTP/1.1 path — prepend the 3 bytes we already consumed.
@@ -303,6 +318,213 @@ pub async fn splithttp_accept_h2(
     });
 
     Ok(SplitHttpAcceptResult::Tunnel(Box::new(user_end)))
+}
+
+pub async fn splithttp_accept_h2_packet_up(
+    stream: BoxedStream,
+    expected_path: Option<&str>,
+    on_tunnel: PacketUpH2TunnelFn,
+) -> Result<(), ProxyError> {
+    use bytes::Bytes;
+    use h2::server;
+    use std::collections::HashSet;
+
+    let mut conn = server::Builder::new()
+        .handshake(stream)
+        .await
+        .map_err(|e| ProxyError::Transport(format!("xHTTP h2 packet-up handshake failed: {e}")))?;
+
+    let base = expected_path.unwrap_or("/").to_string();
+    let mut download_sessions: HashSet<String> = HashSet::new();
+
+    loop {
+        let incoming = match conn.accept().await {
+            Some(Ok(parts)) => parts,
+            Some(Err(e)) => {
+                return Err(ProxyError::Transport(format!(
+                    "xHTTP h2 packet-up accept error: {e}"
+                )));
+            }
+            None => return Ok(()),
+        };
+
+        let (request, mut respond) = incoming;
+        let method = request.method().as_str().to_string();
+        let path = request
+            .uri()
+            .path_and_query()
+            .map(|pq| pq.as_str().to_string())
+            .unwrap_or_else(|| request.uri().path().to_string());
+        debug!(method = %method, path = %path, "xHTTP h2 packet-up inbound request");
+
+        let prefix = crate::splithttp_packet_up::normalized_path_prefix(&base);
+        if !path.starts_with(prefix.trim_end_matches('/')) {
+            let _ = respond.send_response(
+                http::Response::builder().status(404).body(()).unwrap(),
+                true,
+            );
+            continue;
+        }
+
+        let (session, seq) = extract_session_seq(&path, &base);
+
+        if method.eq_ignore_ascii_case("OPTIONS") {
+            let response = http::Response::builder()
+                .status(200)
+                .header("access-control-allow-origin", "*")
+                .body(())
+                .map_err(|e| {
+                    ProxyError::Protocol(format!(
+                        "xHTTP h2 packet-up: invalid OPTIONS response builder: {e}"
+                    ))
+                })?;
+            let _ = respond.send_response(response, true);
+            continue;
+        }
+
+        if method.eq_ignore_ascii_case("POST") {
+            if session.is_empty() {
+                let _ = respond.send_response(
+                    http::Response::builder().status(400).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+            let seq_num: u64 = match seq.parse() {
+                Ok(v) => v,
+                Err(_) => {
+                    let _ = respond.send_response(
+                        http::Response::builder().status(400).body(()).unwrap(),
+                        true,
+                    );
+                    continue;
+                }
+            };
+
+            let queue = upsert_packet_up_session(&session);
+            let mut body = request.into_body();
+            let mut payload = Vec::new();
+            let mut body_error = false;
+            while let Some(chunk) = body.data().await {
+                match chunk {
+                    Ok(chunk) => {
+                        let _ = body.flow_control().release_capacity(chunk.len());
+                        payload.extend_from_slice(&chunk);
+                    }
+                    Err(_) => {
+                        body_error = true;
+                        break;
+                    }
+                }
+            }
+
+            if body_error {
+                let _ = respond.send_response(
+                    http::Response::builder().status(502).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+
+            if queue
+                .push(UploadPacket {
+                    seq: seq_num,
+                    payload,
+                })
+                .await
+                .is_err()
+            {
+                let _ = respond.send_response(
+                    http::Response::builder().status(503).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+
+            let response = http::Response::builder()
+                .status(200)
+                .header("cache-control", "no-store")
+                .body(())
+                .map_err(|e| {
+                    ProxyError::Protocol(format!(
+                        "xHTTP h2 packet-up: invalid POST response builder: {e}"
+                    ))
+                })?;
+            let _ = respond.send_response(response, true);
+            continue;
+        }
+
+        if method.eq_ignore_ascii_case("GET") {
+            if session.is_empty() {
+                let _ = respond.send_response(
+                    http::Response::builder().status(400).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+            if !seq.is_empty() {
+                let _ = respond.send_response(
+                    http::Response::builder().status(501).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+            if !download_sessions.insert(session.clone()) {
+                let _ = respond.send_response(
+                    http::Response::builder().status(409).body(()).unwrap(),
+                    true,
+                );
+                continue;
+            }
+
+            let queue = upsert_packet_up_session(&session);
+            let response = http::Response::builder()
+                .status(200)
+                .header("cache-control", "no-store")
+                .header("x-accel-buffering", "no")
+                .header("content-type", "text/event-stream")
+                .body(())
+                .map_err(|e| {
+                    ProxyError::Protocol(format!(
+                        "xHTTP h2 packet-up: invalid GET response builder: {e}"
+                    ))
+                })?;
+            let mut send_stream = respond.send_response(response, false).map_err(|e| {
+                ProxyError::Transport(format!("xHTTP h2 packet-up send_response failed: {e}"))
+            })?;
+
+            let (proxy_end, user_end) = tokio::io::duplex(256 * 1024);
+            let (mut proxy_reader, _) = tokio::io::split(proxy_end);
+            let (_, user_writer) = tokio::io::split(user_end);
+
+            tokio::spawn(async move {
+                let mut buf = [0u8; 8192];
+                loop {
+                    let n = match proxy_reader.read(&mut buf).await {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => n,
+                    };
+                    let data = Bytes::copy_from_slice(&buf[..n]);
+                    if send_stream.send_data(data, false).is_err() {
+                        break;
+                    }
+                }
+                let _ = send_stream.send_data(Bytes::new(), true);
+            });
+
+            let tunnel = SplitHttpAcceptResult::Tunnel(Box::new(ReunionStream::new(
+                UploadQueueReader::new(queue),
+                user_writer,
+            )));
+            on_tunnel(tunnel);
+            continue;
+        }
+
+        let _ = respond.send_response(
+            http::Response::builder().status(405).body(()).unwrap(),
+            true,
+        );
+    }
 }
 
 async fn write_stream_one_response(stream: &mut BoxedStream) -> Result<(), ProxyError> {
@@ -738,6 +960,8 @@ impl<S: AsyncRead + Unpin> AsyncRead for SplitHttpStream<S> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use bytes::Bytes;
+    use h2::client;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
     #[tokio::test]
@@ -745,7 +969,14 @@ mod tests {
         let (mut client, server) = tokio::io::duplex(8192);
         let server = Box::new(server) as BoxedStream;
         let accept_task = tokio::spawn(async move {
-            splithttp_accept(server, Some("/split"), Some("POST"), SplitHttpMode::StreamOne).await
+            splithttp_accept(
+                server,
+                Some("/split"),
+                Some("POST"),
+                SplitHttpMode::StreamOne,
+                None,
+            )
+            .await
         });
 
         client
@@ -772,6 +1003,160 @@ mod tests {
         let mut buf = [0u8; 8];
         let n = tunnel.read(&mut buf).await.unwrap();
         assert_eq!(&buf[..n], b"hello");
+    }
+
+    #[tokio::test]
+    async fn packet_up_h2_accepts_get_and_post_on_one_connection() {
+        use std::sync::Mutex;
+        use tokio::sync::oneshot; // tunnel ready signal
+
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let server = Box::new(server_io) as BoxedStream;
+        let (tunnel_tx, tunnel_rx) = oneshot::channel();
+        let ready_tx = Arc::new(Mutex::new(Some(tunnel_tx)));
+        let tunnel_slot: Arc<Mutex<Option<BoxedStream>>> = Arc::new(Mutex::new(None));
+        let tunnel_slot_cb = tunnel_slot.clone();
+        let ready_tx_cb = ready_tx.clone();
+        let on_tunnel: PacketUpH2TunnelFn = Arc::new(move |accepted| {
+            if let SplitHttpAcceptResult::Tunnel(stream) = accepted {
+                if let Some(tx) = ready_tx_cb.lock().unwrap().take() {
+                    let _ = tx.send(());
+                }
+                *tunnel_slot_cb.lock().unwrap() = Some(stream);
+            }
+        });
+        let accept_task = tokio::spawn(async move {
+            splithttp_accept(
+                server,
+                Some("/split"),
+                None,
+                SplitHttpMode::PacketUp,
+                Some(on_tunnel),
+            )
+            .await
+        });
+
+        let (mut client, conn) = client::Builder::new().handshake(client_io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let get_req = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("https://example.test/split/sess-1")
+            .body(())
+            .unwrap();
+        let (get_resp_fut, mut send_get_end) = client.send_request(get_req, false).unwrap();
+        send_get_end.send_data(Bytes::new(), true).unwrap();
+
+        tunnel_rx.await.unwrap();
+        let mut tunnel = tunnel_slot.lock().unwrap().take().expect("tunnel stored");
+
+        let post_req = http::Request::builder()
+            .method(http::Method::POST)
+            .uri("https://example.test/split/sess-1/0")
+            .body(())
+            .unwrap();
+        let (post_resp_fut, mut send_post) = client.send_request(post_req, false).unwrap();
+        send_post.send_data(Bytes::from_static(b"hello"), true).unwrap();
+
+        let post_resp = post_resp_fut.await.unwrap();
+        assert_eq!(post_resp.status(), http::StatusCode::OK);
+
+        let mut buf = [0u8; 8];
+        let n = tunnel.read(&mut buf).await.unwrap();
+        assert_eq!(&buf[..n], b"hello");
+
+        tunnel.write_all(b"world").await.unwrap();
+        tunnel.flush().await.unwrap();
+        drop(tunnel);
+
+        let mut get_resp = get_resp_fut.await.unwrap();
+        assert_eq!(get_resp.status(), http::StatusCode::OK);
+        let mut got = Vec::new();
+        while let Some(chunk) = get_resp.body_mut().data().await {
+            let chunk = chunk.unwrap();
+            get_resp
+                .body_mut()
+                .flow_control()
+                .release_capacity(chunk.len())
+                .unwrap();
+            got.extend_from_slice(&chunk);
+        }
+        assert_eq!(got, b"world");
+
+        drop(client);
+        accept_task.abort();
+    }
+
+    #[tokio::test]
+    async fn packet_up_h2_multiplexes_sessions_on_one_connection() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use std::sync::Mutex;
+
+        let (client_io, server_io) = tokio::io::duplex(128 * 1024);
+        let server = Box::new(server_io) as BoxedStream;
+        let tunnel_count = Arc::new(AtomicUsize::new(0));
+        let tunnels: Arc<Mutex<Vec<BoxedStream>>> = Arc::new(Mutex::new(Vec::new()));
+        let tunnels_cb = tunnels.clone();
+        let count_cb = tunnel_count.clone();
+        let on_tunnel: PacketUpH2TunnelFn = Arc::new(move |accepted| {
+            if let SplitHttpAcceptResult::Tunnel(stream) = accepted {
+                tunnels_cb.lock().unwrap().push(stream);
+                count_cb.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        let accept_task = tokio::spawn(async move {
+            splithttp_accept(
+                server,
+                Some("/split"),
+                None,
+                SplitHttpMode::PacketUp,
+                Some(on_tunnel),
+            )
+            .await
+        });
+
+        let (mut client, conn) = client::Builder::new().handshake(client_io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        for sid in ["sess-a", "sess-b"] {
+            let before = tunnel_count.load(Ordering::SeqCst);
+            let get_req = http::Request::builder()
+                .method(http::Method::GET)
+                .uri(format!("https://example.test/split/{sid}"))
+                .body(())
+                .unwrap();
+            let (_get_resp_fut, mut send_get_end) = client.send_request(get_req, false).unwrap();
+            send_get_end.send_data(Bytes::new(), true).unwrap();
+            for _ in 0..100 {
+                if tunnel_count.load(Ordering::SeqCst) > before {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+            assert!(tunnel_count.load(Ordering::SeqCst) > before);
+            let (post_resp_fut, mut send_post) = client
+                .send_request(
+                    http::Request::builder()
+                        .method(http::Method::POST)
+                        .uri(format!("https://example.test/split/{sid}/0"))
+                        .body(())
+                        .unwrap(),
+                    false,
+                )
+                .unwrap();
+            send_post
+                .send_data(Bytes::from_static(b"ping"), true)
+                .unwrap();
+            assert_eq!(post_resp_fut.await.unwrap().status(), http::StatusCode::OK);
+        }
+
+        assert_eq!(tunnels.lock().unwrap().len(), 2);
+        drop(client);
+        accept_task.abort();
     }
 }
 

@@ -24,7 +24,8 @@ use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use blackwire_transport::{
     accept_httpupgrade, grpc_accept, httpupgrade_listen_path, shadowtls_accept, splithttp_accept,
-    splithttp_listen_params, normalize_splithttp_mode, SplitHttpAcceptResult, tls_accept, ws_accept,
+    splithttp_listen_params, normalize_splithttp_mode, SplitHttpAcceptResult,
+    tls_accept, ws_accept,
 };
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -230,16 +231,31 @@ impl ConnectionHandler for SplitHttpConnectionHandler {
     ) -> Result<(), ProxyError> {
         let path = self.expected_path.as_deref();
         let method = self.expected_method.as_deref();
+        let packet_up_h2 = if self.mode == blackwire_transport::SplitHttpMode::PacketUp {
+            let inner = self.inner.clone();
+            Some(Arc::new(move |accepted| {
+                if let SplitHttpAcceptResult::Tunnel(stream) = accepted {
+                    let inner = inner.clone();
+                    tokio::spawn(async move {
+                        let _ = inner.handle_connection(stream, source).await;
+                    });
+                }
+            }) as blackwire_transport::PacketUpH2TunnelFn)
+        } else {
+            None
+        };
         let accepted = with_handshake_timeout(
             self.handshake_timeout,
-            splithttp_accept(stream, path, method, self.mode),
+            splithttp_accept(stream, path, method, self.mode, packet_up_h2),
         )
         .await?;
         match accepted {
             SplitHttpAcceptResult::Tunnel(stream) => {
                 self.inner.handle_connection(stream, source).await
             }
-            SplitHttpAcceptResult::UploadOnly | SplitHttpAcceptResult::Preflight => Ok(()),
+            SplitHttpAcceptResult::UploadOnly
+            | SplitHttpAcceptResult::Preflight
+            | SplitHttpAcceptResult::H2PacketUpManaged => Ok(()),
         }
     }
 }

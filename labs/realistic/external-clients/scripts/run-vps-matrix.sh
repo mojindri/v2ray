@@ -85,7 +85,7 @@ port_for_protocol() {
         vless-ws) echo 8443 ;;
         vless-httpupgrade) echo 8446 ;;
         vless-quic) echo 8447 ;;
-        vless-splithttp) echo 8448 ;;
+        vless-splithttp|vless-splithttp-packet-up) echo 8448 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
         ss2022-udp) echo 8389 ;;

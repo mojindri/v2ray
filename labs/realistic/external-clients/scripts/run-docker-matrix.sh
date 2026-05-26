@@ -37,7 +37,7 @@ port_for_protocol() {
         vless-ws) echo 8443 ;;
         vless-httpupgrade) echo 8446 ;;
         vless-quic) echo 8447 ;;
-        vless-splithttp) echo 8448 ;;
+        vless-splithttp|vless-splithttp-packet-up) echo 8448 ;;
         vmess-grpc) echo 8444 ;;
         ss2022) echo 8388 ;;
         ss2022-udp) echo 8389 ;;
@@ -89,8 +89,14 @@ stop_blackwire() {
 start_blackwire() {
     local server_cfg="$1"
     stop_blackwire
+    local rust_log="${MATRIX_SERVER_RUST_LOG:-}"
+    local run_cmd="blackwire run -c /generated/blackwire/${server_cfg}"
+    if [[ -n "$rust_log" ]]; then
+        run_cmd="env RUST_LOG=${rust_log} ${run_cmd}"
+    fi
+    run_cmd="${run_cmd} >/tmp/blackwire-matrix.log 2>&1"
     "${COMPOSE[@]}" exec -d blackwire-server \
-        blackwire run -c "/generated/blackwire/${server_cfg}" </dev/null >> "$REPORT_DIR/compose.log" 2>&1
+        sh -c "$run_cmd" </dev/null >> "$REPORT_DIR/compose.log" 2>&1
 }
 
 stop_xray() {
@@ -282,6 +288,7 @@ append_logs() {
     local log="$1"
     capture_pcap_on_fail "$log"
     "${COMPOSE[@]}" logs --no-color blackwire-server >> "$log" 2>&1 || true
+    "${COMPOSE[@]}" exec -T blackwire-server sh -c 'test -f /tmp/blackwire-matrix.log && cat /tmp/blackwire-matrix.log || true' >> "$log" 2>&1 || true
     if [[ "${2:-}" == "xray-client" ]]; then
         docker logs xray-client >> "$log" 2>&1 || true
     elif [[ -n "${2:-}" ]]; then

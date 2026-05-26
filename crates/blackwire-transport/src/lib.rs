@@ -78,7 +78,7 @@ pub use shadowtls::{
 };
 pub use splithttp::{
     normalize_splithttp_mode, splithttp_accept, splithttp_accept_h2, splithttp_connect,
-    splithttp_listen_params, SplitHttpAcceptResult, SplitHttpMode,
+    splithttp_listen_params, PacketUpH2TunnelFn, SplitHttpAcceptResult, SplitHttpMode,
 };
 pub use tcp::{TcpClientTransport, TcpServerTransport};
 pub use tls::{
