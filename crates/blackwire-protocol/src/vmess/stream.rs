@@ -21,13 +21,14 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use aes_gcm::{
-    aead::{generic_array::GenericArray, Aead, Payload},
+    aead::{generic_array::GenericArray, Aead, AeadInPlace, Payload},
     Aes128Gcm, KeyInit,
 };
-use bytes::{Bytes, BytesMut};
+use bytes::{BufMut, Bytes, BytesMut};
 use chacha20poly1305::ChaCha20Poly1305;
 use md5::{Digest as Md5Digest, Md5};
 use rand::RngExt;
@@ -37,7 +38,7 @@ use shake::{
 };
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use blackwire_common::BoxedStream;
+use blackwire_common::{BoxedStream, BufferPool};
 
 use super::codec::Security;
 
@@ -46,6 +47,11 @@ const MAX_CHUNK_SIZE: usize = 16 * 1024;
 pub const REQUEST_OPTION_CHUNK_MASKING: u8 = 0x04;
 /// VMess request option bit that enables random global padding bytes per chunk.
 pub const REQUEST_OPTION_GLOBAL_PADDING: u8 = 0x08;
+
+fn vmess_buffer_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
 
 fn chunk_nonce(counter: u16, iv: &[u8; 16]) -> [u8; 12] {
     let mut nonce = [0u8; 12];
@@ -80,27 +86,38 @@ impl BodyCipher {
         }
     }
 
-    fn encrypt(&self, nonce: &[u8; 12], data: &[u8]) -> Result<Vec<u8>, ()> {
+    fn encrypt_append(&self, nonce: &[u8; 12], dst: &mut BytesMut, data: &[u8]) -> Result<(), ()> {
         match self {
-            Self::Aes128Gcm(cipher) => cipher
-                .encrypt(
-                    GenericArray::from_slice(nonce),
-                    Payload {
-                        msg: data,
-                        aad: &[],
-                    },
-                )
-                .map_err(|_| ()),
-            Self::ChaCha20Poly1305(cipher) => cipher
-                .encrypt(
-                    GenericArray::from_slice(nonce),
-                    Payload {
-                        msg: data,
-                        aad: &[],
-                    },
-                )
-                .map_err(|_| ()),
-            Self::None => Ok(data.to_vec()),
+            Self::Aes128Gcm(cipher) => {
+                let start = dst.len();
+                dst.extend_from_slice(data);
+                let tag = cipher
+                    .encrypt_in_place_detached(
+                        GenericArray::from_slice(nonce),
+                        &[],
+                        &mut dst[start..],
+                    )
+                    .map_err(|_| ())?;
+                dst.extend_from_slice(tag.as_slice());
+                Ok(())
+            }
+            Self::ChaCha20Poly1305(cipher) => {
+                let start = dst.len();
+                dst.extend_from_slice(data);
+                let tag = cipher
+                    .encrypt_in_place_detached(
+                        GenericArray::from_slice(nonce),
+                        &[],
+                        &mut dst[start..],
+                    )
+                    .map_err(|_| ())?;
+                dst.extend_from_slice(tag.as_slice());
+                Ok(())
+            }
+            Self::None => {
+                dst.extend_from_slice(data);
+                Ok(())
+            }
         }
     }
 
@@ -170,7 +187,7 @@ pub struct VmessStream {
     read_counter: u16,
     read_size_mask: Option<SizeMask>,
     read_global_padding: bool,
-    read_buf: BytesMut,
+    read_buf: Bytes,
     read_raw_buf: BytesMut,
     /// Decoded (size, padding_len) from a previous partial read of the chunk header.
     /// Prevents re-advancing the SizeMask when the chunk body has not yet arrived.
@@ -211,15 +228,15 @@ impl VmessStream {
             read_counter: 0,
             read_size_mask: chunk_masking.then(|| SizeMask::new(read_iv)),
             read_global_padding: options & REQUEST_OPTION_GLOBAL_PADDING != 0,
-            read_buf: BytesMut::new(),
-            read_raw_buf: BytesMut::new(),
+            read_buf: Bytes::new(),
+            read_raw_buf: vmess_buffer_pool().acquire(MAX_CHUNK_SIZE + 256),
             read_pending: None,
             write_cipher: BodyCipher::new(security, write_key),
             write_iv: *write_iv,
             write_counter: 0,
             write_size_mask: chunk_masking.then(|| SizeMask::new(write_iv)),
             write_global_padding: options & REQUEST_OPTION_GLOBAL_PADDING != 0,
-            write_buf: BytesMut::new(),
+            write_buf: vmess_buffer_pool().acquire(MAX_CHUNK_SIZE + 256),
         }
     }
 
@@ -316,27 +333,34 @@ impl VmessStream {
         Some(Ok(Bytes::from(plaintext)))
     }
 
-    fn encrypt_chunk(&mut self, data: &[u8]) -> io::Result<Vec<u8>> {
+    fn append_encrypted_chunk(&mut self, dst: &mut BytesMut, data: &[u8]) -> io::Result<()> {
         let nonce_arr = chunk_nonce(self.write_counter, &self.write_iv);
-        let data_ct = self.write_cipher.encrypt(&nonce_arr, data).map_err(|_| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "VMess: body chunk encrypt failed",
-            )
-        })?;
-        self.write_counter = self.write_counter.wrapping_add(1);
-
         let padding_len = self.next_write_padding_len();
-        let size = self.encode_size(data_ct.len() + padding_len);
-        let mut out = Vec::with_capacity(size.len() + data_ct.len() + padding_len);
-        out.extend_from_slice(&size);
-        out.extend_from_slice(&data_ct);
+        let size = self.encode_size(data.len() + self.write_cipher.overhead() + padding_len);
+        dst.reserve(size.len() + data.len() + self.write_cipher.overhead() + padding_len);
+        dst.put_slice(&size);
+        self.write_cipher
+            .encrypt_append(&nonce_arr, dst, data)
+            .map_err(|_| {
+                io::Error::new(
+                    io::ErrorKind::InvalidData,
+                    "VMess: body chunk encrypt failed",
+                )
+            })?;
+        self.write_counter = self.write_counter.wrapping_add(1);
         if padding_len > 0 {
-            let start = out.len();
-            out.resize(start + padding_len, 0);
-            rand::rng().fill(&mut out[start..]);
+            let start = dst.len();
+            dst.resize(start + padding_len, 0);
+            rand::rng().fill(&mut dst[start..]);
         }
-        Ok(out)
+        Ok(())
+    }
+}
+
+impl Drop for VmessStream {
+    fn drop(&mut self) {
+        vmess_buffer_pool().release(std::mem::take(&mut self.read_raw_buf));
+        vmess_buffer_pool().release(std::mem::take(&mut self.write_buf));
     }
 }
 
@@ -374,7 +398,7 @@ impl AsyncRead for VmessStream {
                                     self.read_raw_buf = raw;
                                     return Poll::Ready(Ok(()));
                                 }
-                                self.read_buf.extend_from_slice(&pt);
+                                self.read_buf = pt;
                             }
                             Some(Err(e)) => {
                                 self.read_raw_buf = raw;
@@ -397,12 +421,13 @@ impl AsyncWrite for VmessStream {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         let chunk = &buf[..buf.len().min(MAX_CHUNK_SIZE)];
-        let encrypted = match self.encrypt_chunk(chunk) {
-            Ok(v) => v,
+        let mut staged = std::mem::take(&mut self.write_buf);
+        let result = self.append_encrypted_chunk(&mut staged, chunk);
+        self.write_buf = staged;
+        match result {
+            Ok(()) => Poll::Ready(Ok(chunk.len())),
             Err(e) => return Poll::Ready(Err(e)),
-        };
-        self.write_buf.extend_from_slice(&encrypted);
-        Poll::Ready(Ok(chunk.len()))
+        }
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {

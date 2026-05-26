@@ -28,7 +28,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
 | **P1** | SplitHTTP stream-one (HTTP/2 via ALPN h2) | `vless-splithttp` Xray+sing-box **PASS** |
 | **P2** | SplitHTTP packet-up (sing-box完整) | **Not in matrix** — stub must not be labeled Supported |
-| **P2** | SS2022 SIP022 UDP | Unsupported |
+| ~~**P2**~~ | ~~SS2022 SIP022 UDP~~ | `ss2022-udp` Xray+sing-box **PASS** |
 
 ## Shipped with upstream client proof (matrix or documented SKIP)
 
@@ -39,7 +39,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | HTTPUpgrade, QUIC, SplitHTTP **stream-one** (HTTP/2) | Transports + e2e + `vless-splithttp` Xray+sing-box **PASS** |
 | Vision, hot-reload, Stats gRPC | `vision.rs`, `reload.rs`, `blackwire-api` |
 | Routing `IPIfNonMatch` / `IPOnDemand` | `router.rs`, `dispatcher.rs` |
-| Trojan TCP, VMess, SS2022 TCP, REALITY, WS, gRPC | Matrix rows + e2e |
+| Trojan TCP, VMess, SS2022 TCP/UDP, REALITY, WS, gRPC | Matrix rows + e2e |
 | Handler gRPC (VLESS user ops) | API listener user add/remove |
 
 ## Wire in tree — not matrix-Supported yet (includes uncommitted batch)
@@ -47,7 +47,6 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Area | Upstream | Proof today | Gap to Supported |
 |------|----------|-------------|------------------|
 | SplitHTTP packet-up stub | sing-box xHTTP (partial) | Code only if `mode: packet-up` | Full sing-box parity (P2); **not** matrix |
-| SS2022 UDP (SIP022) | Xray/sing-box `2022-blake3-aes-256-gcm` UDP | In-process e2e PASS; `ss2022-udp` lab row in scenarios.env | Xray+sing-box matrix PASS (external-client Docker lab) |
 
 ## External-client matrix SKIPs (not “unsupported in blackwire”)
 
@@ -66,7 +65,6 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Vision TLS splice | Direct-copy on TLS records; not kernel splice |
 | Trojan UDP outbound | `connect_trojan_on_stream_udp()`; in-process e2e PASS; no external-client lab row |
 | XUDP vs Mux.Cool UDP | XUDP: session `0` + GlobalID; Mux.Cool UDP: non-zero session id |
-| SS2022 UDP | SIP022 UDP wire not implemented |
 | Hot-reload listeners | `AddInbound`/`RemoveInbound` listener rebind UNIMPLEMENTED |
 | Native JSON only | Xray/sing-box JSON not imported |
 
@@ -74,8 +72,6 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Item | Work |
 |------|------|
-| SOCKS UDP probe in matrix harness | Prove Trojan/VLESS UDP with real DNS datagram |
-| SS2022 SIP022 UDP relay | P2 — in tree; matrix pending |
 | SplitHTTP full packet-up | P2 — sing-box reference |
 | Kernel TLS splice audit | P4 |
 | In-place listener rebind | P4 |

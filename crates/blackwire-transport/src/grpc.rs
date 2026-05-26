@@ -44,12 +44,13 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use blackwire_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, BufferPool, ProxyError};
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
@@ -59,35 +60,44 @@ const MAX_MESSAGE_SIZE: u32 = 16 * 1024 * 1024;
 /// gRPC frame header length (1 compressed flag + 4 length bytes).
 const FRAME_HEADER_LEN: usize = 5;
 
+fn grpc_buffer_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
+
 // ── gRPC frame encode / decode ────────────────────────────────────────────────
 
 /// Encode `payload` as a gRPC length-prefixed frame.
 pub fn encode_grpc_frame(payload: &[u8]) -> Bytes {
     let mut buf = BytesMut::with_capacity(FRAME_HEADER_LEN + payload.len());
+    append_grpc_frame(&mut buf, payload);
+    buf.freeze()
+}
+
+fn append_grpc_frame(buf: &mut BytesMut, payload: &[u8]) {
     buf.put_u8(0x00); // not compressed
     buf.put_u32(payload.len() as u32);
     buf.put_slice(payload);
-    buf.freeze()
+}
+
+fn append_grpc_frame_prefix(buf: &mut BytesMut, payload_len: usize) {
+    buf.put_u8(0x00); // not compressed
+    buf.put_u32(payload_len as u32);
 }
 
 // ── protobuf Hunk encode / decode ─────────────────────────────────────────────
 
-/// Encode `data` as a protobuf `Hunk { bytes data = 1; }` message.
-///
-/// Wire encoding: field-tag 0x0A (field 1, wire type 2) + varint(len) + data.
-fn encode_hunk(data: &[u8]) -> Bytes {
-    let mut buf = BytesMut::with_capacity(1 + 4 + data.len());
+fn append_hunk(buf: &mut BytesMut, data: &[u8]) {
     buf.put_u8(0x0A); // field 1, wire type 2
-    put_varint(data.len() as u64, &mut buf);
+    put_varint(data.len() as u64, buf);
     buf.put_slice(data);
-    buf.freeze()
 }
 
 /// Decode a protobuf `Hunk { bytes data = 1; }` message, returning the inner bytes.
 ///
 /// Returns an error if the tag is missing or wrong, or if the length prefix
 /// extends beyond the supplied slice.
-fn decode_hunk(payload: &[u8]) -> Result<Bytes, ProxyError> {
+fn decode_hunk(payload: Bytes) -> Result<Bytes, ProxyError> {
     if payload.is_empty() {
         return Ok(Bytes::new());
     }
@@ -107,7 +117,7 @@ fn decode_hunk(payload: &[u8]) -> Result<Bytes, ProxyError> {
             "gRPC Gun: Hunk data extends past message boundary".into(),
         ));
     }
-    Ok(Bytes::copy_from_slice(&payload[offset..end]))
+    Ok(payload.slice(offset..end))
 }
 
 /// Append a protobuf varint encoding of `val` to `buf`.
@@ -194,7 +204,7 @@ pub struct GrpcStream {
     recv_buf: BytesMut,
 
     /// Decoded payload bytes ready to serve to readers.
-    read_buf: BytesMut,
+    read_buf: Bytes,
 
     /// Pre-encoded gRPC frames waiting to be flushed to the inner stream.
     write_buf: BytesMut,
@@ -205,10 +215,17 @@ impl GrpcStream {
     pub fn new(inner: BoxedStream) -> Self {
         Self {
             inner,
-            recv_buf: BytesMut::new(),
-            read_buf: BytesMut::new(),
-            write_buf: BytesMut::new(),
+            recv_buf: grpc_buffer_pool().acquire(16 * 1024),
+            read_buf: Bytes::new(),
+            write_buf: grpc_buffer_pool().acquire(16 * 1024),
         }
+    }
+}
+
+impl Drop for GrpcStream {
+    fn drop(&mut self) {
+        grpc_buffer_pool().release(std::mem::take(&mut self.recv_buf));
+        grpc_buffer_pool().release(std::mem::take(&mut self.write_buf));
     }
 }
 
@@ -239,22 +256,23 @@ impl AsyncRead for GrpcStream {
                     if payload.is_empty() {
                         return Poll::Ready(Ok(())); // end of stream
                     }
+                    let payload_len = payload.len();
+                    let payload_first_byte = payload.first().copied().unwrap_or(0);
                     // Unwrap the protobuf Hunk message to get the raw tunnelled bytes.
-                    match decode_hunk(&payload) {
+                    match decode_hunk(payload) {
                         Ok(data) => {
                             tracing::trace!(
-                                payload_len = payload.len(),
+                                payload_len,
                                 data_len = data.len(),
                                 first_bytes = %hex::encode(&data[..data.len().min(20)]),
                                 "gRPC: decoded Hunk"
                             );
-                            self.read_buf.extend_from_slice(&data);
+                            self.read_buf = data;
                         }
                         Err(e) => {
                             tracing::warn!(
-                                payload_len = payload.len(),
-                                first_byte =
-                                    format!("{:#04x}", payload.first().copied().unwrap_or(0)),
+                                payload_len,
+                                first_byte = format!("{:#04x}", payload_first_byte),
                                 "gRPC: Hunk decode failed: {e}"
                             );
                             return Poll::Ready(Err(io::Error::new(
@@ -295,8 +313,17 @@ impl AsyncWrite for GrpcStream {
         // Encode each write immediately as a bounded gRPC frame (xray pattern).
         // This prevents unbounded write_buf growth when flush is delayed.
         let n = buf.len().min(MAX_MESSAGE_SIZE as usize);
-        let hunk = encode_hunk(&buf[..n]);
-        self.write_buf.extend_from_slice(&encode_grpc_frame(&hunk));
+        let data = &buf[..n];
+        let mut varint_len = 1usize;
+        let mut remaining = data.len() as u64;
+        while remaining >= 0x80 {
+            remaining >>= 7;
+            varint_len += 1;
+        }
+        let hunk_len = 1 + varint_len + data.len();
+        self.write_buf.reserve(FRAME_HEADER_LEN + hunk_len);
+        append_grpc_frame_prefix(&mut self.write_buf, hunk_len);
+        append_hunk(&mut self.write_buf, data);
         Poll::Ready(Ok(n))
     }
 

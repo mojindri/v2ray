@@ -28,9 +28,10 @@
 
 use std::io;
 use std::pin::Pin;
+use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll};
 
-use bytes::BytesMut;
+use bytes::{Bytes, BytesMut};
 use futures::sink::Sink;
 use futures::stream::Stream;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -40,7 +41,7 @@ use tokio_tungstenite::{
 };
 use tungstenite::Message;
 
-use blackwire_common::{BoxedStream, ProxyError};
+use blackwire_common::{BoxedStream, BufferPool, ProxyError};
 
 /// Configuration for a WebSocket connection.
 #[derive(Debug, Clone)]
@@ -130,6 +131,11 @@ const WS_WRITE_BUFFER_SIZE: usize = 4 * 1024;
 
 type InnerWsStream<S> = tokio_tungstenite::WebSocketStream<S>;
 
+fn ws_buffer_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
+
 /// A `BoxedStream`-compatible wrapper around a tungstenite WebSocket stream.
 ///
 /// Reads return the payload bytes from the next binary frame.
@@ -143,7 +149,7 @@ pub struct WsStream<S> {
 
     /// Buffered bytes from the current incoming frame.
     /// We may receive a large frame but the caller reads it in small chunks.
-    read_buf: BytesMut,
+    read_buf: Bytes,
 
     /// True if the remote side has sent a Close frame.
     closed: bool,
@@ -160,11 +166,17 @@ impl<S> WsStream<S> {
     pub fn new(inner: InnerWsStream<S>) -> Self {
         Self {
             inner,
-            read_buf: BytesMut::new(),
+            read_buf: Bytes::new(),
             closed: false,
-            write_buf: BytesMut::new(),
+            write_buf: ws_buffer_pool().acquire(WS_WRITE_BUFFER_SIZE),
             pending_write: None,
         }
+    }
+}
+
+impl<S> Drop for WsStream<S> {
+    fn drop(&mut self) {
+        ws_buffer_pool().release(std::mem::take(&mut self.write_buf));
     }
 }
 
@@ -201,12 +213,12 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncRead for WsStream<S> {
                 Poll::Ready(Some(Ok(msg))) => match msg {
                     Message::Binary(data) => {
                         // Buffer the frame bytes and loop to serve them.
-                        self.read_buf.extend_from_slice(&data);
+                        self.read_buf = data;
                         // Loop: serve from read_buf on the next iteration.
                     }
                     Message::Text(data) => {
                         // Some implementations send text frames; treat as binary.
-                        self.read_buf.extend_from_slice(data.as_bytes());
+                        self.read_buf = Bytes::copy_from_slice(data.as_bytes());
                     }
                     Message::Close(_) => {
                         self.closed = true;

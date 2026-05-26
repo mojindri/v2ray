@@ -59,7 +59,7 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
 | Trojan UDP | Yes | Yes | **Supported** | Xray `CMD 0x03`; inbound: matrix `trojan-udp` Xray+sing-box **PASS**; outbound: `connect_trojan_on_stream_udp()`; e2e `e2e_trojan_udp_outbound.rs` PASS |
 | Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
-| SS2022 UDP relay (SIP022) | Yes | No | **Experimental** | `ss2022/udp.rs`; in-process e2e `e2e_ss2022_udp.rs` PASS; `ss2022-udp` lab row (matrix pending external-client PASS) |
+| SS2022 UDP relay (SIP022) | Yes | Yes | **Supported** | `ss2022/udp.rs` (sing-box SIP022 wire); e2e `e2e_ss2022_udp.rs` PASS; matrix `ss2022-udp` Xray+sing-box **PASS** |
 | Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
 | ShadowTLS as `protocol` enum | No | No | **Unsupported** | Only `security: shadowtls` on TCP inbounds/outbounds |
 | DNS / dokodemo / tun inbound protocol | No | No | **Unsupported** | Not in `Protocol` enum |

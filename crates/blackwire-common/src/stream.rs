@@ -91,21 +91,67 @@ pub type BoxedStream = Box<dyn AsyncReadWrite + Send + Unpin + 'static>;
 /// `BoxedStream` as opaque.
 #[cfg(target_os = "linux")]
 pub fn try_into_tcp_stream(stream: BoxedStream) -> Result<TcpStream, BoxedStream> {
+    match try_into_tcp_stream_with_prefix(stream) {
+        Ok((tcp, prefix)) if prefix.is_empty() => Ok(tcp),
+        Ok((tcp, prefix)) => Err(Box::new(PrependedStream::new(tcp, prefix))),
+        Err(stream) => Err(stream),
+    }
+}
+
+/// Recover a raw TCP stream plus unread prefix bytes from a boxed stream.
+///
+/// Some protocol handlers buffer a few bytes past the handshake boundary using
+/// `PrependedStream`. The relay can still optimize those connections by
+/// draining the unread prefix first, then switching to splice on the recovered
+/// raw sockets.
+#[cfg(target_os = "linux")]
+pub fn try_into_tcp_stream_with_prefix(
+    stream: BoxedStream,
+) -> Result<(TcpStream, Vec<u8>), BoxedStream> {
     // First check the type by reference. This avoids consuming the box unless
     // we already know the downcast should succeed.
     if stream.as_any().is::<TcpStream>() {
-        // Now consume the boxed trait object and turn it into boxed `Any`.
-        // From there, Rust can safely downcast it back into `TcpStream`.
         let any = stream.into_any();
         let tcp = any
             .downcast::<TcpStream>()
             .expect("stream type checked as TcpStream before downcast");
-        Ok(*tcp)
-    } else {
-        // Not raw TCP: hand the original stream back to the caller so it can
-        // use the portable fallback path without losing any data.
-        Err(stream)
+        return Ok((*tcp, Vec::new()));
     }
+
+    if stream.as_any().is::<PrependedStream<TcpStream>>() {
+        let any = stream.into_any();
+        let prepended = any
+            .downcast::<PrependedStream<TcpStream>>()
+            .expect("stream type checked as PrependedStream<TcpStream> before downcast");
+        let (tcp, prefix) = prepended.into_parts();
+        return Ok((tcp, prefix));
+    }
+
+    if stream.as_any().is::<PrependedStream<BoxedStream>>() {
+        let any = stream.into_any();
+        let prepended = any
+            .downcast::<PrependedStream<BoxedStream>>()
+            .expect("stream type checked as PrependedStream<BoxedStream> before downcast");
+        let (inner, mut prefix) = prepended.into_parts();
+
+        return match try_into_tcp_stream_with_prefix(inner) {
+            Ok((tcp, mut inner_prefix)) => {
+                if prefix.is_empty() {
+                    Ok((tcp, inner_prefix))
+                } else if inner_prefix.is_empty() {
+                    Ok((tcp, prefix))
+                } else {
+                    prefix.append(&mut inner_prefix);
+                    Ok((tcp, prefix))
+                }
+            }
+            Err(inner) => Err(Box::new(PrependedStream::new(inner, prefix))),
+        };
+    }
+
+    // Not raw TCP: hand the original stream back to the caller so it can
+    // use the portable fallback path without losing any data.
+    Err(stream)
 }
 
 /// A bidirectional link: separate read and write halves of a stream.
@@ -173,6 +219,16 @@ impl<S> PrependedStream<S> {
             prefix_pos: 0,
             inner,
         }
+    }
+
+    /// Consume the stream and return the unread prefix bytes plus the inner stream.
+    pub fn into_parts(self) -> (S, Vec<u8>) {
+        let unread = if self.prefix_pos >= self.prefix.len() {
+            Vec::new()
+        } else {
+            self.prefix[self.prefix_pos..].to_vec()
+        };
+        (self.inner, unread)
     }
 }
 

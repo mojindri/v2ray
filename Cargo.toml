@@ -72,6 +72,8 @@ tun         = { version = "0.8", features = ["async"] }
 # ── Crypto — pure Rust, all audited ───────────────────────────────────────────
 aws-lc-rs           = "1.17"
 ring                = "0.17"
+aes                 = "0.8"
+cipher              = "0.4"
 aes-gcm             = "0.10"
 chacha20poly1305    = "0.10"
 blake3              = "1.8"
