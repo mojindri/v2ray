@@ -1,12 +1,12 @@
 //! VLESS Mux.Cool framing and inbound demux (Xray `common/mux`, `common/xudp`).
 //!
-//! Wire format: https://xtls.github.io/en/development/protocols/muxcool.html
+//! Wire format: <https://xtls.github.io/en/development/protocols/muxcool.html>
 //!
 //! **XUDP** (sing-box `packet_encoding: xudp`, Xray mux + GlobalID): session id
 //! `0`, 8-byte GlobalID on the first UDP `New` frame with `Opt(D)`, and per-packet
 //! destination on UDP `Keep` replies (Xray `common/xudp/xudp.go`).
 //!
-//!   [u16 metadata length][metadata][optional u16 data length + payload]
+//!   \[u16 metadata length\]\[metadata\]\[optional u16 data length + payload\]
 
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -39,9 +39,13 @@ const MAX_DATA_LEN: usize = 512 * 1024;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum SessionStatus {
+    /// Open a new mux sub-connection.
     New = 0x01,
+    /// Continue an existing sub-connection (may carry payload).
     Keep = 0x02,
+    /// Close a sub-connection.
     End = 0x03,
+    /// Session keep-alive with no payload.
     KeepAlive = 0x04,
 }
 
@@ -63,7 +67,9 @@ impl SessionStatus {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum TargetNetwork {
+    /// TCP sub-connection target.
     Tcp = 0x01,
+    /// UDP sub-connection target (XUDP).
     Udp = 0x02,
 }
 
@@ -82,8 +88,11 @@ impl TargetNetwork {
 /// Parsed Mux.Cool metadata (without the outer length prefix or payload).
 #[derive(Debug, Clone)]
 pub struct FrameMetadata {
+    /// Mux session identifier (0 for XUDP).
     pub session_id: u16,
+    /// Frame lifecycle status (`New`, `Keep`, `End`, `KeepAlive`).
     pub status: SessionStatus,
+    /// Metadata option flags (e.g. [`OPT_DATA`]).
     pub option: u8,
     /// Present on `New` and on UDP `Keep` when address fields follow.
     pub target: Option<(TargetNetwork, Address)>,

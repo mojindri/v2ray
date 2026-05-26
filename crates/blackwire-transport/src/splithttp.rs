@@ -331,6 +331,11 @@ pub async fn splithttp_accept_h2(
     Ok(SplitHttpAcceptResult::Tunnel(Box::new(user_end)))
 }
 
+/// Accept HTTP/2 xHTTP `packet-up` on an inbound connection.
+///
+/// Handles per-session `POST` uploads and `GET` downloads on the shared h2 connection.
+/// Each completed download invokes `on_tunnel` with a [`SplitHttpAcceptResult::Tunnel`]
+/// for the VLESS handler to process.
 pub async fn splithttp_accept_h2_packet_up(
     stream: BoxedStream,
     expected_path: Option<&str>,
