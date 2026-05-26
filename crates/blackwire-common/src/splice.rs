@@ -51,6 +51,7 @@ mod linux {
     use std::pin::Pin;
     use std::time::Duration;
 
+    use tokio::io::AsyncWriteExt;
     use tokio::io::Interest;
     use tokio::net::TcpStream;
 
