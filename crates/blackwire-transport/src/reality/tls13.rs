@@ -1,4 +1,4 @@
-//! TLS 1.3 handshake completion for REALITY Phase 3.
+//! TLS 1.3 handshake completion for REALITY (post-auth).
 //!
 //! After sending the REALITY-authenticated ClientHello, this module:
 //!   1. Reads ServerHello and extracts the server's x25519 key_share.
@@ -903,7 +903,7 @@ impl AsyncRead for Tls13Stream {
         let mut me = self.project();
 
         loop {
-            // ── Phase 0: serve decrypted bytes ────────────────────────────────
+            // ── Step 0: serve decrypted bytes ───────────────────────────────────
             if *me.read_phase == RPHASE_PLAINTEXT {
                 if *me.plain_pos < me.plain_buf.len() {
                     let available = &me.plain_buf[*me.plain_pos..];
@@ -921,7 +921,7 @@ impl AsyncRead for Tls13Stream {
                 *me.header_pos = 0;
             }
 
-            // ── Phase 1: read 5-byte TLS record header ────────────────────────
+            // ── Step 1: read 5-byte TLS record header ─────────────────────────
             if *me.read_phase == RPHASE_HEADER {
                 while *me.header_pos < 5 {
                     let mut rb = ReadBuf::new(&mut me.header_buf[*me.header_pos..]);
@@ -941,7 +941,7 @@ impl AsyncRead for Tls13Stream {
                 *me.read_phase = RPHASE_BODY;
             }
 
-            // ── Phase 2: read record body ─────────────────────────────────────
+            // ── Step 2: read record body ──────────────────────────────────────
             if *me.read_phase == RPHASE_BODY {
                 while *me.body_pos < me.body_buf.len() {
                     let mut rb = ReadBuf::new(&mut me.body_buf[*me.body_pos..]);

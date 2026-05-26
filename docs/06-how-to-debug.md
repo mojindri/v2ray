@@ -164,8 +164,8 @@ Symptoms:
 
 Typical case:
 
-- Phase 2 tests expecting raw post-auth bytes (no Phase 3 TLS completion)
-- implementation now completes Phase 3 TLS 1.3 before returning app stream
+- tests expecting raw post-auth bytes (auth-only / direct mode)
+- implementation now completes TLS 1.3 before returning app stream
 
 When this happens, do not blindly "fix code to satisfy old tests."
 Decide whether the implementation contract or the test contract is the current truth.

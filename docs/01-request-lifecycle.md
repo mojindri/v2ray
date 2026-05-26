@@ -263,7 +263,7 @@ High-level success path:
 
 That "replay the ClientHello into TLS" detail matters a lot.
 
-It is why the success-path contract changed from old Phase 2 shortcuts to the current Phase 3 shape.
+It is why the success-path contract changed from auth-only shortcuts to the current full TLS 1.3 completion shape.
 
 ## REALITY Failure Path
 

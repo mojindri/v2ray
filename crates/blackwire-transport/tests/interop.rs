@@ -164,7 +164,7 @@ async fn spawn_dummy_fallback() -> SocketAddr {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Our client with correct credentials authenticates against our own server
-/// and finishes the Phase 3 TLS 1.3 handshake.
+/// and finishes the TLS 1.3 handshake.
 ///
 /// Expected: `RealityServer::accept()` replays the ClientHello into rustls,
 /// the TLS handshake completes, and application bytes flow both directions.
@@ -290,8 +290,8 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
         }
     });
 
-    // Connect with the wrong short ID. Phase 3 dial attempts a full TLS
-    // handshake, so the fallback plaintext path must surface as an error here.
+    // Connect with the wrong short ID. dial() attempts a full TLS handshake,
+    // so the fallback plaintext path must surface as an error here.
     let client = RealityClient::new(RealityClientConfig {
         server: server_addr,
         server_public_key: pub_bytes,
@@ -301,7 +301,7 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
     });
     assert!(
         client.dial().await.is_err(),
-        "wrong short ID should not complete the Phase 3 TLS handshake"
+        "wrong short ID should not complete the TLS 1.3 handshake"
     );
 
     let fallback_triggered = timeout(Duration::from_secs(5), rx)
@@ -401,7 +401,7 @@ fn xray_client(short_id: Vec<u8>, sni: &str) -> RealityClient {
     })
 }
 
-/// Valid REALITY auth + full TLS 1.3 handshake (Phase 3).
+/// Valid REALITY auth + full TLS 1.3 handshake.
 ///
 /// `RealityClient::dial()` now completes the entire TLS 1.3 handshake after
 /// sending the authenticated ClientHello:
@@ -419,7 +419,7 @@ fn xray_client(short_id: Vec<u8>, sni: &str) -> RealityClient {
 /// meaning Xray set `hs.c.isHandshakeComplete = true` and accepted the auth.
 #[ignore = "d1 requires Xray + internet: make -C tests/interop up"]
 #[tokio::test]
-async fn d1_valid_auth_phase3_handshake_completes() {
+async fn d1_valid_auth_tls13_handshake_completes() {
     let short_id = hex_short_id(TEST_SHORT_ID_HEX);
     let _stream = xray_client(short_id, TEST_SNI)
         .dial()
@@ -434,7 +434,7 @@ async fn d1_valid_auth_phase3_handshake_completes() {
             )
         });
 
-    println!("[d1_valid_auth] ✓ Phase 3 TLS 1.3 handshake complete — Xray accepted REALITY auth");
+    println!("[d1_valid_auth] ✓ TLS 1.3 handshake complete — Xray accepted REALITY auth");
 }
 
 /// Wrong short ID: Xray cannot decrypt the REALITY token, falls back to nginx.

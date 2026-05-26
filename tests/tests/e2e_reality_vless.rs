@@ -2,7 +2,7 @@
 //!
 //! This proves the local REALITY path transfers real bytes end to end.
 //!
-//! The outbound side now completes the Phase 3 TLS handshake, and the inbound
+//! The outbound side now completes the TLS 1.3 handshake, and the inbound
 //! side unwraps REALITY plus a local TLS session before handing bytes to VLESS.
 //! The test exercises the
 //! localhost example topology rather than the live Xray interop harness.

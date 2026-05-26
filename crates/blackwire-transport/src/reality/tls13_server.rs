@@ -1,4 +1,4 @@
-//! TLS 1.3 server handshake for REALITY Phase 3 (post-auth camouflage).
+//! TLS 1.3 server handshake for REALITY (post-auth camouflage).
 
 use ed25519_dalek::{Signer, SigningKey};
 use rand::RngExt;

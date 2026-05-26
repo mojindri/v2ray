@@ -36,7 +36,7 @@ pub struct RealityClientConfig {
     /// The cover-domain SNI to place in the ClientHello.
     pub sni: String,
 
-    /// Which browser fingerprint profile to use. Phase 3 supports Chrome.
+    /// Which browser fingerprint profile to use. Currently supports Chrome.
     pub fingerprint: String,
 }
 
@@ -53,7 +53,7 @@ impl RealityClient {
 
     /// Connect to the REALITY server and complete the full TLS 1.3 handshake.
     ///
-    /// Phase 3: after sending the REALITY-authenticated ClientHello, we continue
+    /// After sending the REALITY-authenticated ClientHello, we continue
     /// the TLS handshake (derive keys, decrypt server messages, send Finished)
     /// so that `hs.c.isHandshakeComplete` is true on the Xray side.  The
     /// returned stream is ready for application-data I/O.
@@ -105,7 +105,7 @@ impl RealityClient {
         tcp.write_all(&final_hello).await?;
         debug!(server = %self.config.server, "REALITY ClientHello sent");
 
-        // ── Phase 3: complete TLS 1.3 handshake ──────────────────────────────
+        // ── Complete TLS 1.3 handshake ───────────────────────────────────────
         // final_hello[5..] is the ClientHello handshake body (without the 5-byte
         // TLS record header). It forms the start of the TLS transcript.
         let client_hello_hs_body = &final_hello[5..];
@@ -118,7 +118,7 @@ impl RealityClient {
         )
         .await?;
 
-        debug!(server = %self.config.server, "REALITY Phase 3 handshake complete");
+        debug!(server = %self.config.server, "REALITY TLS 1.3 handshake complete");
         Ok(Box::new(Tls13Stream::new(Box::new(tcp), app_keys)))
     }
 }

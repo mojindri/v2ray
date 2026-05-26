@@ -23,7 +23,7 @@ still expects the rest of the TLS handshake to complete. If our client only
 sent a believable `ClientHello` and stopped there, Xray would reject the
 connection because its TLS state never became fully established.
 
-That is what the Phase 3 tests are checking.
+That is what the TLS 1.3 completion tests are checking.
 
 ## Test tiers
 
@@ -110,7 +110,7 @@ To interoperate cleanly, the Rust client now offers both:
 - `x25519` for REALITY auth and normal TLS
 - `secp256r1` for TLS servers that prefer P-256
 
-That first-flight dual offer is what made the `d1` Phase 3 handshake pass.
+That first-flight dual offer is what made the `d1` TLS 1.3 handshake pass.
 
 ## CI gates
 

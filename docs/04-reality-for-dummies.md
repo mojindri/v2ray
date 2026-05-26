@@ -44,7 +44,7 @@ In the current codebase, REALITY success means:
 - TLS 1.3 handshake completes
 - application bytes flow after handshake
 
-That is the important Phase 3 contract.
+That is the important TLS 1.3 completion contract.
 
 ## The Two Sides
 
@@ -189,7 +189,7 @@ The server:
 
 If that succeeds, the client is considered legitimate.
 
-### Step 7: Server replays the `ClientHello` for Phase 3 post-auth TLS
+### Step 7: Server replays the `ClientHello` for post-auth TLS
 
 After REALITY auth succeeds, the server does not hand plaintext bytes directly to
 the protocol handler.
@@ -306,7 +306,7 @@ If you want to study REALITY in code, read in this order:
    field extraction
 
 5. [crates/blackwire-transport/src/reality/tls13_server.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-transport/src/reality/tls13_server.rs)
-   Phase 3 post-auth TLS 1.3 server handshake (ServerHello through Finished)
+   post-auth TLS 1.3 server handshake (ServerHello through Finished)
 
 6. [crates/blackwire-core/src/reality.rs](/Users/mojnader/RustroverProjects/v2ray/crates/blackwire-core/src/reality.rs)
    how REALITY auth connects to TLS completion and VLESS
