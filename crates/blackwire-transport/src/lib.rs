@@ -31,6 +31,8 @@ pub mod ws;
 /// HTTPUpgrade transport (Xray `httpupgrade` network).
 pub mod httpupgrade;
 
+mod splithttp_packet_up;
+
 /// SplitHTTP / xHTTP transport.
 pub mod splithttp;
 
