@@ -143,7 +143,10 @@ impl Instance {
             info!("TUN runtime started");
         }
 
-        // ── Step 1: Build outbound handlers ─────────────────────────────────
+        // ── Step 1: DNS module (shared by dispatcher + freedom outbounds) ─────
+        let dns = build_dns_module(config.dns.as_ref()).await?;
+
+        // ── Step 2: Build outbound handlers ─────────────────────────────────
         let mut outbound_map: HashMap<String, Arc<dyn OutboundHandler>> = HashMap::new();
 
         for out_cfg in &config.outbounds {
@@ -154,7 +157,10 @@ impl Instance {
                 &out_cfg.stream_settings,
             )?;
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
-                Protocol::Freedom => FreedomOutbound::new(&out_cfg.tag),
+                Protocol::Freedom => match &dns {
+                    Some(module) => FreedomOutbound::new_with_dns(&out_cfg.tag, Arc::clone(module)),
+                    None => FreedomOutbound::new(&out_cfg.tag),
+                },
                 Protocol::Vless => build_vless_outbound(out_cfg)
                     .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?,
                 Protocol::Hysteria2 => build_hysteria2_outbound(out_cfg)
@@ -243,13 +249,12 @@ impl Instance {
         };
         let vless_registries = Arc::clone(&reload.vless_registries);
 
-        // ── Step 3: Create dispatcher ────────────────────────────────────────
-        let dns = build_dns_module(config.dns.as_ref()).await?;
-        let dispatcher = match dns {
+        // ── Step 4: Create dispatcher ────────────────────────────────────────
+        let dispatcher = match &dns {
             Some(dns) => DefaultDispatcher::new_with_dns_and_sniffing(
                 router,
                 outbound_map,
-                dns,
+                Arc::clone(dns),
                 Arc::clone(&sniffing_shared),
             ),
             None => DefaultDispatcher::new_with_sniffing(router, outbound_map, sniffing_shared),

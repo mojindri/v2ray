@@ -16,6 +16,8 @@ PORT_WAIT_TRIES="${MATRIX_PORT_WAIT_TRIES:-40}"
 PORT_WAIT_SLEEP="${MATRIX_PORT_WAIT_SLEEP:-0.15}"
 SOCKS_WAIT_TRIES="${MATRIX_SOCKS_WAIT_TRIES:-20}"
 SOCKS_WAIT_SLEEP="${MATRIX_SOCKS_WAIT_SLEEP:-0.25}"
+# VLESS + Docker DNS round-trips can exceed 8s on loaded hosts; keep headroom over relay latency.
+CURL_MAX_TIME="${MATRIX_CURL_MAX_TIME:-15}"
 CLIENT_WAIT_TRIES="${MATRIX_CLIENT_WAIT_TRIES:-20}"
 
 mkdir -p "$REPORT_DIR/logs"
@@ -79,6 +81,14 @@ matrix_bootstrap() {
             >> "$REPORT_DIR/compose.log" 2>&1
     fi
 
+    # Ensure config bind mounts are fresh after `render-configs.sh`.
+    "${COMPOSE[@]}" up -d --force-recreate matrix-probe blackwire-server sing-box-client \
+        >> "$REPORT_DIR/compose.log" 2>&1 || true
+    if (( include_hiddify )); then
+        "${COMPOSE[@]}" up -d --force-recreate hiddify-sing-box-client \
+            >> "$REPORT_DIR/compose.log" 2>&1 || true
+    fi
+
     "${COMPOSE[@]}" exec -T matrix-probe sh -c \
         'command -v python3 >/dev/null 2>&1 || apk add --no-cache curl netcat-openbsd bind-tools python3 >/dev/null' \
         </dev/null >> "$REPORT_DIR/compose.log" 2>&1 || true
@@ -96,14 +106,20 @@ matrix_bootstrap() {
 }
 
 stop_blackwire() {
-    "${COMPOSE[@]}" exec -T blackwire-server sh -c 'pkill -x blackwire 2>/dev/null || true' \
+    "${COMPOSE[@]}" exec -T blackwire-server sh -c 'pkill -9 -x blackwire 2>/dev/null || true' \
         </dev/null >/dev/null 2>&1 || true
-    sleep 0.2
+    sleep 0.3
 }
 
 start_blackwire() {
     local server_cfg="$1"
     stop_blackwire
+    if ! "${COMPOSE[@]}" exec -T blackwire-server test -f "/generated/blackwire/${server_cfg}" \
+        </dev/null 2>&1; then
+        echo "ERROR: missing /generated/blackwire/${server_cfg} in blackwire-server (stale bind mount?)" \
+            >>"$REPORT_DIR/compose.log"
+        return 1
+    fi
     local rust_log="${MATRIX_SERVER_RUST_LOG:-}"
     local run_cmd="blackwire run -c /generated/blackwire/${server_cfg}"
     if [[ -n "$rust_log" ]]; then
@@ -157,8 +173,24 @@ stop_sing_box() {
 start_sing_box() {
     local client_cfg="$1"
     stop_sing_box
+    if ! "${COMPOSE[@]}" exec -T sing-box-client \
+        sing-box check -c "/generated/${client_cfg}" </dev/null >>"$REPORT_DIR/compose.log" 2>&1; then
+        echo "ERROR: sing-box config invalid: /generated/${client_cfg}" >>"$REPORT_DIR/compose.log"
+        return 1
+    fi
     "${COMPOSE[@]}" exec -d sing-box-client \
         sing-box run -c "/generated/${client_cfg}" </dev/null >> "$REPORT_DIR/compose.log" 2>&1
+    local i
+    for i in $(seq 1 "$CLIENT_WAIT_TRIES"); do
+        if "${COMPOSE[@]}" exec -T sing-box-client sh -c 'pgrep -x sing-box >/dev/null' </dev/null 2>/dev/null \
+            && "${COMPOSE[@]}" exec -T matrix-probe sh -c \
+                'nc -z -w1 sing-box-client 1080' </dev/null >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 0.2
+    done
+    echo "ERROR: sing-box SOCKS not ready on sing-box-client:1080" >>"$REPORT_DIR/compose.log"
+    return 1
 }
 
 stop_hiddify() {
@@ -278,7 +310,7 @@ wait_for_socks() {
     local i
     for i in $(seq 1 "$SOCKS_WAIT_TRIES"); do
         if "${COMPOSE[@]}" exec -T matrix-probe \
-            curl -fsS --max-time 2 --socks5-hostname "${client_host}:1080" "$TARGET_URL" \
+            curl -fsS --max-time "$CURL_MAX_TIME" --socks5-hostname "${client_host}:1080" "$TARGET_URL" \
             </dev/null >/dev/null 2>&1; then
             return 0
         fi
@@ -363,9 +395,15 @@ run_client_case() {
         fi
     else
         if [[ "$client_cfg" == */* ]]; then
-            start_sing_box "$client_cfg"
+            start_sing_box "$client_cfg" || {
+                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
+                return 1
+            }
         else
-            start_sing_box "sing-box/${client_cfg}"
+            start_sing_box "sing-box/${client_cfg}" || {
+                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
+                return 1
+            }
         fi
     fi
     assert_single_client
@@ -442,8 +480,16 @@ run_protocol() {
 
     run_client_case pass "xray-${protocol}" xray "$xray_cfg" \
         "$REPORT_DIR/logs/xray-${protocol}.log" "$protocol" || overall=1
-    run_client_case pass "sing-box-${protocol}" sing-box "$sing_cfg" \
-        "$REPORT_DIR/logs/sing-box-${protocol}.log" "$protocol" || overall=1
+
+    # Xray can leave long-lived relays; restart blackwire before sing-box (fresh VLESS listener).
+    stop_blackwire
+    if ! start_blackwire "$server_cfg" || ! wait_for_server_port "$protocol"; then
+        echo "FAIL sing-box-${protocol} (server restart)" | tee -a "$REPORT_DIR/summary.txt"
+        overall=1
+    else
+        run_client_case pass "sing-box-${protocol}" sing-box "$sing_cfg" \
+            "$REPORT_DIR/logs/sing-box-${protocol}.log" "$protocol" || overall=1
+    fi
 
     local xray_neg="xray-negative/${xray_cfg}"
     local sing_neg="sing-box-negative/${sing_cfg}"

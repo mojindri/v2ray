@@ -1,13 +1,18 @@
 //! Traffic sniffing aligned with Xray `app/dispatcher` sniffing behavior.
 //!
-//! Peeks the first bytes of a TCP stream to detect HTTP Host or TLS SNI when the
-//! destination is an IP (common for transparent proxy / tun paths).
+//! When inbound sniffing is enabled, peeks the first bytes of the TCP stream to detect
+//! HTTP Host or TLS SNI (unless `metadataOnly`). `destOverride` rewrites an IP
+//! destination to the sniffed domain; `routeOnly` keeps the dial target as-is and
+//! exposes the sniffed domain for routing only.
 
 use blackwire_common::{Address, BoxedStream, PrependedStream, ProxyError};
 use blackwire_config::schema::SniffingConfig;
 use tokio::io::AsyncReadExt;
+use tokio::time::{timeout, Duration};
 
 const MAX_SNIFF: usize = 8192;
+/// Xray waits briefly for client payload before routing; do not block the dispatcher forever.
+const SNIFF_PEEK_TIMEOUT: Duration = Duration::from_millis(300);
 
 /// Result of sniffing the start of a connection.
 #[derive(Debug, Clone, Default)]
@@ -23,12 +28,16 @@ pub async fn sniff_stream(
     mut stream: BoxedStream,
     config: &SniffingConfig,
 ) -> Result<(BoxedStream, SniffResult), ProxyError> {
-    if !config.enabled {
+    if !config.enabled || config.metadata_only {
         return Ok((stream, SniffResult::default()));
     }
 
     let mut peek = vec![0u8; MAX_SNIFF];
-    let n = stream.read(&mut peek).await?;
+    let n = match timeout(SNIFF_PEEK_TIMEOUT, stream.read(&mut peek)).await {
+        Ok(Ok(n)) => n,
+        Ok(Err(e)) => return Err(e.into()),
+        Err(_) => 0,
+    };
     peek.truncate(n);
     if peek.is_empty() {
         return Ok((stream, SniffResult::default()));
@@ -67,7 +76,7 @@ pub fn analyze_peek(peek: &[u8], config: &SniffingConfig) -> SniffResult {
 
 /// Apply destOverride: replace IP destination with sniffed domain when configured.
 pub fn apply_dest_override(dest: Address, sniff: &SniffResult, config: &SniffingConfig) -> Address {
-    if !config.enabled {
+    if !config.enabled || config.route_only {
         return dest;
     }
     let Some(domain) = sniff.domain.as_ref() else {

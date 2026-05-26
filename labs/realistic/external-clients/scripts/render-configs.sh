@@ -31,7 +31,10 @@ PY
 fi
 export REALITY_PUBLIC_KEY_XRAY
 
-rm -rf "$OUT_DIR"
+# Keep the output directory inode stable: long-lived matrix containers bind-mount
+# `generated/`; deleting and recreating the directory can leave them with an empty mount.
+mkdir -p "$OUT_DIR"
+find "$OUT_DIR" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
 mkdir -p \
     "$OUT_DIR/blackwire" \
     "$OUT_DIR/xray" \

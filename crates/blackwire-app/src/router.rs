@@ -296,22 +296,24 @@ impl CompiledRule {
         let has_domain_restriction =
             self.domain_matcher.is_some() || !self.geosite_codes.is_empty();
         if has_domain_restriction {
-            match ctx.dest {
-                Address::Domain(name, _) => {
-                    let literal_ok = self
-                        .domain_matcher
-                        .as_ref()
-                        .is_some_and(|dm| dm.matches(name));
-                    let geosite_ok = self.geosite_codes.iter().any(|code| {
-                        geosite
-                            .get(code.as_str())
-                            .is_some_and(|m| m.match_domain(name))
-                    });
-                    if !(literal_ok || geosite_ok) {
-                        return false;
-                    }
-                }
-                _ => return false, // rule requires a domain, but dest is an IP
+            let domain_name: Option<&str> = match ctx.dest {
+                Address::Domain(name, _) => Some(name.as_str()),
+                _ => ctx.sniffed_domain,
+            };
+            let Some(name) = domain_name else {
+                return false;
+            };
+            let literal_ok = self
+                .domain_matcher
+                .as_ref()
+                .is_some_and(|dm| dm.matches(name));
+            let geosite_ok = self.geosite_codes.iter().any(|code| {
+                geosite
+                    .get(code.as_str())
+                    .is_some_and(|m| m.match_domain(name))
+            });
+            if !(literal_ok || geosite_ok) {
+                return false;
             }
         }
 

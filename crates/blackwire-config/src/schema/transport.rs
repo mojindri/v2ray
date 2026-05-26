@@ -243,6 +243,14 @@ pub struct SniffingConfig {
     /// Protocols to sniff for: "http", "tls", or "fakedns".
     #[serde(default, rename = "destOverride")]
     pub dest_override: Vec<String>,
+
+    /// When true, only sniff connection metadata (no payload peek). Xray `metadataOnly`.
+    #[serde(default, rename = "metadataOnly")]
+    pub metadata_only: bool,
+
+    /// When true, use sniffed domain for routing but keep the original dial target (IP). Xray `routeOnly`.
+    #[serde(default, rename = "routeOnly")]
+    pub route_only: bool,
 }
 
 /// Hysteria2 protocol configuration.

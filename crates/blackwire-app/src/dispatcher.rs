@@ -157,7 +157,7 @@ impl Dispatcher for DefaultDispatcher {
             .ok()
             .and_then(|g| g.get(&ctx.inbound_tag).cloned());
         if let Some(cfg) = sniff_cfg {
-            if cfg.enabled && matches!(dest, Address::Ipv4(..) | Address::Ipv6(..)) {
+            if cfg.enabled {
                 let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
                 inbound_stream = stream;
                 dest = crate::sniff::apply_dest_override(dest, &sniff, &cfg);
