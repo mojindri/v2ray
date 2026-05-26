@@ -26,7 +26,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | **P0** | Trojan UDP (`CMD 0x03`, 8192 B frames) | `trojan-udp` Xray+sing-box **PASS** (`udp-socks-probe.sh` Python SOCKS5 UDP ASSOCIATE) |
 | **P0** | Mux.Cool TCP (`v1.mux.cool`) | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool) |
 | **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
-| **P1** | SplitHTTP stream-one | `vless-splithttp` PASS |
+| **P1** | SplitHTTP stream-one (HTTP/2 via ALPN h2) | `vless-splithttp` Xray+sing-box **PASS** |
 | **P2** | SplitHTTP packet-up (sing-box完整) | **Not in matrix** — stub must not be labeled Supported |
 | **P2** | SS2022 SIP022 UDP | Unsupported |
 
@@ -36,7 +36,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 |------|----------|
 | External-client Docker matrix | `run-docker-matrix.sh` — 15 protocol rows |
 | VLESS UDP command `0x02`, sniffing, DNS DoH/DoT | Lab rows per feature matrix |
-| HTTPUpgrade, QUIC, SplitHTTP **stream-one** | Transports + e2e + `vless-splithttp` |
+| HTTPUpgrade, QUIC, SplitHTTP **stream-one** (HTTP/2) | Transports + e2e + `vless-splithttp` Xray+sing-box **PASS** |
 | Vision, hot-reload, Stats gRPC | `vision.rs`, `reload.rs`, `blackwire-api` |
 | Routing `IPIfNonMatch` / `IPOnDemand` | `router.rs`, `dispatcher.rs` |
 | Trojan TCP, VMess, SS2022 TCP, REALITY, WS, gRPC | Matrix rows + e2e |
@@ -46,8 +46,6 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Area | Upstream | Proof today | Gap to Supported |
 |------|----------|-------------|------------------|
-| Trojan UDP ASSOCIATE | Xray `proxy/trojan` | `trojan/udp.rs`, `e2e_trojan_udp.rs` | Matrix row + SOCKS UDP probe (P0) |
-| VLESS Mux.Cool demux | Mux.Cool spec | `vless/mux.rs`, `e2e_vless_mux.rs` | MUX/XUDP client matrix (P0/P1) |
 | SplitHTTP packet-up stub | sing-box xHTTP (partial) | Code only if `mode: packet-up` | Full sing-box parity (P2); **not** matrix |
 | Health-check failover | Xray balancer patterns | e2e + lab dir | Confirm matrix PASS |
 
