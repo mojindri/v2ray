@@ -1,10 +1,10 @@
-//! VLESS Mux.Cool framing and inbound demux (Xray `common/mux`).
+//! VLESS Mux.Cool framing and inbound demux (Xray `common/mux`, `common/xudp`).
 //!
 //! Wire format: https://xtls.github.io/en/development/protocols/muxcool.html
 //!
-//! **Not XUDP:** sing-box/Xray XUDP uses session id `0` + 8-byte GlobalID and
-//! per-packet Keep addresses — see Xray compatibility notes. This module
-//! implements Mux.Cool only; do not treat mux UDP sub-streams as XUDP parity.
+//! **XUDP** (sing-box `packet_encoding: xudp`, Xray mux + GlobalID): session id
+//! `0`, 8-byte GlobalID on the first UDP `New` frame with `Opt(D)`, and per-packet
+//! destination on UDP `Keep` replies (Xray `common/xudp/xudp.go`).
 //!
 //!   [u16 metadata length][metadata][optional u16 data length + payload]
 
@@ -21,10 +21,13 @@ use blackwire_app::context::Context;
 use blackwire_app::dispatcher::Dispatcher;
 use blackwire_common::{Address, BoxedStream, ProxyError};
 
-use super::codec::{decode_address_port, encode_address_port, Command};
+use super::codec::{decode_address_port_with_len, encode_address_port, Command};
+
+/// Mux session id used by XUDP (Xray always sends `0` for XUDP frames).
+pub const XUDP_SESSION_ID: u16 = 0;
 
 /// Xray `MuxCoolAddress` — VLESS/VMess mux marker destination.
-pub const MUX_DOMAIN: &str = "v1.mux.cool";
+pub use super::codec::MUX_COOL_DOMAIN as MUX_DOMAIN;
 
 /// Metadata option: frame carries extra payload (`Opt(D)`).
 pub const OPT_DATA: u8 = 0x01;
@@ -84,6 +87,8 @@ pub struct FrameMetadata {
     pub option: u8,
     /// Present on `New` and on UDP `Keep` when address fields follow.
     pub target: Option<(TargetNetwork, Address)>,
+    /// XUDP: present on first UDP `New` with `Opt(D)` after the target address.
+    pub global_id: Option<[u8; 8]>,
 }
 
 /// Returns true when the VLESS request should enter Mux.Cool demux.
@@ -116,6 +121,37 @@ pub fn encode_end_metadata(session_id: u16, opt: u8) -> Vec<u8> {
     meta
 }
 
+/// Build metadata for an XUDP first UDP packet (`New` + GlobalID).
+pub fn encode_new_metadata_xudp(
+    dest: &Address,
+    global_id: &[u8; 8],
+    opt: u8,
+) -> Result<Vec<u8>, ProxyError> {
+    let mut meta = BytesMut::with_capacity(64);
+    meta.put_u16(XUDP_SESSION_ID);
+    meta.put_u8(SessionStatus::New as u8);
+    meta.put_u8(opt);
+    meta.put_u8(TargetNetwork::Udp as u8);
+    meta.extend_from_slice(&encode_address_port(dest)?);
+    meta.extend_from_slice(global_id);
+    Ok(meta.to_vec())
+}
+
+/// Build metadata for an XUDP / mux UDP `Keep` with per-packet destination.
+pub fn encode_keep_metadata_udp(
+    session_id: u16,
+    dest: &Address,
+    opt: u8,
+) -> Result<Vec<u8>, ProxyError> {
+    let mut meta = BytesMut::with_capacity(48);
+    meta.put_u16(session_id);
+    meta.put_u8(SessionStatus::Keep as u8);
+    meta.put_u8(opt);
+    meta.put_u8(TargetNetwork::Udp as u8);
+    meta.extend_from_slice(&encode_address_port(dest)?);
+    Ok(meta.to_vec())
+}
+
 /// Build metadata bytes for a Keep frame (no address extension).
 pub fn encode_keep_metadata(session_id: u16, opt: u8) -> Vec<u8> {
     let mut meta = Vec::with_capacity(4);
@@ -143,6 +179,24 @@ pub fn encode_frame(metadata: &[u8], payload: Option<&[u8]>) -> Result<Vec<u8>, 
     Ok(out.to_vec())
 }
 
+/// Skip optional inbound source/local blocks after a `New` target (Xray `FrameMetadata::WriteTo`).
+fn skip_mux_inbound_extensions(mut rest: &[u8]) -> Result<&[u8], ProxyError> {
+    for _ in 0..2 {
+        if rest.is_empty() {
+            break;
+        }
+        if rest[0] == 0 {
+            rest = &rest[1..];
+            continue;
+        }
+        let _network = TargetNetwork::from_byte(rest[0])?;
+        rest = &rest[1..];
+        let consumed = decode_address_port_with_len(rest)?.1;
+        rest = &rest[consumed..];
+    }
+    Ok(rest)
+}
+
 /// Parse metadata from `meta` (the L-byte block after the outer length prefix).
 pub fn parse_metadata(meta: &[u8]) -> Result<FrameMetadata, ProxyError> {
     if meta.len() < 4 {
@@ -153,6 +207,7 @@ pub fn parse_metadata(meta: &[u8]) -> Result<FrameMetadata, ProxyError> {
     let option = meta[3];
     let mut rest = &meta[4..];
     let mut target = None;
+    let mut global_id = None;
 
     if status == SessionStatus::New {
         if rest.is_empty() {
@@ -160,15 +215,27 @@ pub fn parse_metadata(meta: &[u8]) -> Result<FrameMetadata, ProxyError> {
         }
         let network = TargetNetwork::from_byte(rest[0])?;
         rest = &rest[1..];
-        let addr = decode_address_port(rest)?;
+        let (addr, consumed) = decode_address_port_with_len(rest)?;
+        rest = &rest[consumed..];
         target = Some((network, addr));
+        if network == TargetNetwork::Tcp {
+            rest = skip_mux_inbound_extensions(rest)?;
+        }
+        if network == TargetNetwork::Udp
+            && option & OPT_DATA != 0
+            && rest.len() >= 8
+        {
+            let mut gid = [0u8; 8];
+            gid.copy_from_slice(&rest[..8]);
+            global_id = Some(gid);
+        }
     } else if status == SessionStatus::Keep
         && !rest.is_empty()
         && matches!(TargetNetwork::from_byte(rest[0]), Ok(TargetNetwork::Udp))
     {
         let network = TargetNetwork::from_byte(rest[0])?;
         rest = &rest[1..];
-        let addr = decode_address_port(rest)?;
+        let (addr, _) = decode_address_port_with_len(rest)?;
         target = Some((network, addr));
     }
 
@@ -177,7 +244,16 @@ pub fn parse_metadata(meta: &[u8]) -> Result<FrameMetadata, ProxyError> {
         status,
         option,
         target,
+        global_id,
     })
+}
+
+/// True when metadata matches XUDP framing (session `0` + UDP target).
+pub fn is_xudp_metadata(meta: &FrameMetadata) -> bool {
+    meta.session_id == XUDP_SESSION_ID
+        && matches!(meta.target, Some((TargetNetwork::Udp, _)))
+        && (meta.status == SessionStatus::Keep
+            || (meta.status == SessionStatus::New && meta.global_id.is_some()))
 }
 
 /// Parse one mux frame from a byte buffer; returns bytes consumed.
@@ -270,6 +346,18 @@ struct MuxUdpSession {
     reader_task: tokio::task::JoinHandle<()>,
 }
 
+struct XudpUdpSession {
+    socket: Arc<UdpSocket>,
+    reader_task: tokio::task::JoinHandle<()>,
+}
+
+fn socket_addr_to_address(peer: SocketAddr) -> Address {
+    match peer {
+        SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), v4.port()),
+        SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), v6.port()),
+    }
+}
+
 async fn resolve_udp_dest(dest: &Address) -> Result<SocketAddr, ProxyError> {
     match dest {
         Address::Ipv4(ip, port) => Ok(SocketAddr::from((*ip, *port))),
@@ -296,6 +384,9 @@ pub async fn relay_mux_cool(
         Arc::new(tokio::sync::Mutex::new(writer));
     let sessions: Arc<DashMap<u16, Arc<MuxSession>>> = Arc::new(DashMap::new());
     let udp_sessions: Arc<DashMap<u16, Arc<MuxUdpSession>>> = Arc::new(DashMap::new());
+    let xudp_sessions: Arc<DashMap<[u8; 8], Arc<XudpUdpSession>>> = Arc::new(DashMap::new());
+    let active_xudp: Arc<tokio::sync::Mutex<Option<[u8; 8]>>> =
+        Arc::new(tokio::sync::Mutex::new(None));
 
     loop {
         let (meta, payload) = match read_mux_frame(&mut reader).await {
@@ -307,6 +398,49 @@ pub async fn relay_mux_cool(
 
         match meta.status {
             SessionStatus::New => {
+                if is_xudp_metadata(&meta) {
+                    let Some((_, dest)) = meta.target.clone() else {
+                        return Err(ProxyError::Protocol("mux: New without target".into()));
+                    };
+                    let global_id = meta.global_id.expect("checked by is_xudp_metadata");
+                    debug!(
+                        session_id = meta.session_id,
+                        %dest,
+                        global_id = %hex::encode(global_id),
+                        "mux: new XUDP flow"
+                    );
+                    if let Some((_, old)) = xudp_sessions.remove(&global_id) {
+                        old.reader_task.abort();
+                    }
+                    let socket = Arc::new(
+                        UdpSocket::bind("0.0.0.0:0")
+                            .await
+                            .map_err(|e| ProxyError::Transport(format!("xudp bind: {e}")))?,
+                    );
+                    if let Some(ref data) = payload {
+                        if !data.is_empty() {
+                            let upstream = resolve_udp_dest(&dest).await?;
+                            socket.send_to(data, upstream).await.map_err(|e| {
+                                ProxyError::Transport(format!("xudp UDP send: {e}"))
+                            })?;
+                        }
+                    }
+                    let writer = Arc::clone(&mux_writer);
+                    let sid = meta.session_id;
+                    let sock_reader = Arc::clone(&socket);
+                    let reader_task = tokio::spawn(async move {
+                        mux_xudp_to_client(writer, sid, sock_reader).await;
+                    });
+                    xudp_sessions.insert(
+                        global_id,
+                        Arc::new(XudpUdpSession {
+                            socket,
+                            reader_task,
+                        }),
+                    );
+                    *active_xudp.lock().await = Some(global_id);
+                    continue;
+                }
                 let Some((network, dest)) = meta.target else {
                     return Err(ProxyError::Protocol("mux: New without target".into()));
                 };
@@ -389,6 +523,26 @@ pub async fn relay_mux_cool(
             SessionStatus::Keep => {
                 if let Some((network, dest)) = meta.target {
                     if network == TargetNetwork::Udp {
+                        if meta.session_id == XUDP_SESSION_ID {
+                            let gid = *active_xudp.lock().await;
+                            if let Some(gid) = gid {
+                                if let Some(session) = xudp_sessions.get(&gid) {
+                                    if let Some(ref data) = payload {
+                                        if !data.is_empty() {
+                                            let upstream = resolve_udp_dest(&dest).await?;
+                                            session.socket.send_to(data, upstream).await.map_err(
+                                                |e| {
+                                                    ProxyError::Transport(format!(
+                                                        "xudp UDP send: {e}"
+                                                    ))
+                                                },
+                                            )?;
+                                        }
+                                    }
+                                }
+                            }
+                            continue;
+                        }
                         if let Some(session) = udp_sessions.get(&meta.session_id) {
                             if let Some(ref data) = payload {
                                 if !data.is_empty() {
@@ -443,6 +597,14 @@ pub async fn relay_mux_cool(
                 if let Some((_, session)) = udp_sessions.remove(&meta.session_id) {
                     session.reader_task.abort();
                 }
+                if meta.session_id == XUDP_SESSION_ID {
+                    let gid = active_xudp.lock().await.take();
+                    if let Some(gid) = gid {
+                        if let Some((_, session)) = xudp_sessions.remove(&gid) {
+                            session.reader_task.abort();
+                        }
+                    }
+                }
             }
             SessionStatus::KeepAlive => {
                 // Payload must be discarded per spec.
@@ -456,7 +618,40 @@ pub async fn relay_mux_cool(
     for entry in udp_sessions.iter() {
         entry.value().reader_task.abort();
     }
+    for entry in xudp_sessions.iter() {
+        entry.value().reader_task.abort();
+    }
     Ok(())
+}
+
+async fn mux_xudp_to_client(
+    mux_writer: Arc<tokio::sync::Mutex<tokio::io::WriteHalf<BoxedStream>>>,
+    session_id: u16,
+    socket: Arc<UdpSocket>,
+) {
+    let mut buf = vec![0u8; 65535];
+    loop {
+        match socket.recv_from(&mut buf).await {
+            Ok((n, peer)) if n > 0 => {
+                let reply_dest = socket_addr_to_address(peer);
+                let meta = match encode_keep_metadata_udp(session_id, &reply_dest, OPT_DATA) {
+                    Ok(m) => m,
+                    Err(_) => break,
+                };
+                let mut guard = mux_writer.lock().await;
+                if write_mux_frame(&mut *guard, &meta, Some(&buf[..n]))
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            _ => break,
+        }
+    }
+    let end_meta = encode_end_metadata(session_id, 0);
+    let mut guard = mux_writer.lock().await;
+    let _ = write_mux_frame(&mut *guard, &end_meta, None).await;
 }
 
 async fn mux_udp_to_client(
@@ -620,6 +815,46 @@ mod tests {
         let (net, addr) = parsed.target.unwrap();
         assert_eq!(net, TargetNetwork::Tcp);
         assert_eq!(addr, dest);
+    }
+
+    #[test]
+    fn new_metadata_skips_xray_inbound_source_local() {
+        let dest = Address::Ipv4(Ipv4Addr::new(203, 0, 113, 9), 443);
+        let mut meta = encode_new_metadata(3, &dest, OPT_DATA).unwrap();
+        // Xray appends SOCKS inbound source (TCP) + local (TCP) after target on client-originated New.
+        let source = Address::Ipv4(Ipv4Addr::new(10, 0, 0, 1), 1080);
+        let local = Address::Ipv4(Ipv4Addr::new(10, 0, 0, 2), 1080);
+        meta.push(TargetNetwork::Tcp as u8);
+        meta.extend_from_slice(&encode_address_port(&source).unwrap());
+        meta.push(TargetNetwork::Tcp as u8);
+        meta.extend_from_slice(&encode_address_port(&local).unwrap());
+        let parsed = parse_metadata(&meta).unwrap();
+        assert_eq!(parsed.session_id, 3);
+        assert_eq!(parsed.target, Some((TargetNetwork::Tcp, dest)));
+    }
+
+    #[test]
+    fn xudp_new_metadata_roundtrip() {
+        let dest = Address::Ipv4(Ipv4Addr::new(1, 1, 1, 1), 53);
+        let gid = [0xde, 0xad, 0xbe, 0xef, 0, 0, 0, 1];
+        let meta = encode_new_metadata_xudp(&dest, &gid, OPT_DATA).unwrap();
+        let parsed = parse_metadata(&meta).unwrap();
+        assert_eq!(parsed.session_id, XUDP_SESSION_ID);
+        assert_eq!(parsed.status, SessionStatus::New);
+        assert_eq!(parsed.global_id, Some(gid));
+        assert!(is_xudp_metadata(&parsed));
+        let (net, addr) = parsed.target.unwrap();
+        assert_eq!(net, TargetNetwork::Udp);
+        assert_eq!(addr, dest);
+    }
+
+    #[test]
+    fn xudp_keep_metadata_includes_dest() {
+        let dest = Address::Ipv4(Ipv4Addr::new(8, 8, 8, 8), 53);
+        let meta = encode_keep_metadata_udp(XUDP_SESSION_ID, &dest, OPT_DATA).unwrap();
+        let parsed = parse_metadata(&meta).unwrap();
+        assert_eq!(parsed.status, SessionStatus::Keep);
+        assert_eq!(parsed.target, Some((TargetNetwork::Udp, dest)));
     }
 
     #[test]

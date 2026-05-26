@@ -30,8 +30,8 @@ bash "$LAB_DIR/scripts/render-configs.sh" "$ENV_FILE" "$LAB_DIR/generated" > "$R
 
 port_for_protocol() {
     case "$1" in
-        trojan-tls) echo 8445 ;;
-        vless-tcp) echo 10080 ;;
+        trojan-tls|trojan-udp) echo 8445 ;;
+        vless-tcp|vless-mux) echo 10080 ;;
         vless-vision) echo 10082 ;;
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
@@ -56,13 +56,15 @@ client_container_running() {
 
 matrix_bootstrap() {
     echo "==> Starting long-lived matrix stack (compose up -d)" >> "$REPORT_DIR/compose.log"
+    stop_xray
+    docker rm -f blackwire-server xray-client 2>/dev/null || true
     "${COMPOSE[@]}" down -v >> "$REPORT_DIR/compose.log" 2>&1 || true
     # xray-client is defined for compose run only (distroless image).
     "${COMPOSE[@]}" up -d target-http tls-cover matrix-probe blackwire-server sing-box-client \
         >> "$REPORT_DIR/compose.log" 2>&1
 
     "${COMPOSE[@]}" exec -T matrix-probe sh -c \
-        'command -v curl >/dev/null 2>&1 || apk add --no-cache curl netcat-openbsd >/dev/null' \
+        'command -v curl >/dev/null 2>&1 || apk add --no-cache curl netcat-openbsd bind-tools proxychains-ng >/dev/null' \
         </dev/null >> "$REPORT_DIR/compose.log" 2>&1 || true
 
     local i
@@ -186,12 +188,47 @@ wait_for_server_port() {
     return 1
 }
 
+requires_udp_probe() {
+    case "$1" in
+        trojan-udp|vless-udp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+should_run_protocol() {
+    local protocol="$1"
+    local filter="${MATRIX_PROTOCOLS:-}"
+    [[ -z "$filter" ]] && return 0
+    local p
+    IFS=',' read -ra _protos <<< "$filter"
+    for p in "${_protos[@]}"; do
+        p="${p#"${p%%[![:space:]]*}"}"
+        p="${p%"${p##*[![:space:]]}"}"
+        [[ "$p" == "$protocol" ]] && return 0
+    done
+    return 1
+}
+
 wait_for_socks() {
     local client_host="$1"
     local i
     for i in $(seq 1 "$SOCKS_WAIT_TRIES"); do
         if "${COMPOSE[@]}" exec -T matrix-probe \
             curl -fsS --max-time 2 --socks5-hostname "${client_host}:1080" "$TARGET_URL" \
+            </dev/null >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep "$SOCKS_WAIT_SLEEP"
+    done
+    return 1
+}
+
+wait_for_socks_udp() {
+    local client_host="$1"
+    local i
+    for i in $(seq 1 "$SOCKS_WAIT_TRIES"); do
+        if "${COMPOSE[@]}" exec -T matrix-probe \
+            sh /scripts/udp-socks-probe.sh "$client_host" 1080 \
             </dev/null >/dev/null 2>&1; then
             return 0
         fi
@@ -226,7 +263,7 @@ append_logs() {
 }
 
 run_client_case() {
-    local expect_pass="$1" label="$2" client="$3" client_cfg="$4" log="$5"
+    local expect_pass="$1" label="$2" client="$3" client_cfg="$4" log="$5" protocol="${6:-}"
 
     if [[ "$client_cfg" == "-" ]]; then
         echo "SKIP ${label}" | tee -a "$REPORT_DIR/summary.txt"
@@ -259,6 +296,12 @@ run_client_case() {
 
     if wait_for_socks "${client}-client"; then
         if [[ "$expect_pass" == "pass" ]]; then
+            if requires_udp_probe "$protocol" && ! wait_for_socks_udp "${client}-client"; then
+                echo "FAIL ${label} (udp socks probe)" | tee -a "$REPORT_DIR/summary.txt"
+                append_logs "$log" "$client_service"
+                if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
+                return 1
+            fi
             echo "PASS ${label}" | tee -a "$REPORT_DIR/summary.txt"
             if [[ "$client" == "xray" ]]; then stop_xray; else stop_sing_box; fi
             return 0
@@ -303,16 +346,16 @@ run_protocol() {
     fi
 
     run_client_case pass "xray-${protocol}" xray "$xray_cfg" \
-        "$REPORT_DIR/logs/xray-${protocol}.log" || overall=1
+        "$REPORT_DIR/logs/xray-${protocol}.log" "$protocol" || overall=1
     run_client_case pass "sing-box-${protocol}" sing-box "$sing_cfg" \
-        "$REPORT_DIR/logs/sing-box-${protocol}.log" || overall=1
+        "$REPORT_DIR/logs/sing-box-${protocol}.log" "$protocol" || overall=1
 
     local xray_neg="xray-negative/${xray_cfg}"
     local sing_neg="sing-box-negative/${sing_cfg}"
     run_client_case reject "negative-xray-${protocol}" xray "$xray_neg" \
-        "$REPORT_DIR/logs/negative-xray-${protocol}.log" || overall=1
+        "$REPORT_DIR/logs/negative-xray-${protocol}.log" "$protocol" || overall=1
     run_client_case reject "negative-sing-box-${protocol}" sing-box "$sing_neg" \
-        "$REPORT_DIR/logs/negative-sing-box-${protocol}.log" || overall=1
+        "$REPORT_DIR/logs/negative-sing-box-${protocol}.log" "$protocol" || overall=1
 
     stop_blackwire
     stop_xray
@@ -337,6 +380,10 @@ overall=0
 exec 3< "$LAB_DIR/scenarios.env"
 while IFS='|' read -r protocol server_cfg xray_cfg sing_cfg <&3; do
     [[ -z "${protocol:-}" || "$protocol" =~ ^# ]] && continue
+    if ! should_run_protocol "$protocol"; then
+        echo "SKIP ${protocol} (MATRIX_PROTOCOLS filter)" | tee -a "$REPORT_DIR/summary.txt"
+        continue
+    fi
     run_protocol "$protocol" "$server_cfg" "$xray_cfg" "$sing_cfg" || overall=1
 done
 exec 3<&-

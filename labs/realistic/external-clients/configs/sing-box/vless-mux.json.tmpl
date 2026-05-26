@@ -1,0 +1,17 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    { "type": "socks", "tag": "socks-in", "listen": "::", "listen_port": 1080 }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 10080,
+      "uuid": "${VLESS_UUID}",
+      "multiplex": { "enabled": true }
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

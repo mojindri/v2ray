@@ -48,6 +48,9 @@ pub const CMD_UDP: u8 = 0x02;
 /// VLESS command: Mux.Cool (deprecated in Xray; still decoded for compatibility).
 pub const CMD_MUX: u8 = 0x03;
 
+/// Xray internal mux marker (`RequestCommandMux` sends no address/port on the wire).
+pub const MUX_COOL_DOMAIN: &str = "v1.mux.cool";
+
 // ── Address type constants ────────────────────────────────────────────────────
 
 /// Address type: IPv4 — the next 4 bytes are the IPv4 address.
@@ -150,12 +153,14 @@ pub async fn decode_request<R: AsyncRead + Unpin>(
         }
     };
 
-    // Read port (2 bytes, big-endian).
-    let port = reader.read_u16().await?;
-
-    // Read address type and address.
-    let atyp = reader.read_u8().await?;
-    let dest = read_address(reader, atyp, port).await?;
+    // Mux / Rvs commands omit address+port on the wire (Xray `EncodeRequestHeader`).
+    let dest = if command == Command::Mux {
+        Address::Domain(MUX_COOL_DOMAIN.into(), 0)
+    } else {
+        let port = reader.read_u16().await?;
+        let atyp = reader.read_u8().await?;
+        read_address(reader, atyp, port).await?
+    };
 
     Ok(VlessRequest {
         uuid,
@@ -316,23 +321,22 @@ pub fn encode_request(
         Command::Mux => CMD_MUX,
     });
 
-    // Port (2 bytes, big-endian).
-    buf.put_u16(dest.port());
-
-    // Address type and address.
-    match dest {
-        Address::Ipv4(ip, _) => {
-            buf.put_u8(ATYP_IPV4);
-            buf.put_slice(&ip.octets());
-        }
-        Address::Ipv6(ip, _) => {
-            buf.put_u8(ATYP_IPV6);
-            buf.put_slice(&ip.octets());
-        }
-        Address::Domain(name, _) => {
-            buf.put_u8(ATYP_DOMAIN);
-            buf.put_u8(domain_wire_len(name)?);
-            buf.put_slice(name.as_bytes());
+    if command != Command::Mux {
+        buf.put_u16(dest.port());
+        match dest {
+            Address::Ipv4(ip, _) => {
+                buf.put_u8(ATYP_IPV4);
+                buf.put_slice(&ip.octets());
+            }
+            Address::Ipv6(ip, _) => {
+                buf.put_u8(ATYP_IPV6);
+                buf.put_slice(&ip.octets());
+            }
+            Address::Domain(name, _) => {
+                buf.put_u8(ATYP_DOMAIN);
+                buf.put_u8(domain_wire_len(name)?);
+                buf.put_slice(name.as_bytes());
+            }
         }
     }
 
@@ -363,13 +367,51 @@ pub fn encode_address_port(dest: &Address) -> Result<Vec<u8>, ProxyError> {
 
 /// Decode port + address from a VLESS UDP packet address section.
 pub fn decode_address_port(data: &[u8]) -> Result<Address, ProxyError> {
+    decode_address_port_with_len(data).map(|(addr, _)| addr)
+}
+
+/// Bytes consumed by a port+address section (Xray `PortThenAddress` / mux / XUDP).
+pub fn address_port_wire_len(data: &[u8]) -> Result<usize, ProxyError> {
+    if data.len() < 4 {
+        return Err(ProxyError::Protocol("VLESS UDP address too short".into()));
+    }
+    let atyp = data[2];
+    let addr_len = match atyp {
+        ATYP_IPV4 => 4,
+        ATYP_IPV6 => 16,
+        ATYP_DOMAIN => {
+            let name_len = usize::from(data[3]);
+            if data.len() < 4 + name_len {
+                return Err(ProxyError::Protocol("VLESS UDP address truncated".into()));
+            }
+            let name = std::str::from_utf8(&data[4..4 + name_len])
+                .map_err(|_| ProxyError::Protocol("domain name is not valid UTF-8".into()))?;
+            domain_wire_len(name)?;
+            1 + name_len
+        }
+        other => {
+            return Err(ProxyError::Protocol(format!(
+                "VLESS UDP: unsupported address type {other:#x}"
+            )));
+        }
+    };
+    Ok(2 + 1 + addr_len)
+}
+
+/// Decode port + address and return bytes consumed.
+pub fn decode_address_port_with_len(data: &[u8]) -> Result<(Address, usize), ProxyError> {
     if data.len() < 4 {
         return Err(ProxyError::Protocol("VLESS UDP address too short".into()));
     }
     let port = u16::from_be_bytes([data[0], data[1]]);
     let atyp = data[2];
+    let consumed = address_port_wire_len(data)?;
+    if data.len() < consumed {
+        return Err(ProxyError::Protocol("VLESS UDP address truncated".into()));
+    }
     let mut cursor = std::io::Cursor::new(&data[3..]);
-    decode_address_sync(&mut cursor, atyp, port)
+    let addr = decode_address_sync(&mut cursor, atyp, port)?;
+    Ok((addr, consumed))
 }
 
 fn decode_address_sync(
@@ -510,6 +552,19 @@ mod tests {
         let dest = Address::Domain("proxy.example.com".into(), 443);
         let encoded = encode_request(&uuid, "", Command::Tcp, &dest).unwrap();
         let decoded = decode_from_bytes(&encoded).await.unwrap();
+        assert_eq!(decoded.dest, dest);
+    }
+
+    // Xray `RequestCommandMux` omits address/port on the wire.
+    #[tokio::test]
+    async fn mux_command_has_no_address_on_wire() {
+        let uuid = [0xABu8; 16];
+        let dest = Address::Domain(MUX_COOL_DOMAIN.into(), 0);
+        let encoded = encode_request(&uuid, "", Command::Mux, &dest).unwrap();
+        let tcp_len = encode_request(&uuid, "", Command::Tcp, &dest).unwrap().len();
+        assert!(encoded.len() < tcp_len);
+        let decoded = decode_from_bytes(&encoded).await.unwrap();
+        assert_eq!(decoded.command, Command::Mux);
         assert_eq!(decoded.dest, dest);
     }
 

@@ -5,6 +5,7 @@
 //! `\r\n` + payload (max 8192 bytes per packet). See
 //! <https://github.com/XTLS/Xray-core/tree/main/proxy/trojan>.
 
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -19,6 +20,11 @@ use super::codec::{encode_udp_datagram, parse_udp_datagram};
 pub async fn relay_trojan_udp(stream: BoxedStream) -> Result<(), ProxyError> {
     let (mut reader, mut writer) = tokio::io::split(stream);
     let (reply_tx, mut reply_rx) = mpsc::channel::<Vec<u8>>(16);
+    let udp = Arc::new(
+        UdpSocket::bind("0.0.0.0:0")
+            .await
+            .map_err(|e| ProxyError::Transport(format!("Trojan UDP bind: {e}")))?,
+    );
 
     let write_task = tokio::spawn(async move {
         while let Some(reply) = reply_rx.recv().await {
@@ -58,7 +64,7 @@ pub async fn relay_trojan_udp(stream: BoxedStream) -> Result<(), ProxyError> {
                         }
                         let upstream = resolve_udp_dest(&dest).await?;
                         if let Some(reply_payload) =
-                            exchange_udp_datagram(upstream, &data).await?
+                            exchange_udp_datagram(&udp, upstream, &data).await?
                         {
                             let reply = encode_udp_datagram(&dest, &reply_payload)?;
                             reply_tx
@@ -98,25 +104,18 @@ pub async fn relay_trojan_udp(stream: BoxedStream) -> Result<(), ProxyError> {
     write_result
 }
 
-/// Send one datagram to `upstream` and wait for a single reply.
+/// Send one datagram to `upstream` and wait for a single reply on a shared socket.
 async fn exchange_udp_datagram(
+    sock: &UdpSocket,
     upstream: std::net::SocketAddr,
     data: &[u8],
 ) -> Result<Option<Vec<u8>>, ProxyError> {
-    let bind_addr = if upstream.ip().is_loopback() {
-        "127.0.0.1:0"
-    } else {
-        "0.0.0.0:0"
-    };
-    let sock = UdpSocket::bind(bind_addr)
-        .await
-        .map_err(|e| ProxyError::Transport(format!("Trojan UDP bind failed: {e}")))?;
     sock.send_to(data, upstream)
         .await
         .map_err(|e| ProxyError::Transport(format!("Trojan UDP send: {e}")))?;
 
     let mut buf = vec![0u8; 65535];
-    match tokio::time::timeout(Duration::from_secs(2), sock.recv_from(&mut buf)).await {
+    match tokio::time::timeout(Duration::from_secs(5), sock.recv_from(&mut buf)).await {
         Ok(Ok((n, _))) if n > 0 => Ok(Some(buf[..n].to_vec())),
         Ok(Ok(_)) => Ok(None),
         Ok(Err(e)) => Err(ProxyError::Transport(format!("Trojan UDP recv: {e}"))),

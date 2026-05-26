@@ -31,7 +31,7 @@ invocations.
 
 Tune waits: `MATRIX_PORT_WAIT_TRIES`, `MATRIX_PORT_WAIT_SLEEP`, `MATRIX_SOCKS_WAIT_TRIES`, `MATRIX_SOCKS_WAIT_SLEEP`.
 
-**15 protocols** in `scenarios.env` (60 matrix rows). Some rows **SKIP** when upstream cannot run the client transport (Xray legacy QUIC, SplitHTTP positives, sing-box ShadowTLS on VLESS stream).
+**17 protocols** in `scenarios.env` (68 matrix rows). Some rows **SKIP** when upstream cannot run the client transport (Xray legacy QUIC, SplitHTTP positives, sing-box ShadowTLS on VLESS stream).
 
 Optional failure capture: `MATRIX_PCAP_ON_FAIL=1 make interop-server-docker`.
 
@@ -75,9 +75,17 @@ labs/realistic/reports/external-clients/
 
 The automated matrix is driven by `external-clients/scenarios.env`.
 
-`scenarios.env` drives the matrix (15 protocols including ShadowTLS, mKCP, sniffing).
+`scenarios.env` drives the matrix (17 protocols including `trojan-udp`, `vless-mux`, ShadowTLS, mKCP, sniffing).
+
+**Mux.Cool:** `vless-mux` runs **Xray only** (`sing-box` column is `-` — smux is not wire-compatible with Mux.Cool).
 Both Docker and VPS runners read the same file; tune waits with `MATRIX_PORT_WAIT_*`
 and `MATRIX_SOCKS_WAIT_*`.
+
+Subset runs (e.g. P0/P1 gates only):
+
+```bash
+MATRIX_PROTOCOLS=trojan-udp,vless-mux,vless-udp make -C labs/realistic interop-server-docker
+```
 
 **SKIP lines** mean that client is not run for the row (upstream config limits), not that
 blackwire lacks the server transport. See [docs/parity-status.md](../../../docs/parity-status.md).

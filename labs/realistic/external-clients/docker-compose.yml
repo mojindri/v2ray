@@ -17,6 +17,8 @@ services:
   matrix-probe:
     image: alpine:3.20
     command: ["sleep", "infinity"]
+    volumes:
+      - ./scripts:/scripts:ro
     depends_on:
       - target-http
       - tls-cover
@@ -25,6 +27,8 @@ services:
   blackwire-server:
     image: blackwire:latest
     hostname: blackwire-server
+    dns:
+      - 127.0.0.11
     entrypoint: ["/bin/sh", "-c"]
     command: ["exec sleep infinity"]
     volumes:

@@ -10,9 +10,9 @@ Gap tracker ordered **strictly** by [xray-parity-source-of-truth.md](xray-parity
 
 | P | Item | Primary upstream | Step 4 gate | Uncommitted tree status |
 |---|------|------------------|-------------|-------------------------|
-| **P0** | Trojan UDP ASSOCIATE (`CMD 0x03`, framed packets, max 8192 B) | Xray `proxy/trojan` (`server.go`, `packet.go`) | New matrix row `trojan-udp` + SOCKS UDP probe (DNS to resolver); until probe exists: **Partial** only | Inbound relay + e2e; outbound still TCP-only |
-| **P0** | VLESS Mux.Cool TCP (`CMD 0x03` / `v1.mux.cool`) | Xray `common/mux` + [Mux.Cool](https://xtls.github.io/en/development/protocols/muxcool.html) | Matrix row with mux client config (not plain `vless-udp` row) | TCP demux + e2e; not matrix-proven |
-| **P1** | VLESS XUDP (session `0`, 8-byte GlobalID, Keep per-packet dest) | Xray compatibility doc + `proxy/vless` outbound XUDP | Extend `vless-udp` / mux clients; sing-box `xudp` | **Not started** — do not label mux UDP as XUDP |
+| **P0** | Trojan UDP ASSOCIATE (`CMD 0x03`, framed packets, max 8192 B) | Xray `proxy/trojan` (`server.go`, `packet.go`) | Matrix row `trojan-udp` + `udp-socks-probe.sh` (proxychains+dig) | Inbound + e2e; **Supported** only after matrix PASS |
+| **P0** | VLESS Mux.Cool TCP (`CMD 0x03` / `v1.mux.cool`) | Xray `common/mux` + [Mux.Cool](https://xtls.github.io/en/development/protocols/muxcool.html) | Matrix row `vless-mux` (Xray mux client; sing-box SKIP) | **Xray matrix PASS**; sing-box uses smux (incompatible) |
+| **P1** | VLESS XUDP (session `0`, 8-byte GlobalID, Keep per-packet dest) | Xray `common/xudp` + `common/mux/frame.go` | `vless-udp` clients (`packet_encoding: xudp`, Xray mux) | Inbound + e2e; **Supported** only after matrix PASS |
 | **P1** | SplitHTTP **stream-one** (lab profile) | Xray `splithttp` + sing-box HTTP transport | Existing `vless-splithttp` matrix PASS | Shipped in matrix |
 | **P2** | SplitHTTP **packet-up** (seq, Xmux, padding, `downloadSettings`) | sing-box `transport/http` xHTTP | New row only after sing-box client PASS; no invented framing | **Not upstream-complete** — do not enable in matrix |
 | **P2** | SS2022 UDP (SIP022) | Xray / sing-box shadowsocks 2022 UDP | New `ss2022-udp` row | **Unsupported** |
@@ -47,7 +47,8 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 | Focus | Upstream alignment | Next gate |
 |-------|-------------------|-----------|
 | Trojan UDP inbound | Matches Xray framing; 8192 B cap | Matrix + UDP probe |
-| Mux.Cool TCP + UDP sub-streams | Mux.Cool yes; XUDP no | MUX client matrix row |
+| Mux.Cool TCP + UDP sub-streams | Mux.Cool yes | `vless-mux` matrix row |
+| VLESS XUDP | Xray GlobalID + Keep dest | `vless-udp` matrix (xudp clients) |
 | SplitHTTP packet-up stub | **Not** sing-box-complete | Remove from matrix; implement P2 or delete stub |
 | Health failover | Xray-like selection | `health-failover` matrix |
 

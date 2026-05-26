@@ -1,0 +1,22 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "::",
+      "listen_port": 1080
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "trojan",
+      "tag": "blackwire-out",
+      "server": "${EXTERNAL_SERVER_ADDRESS}",
+      "server_port": 8445,
+      "password": "${TROJAN_PASSWORD}",
+      "tls": { "enabled": true, "server_name": "${EXTERNAL_TLS_SERVER_NAME}", "insecure": true }
+    }
+  ],
+  "route": { "final": "blackwire-out" }
+}

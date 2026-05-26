@@ -31,9 +31,25 @@ use tracing::{debug, warn};
 use blackwire_app::context::Context;
 use blackwire_app::dispatcher::Dispatcher;
 use blackwire_app::features::InboundHandler;
-use blackwire_common::{BoxedStream, Network, ProxyError};
+use blackwire_common::{Address, BoxedStream, Network, ProxyError};
 
-use super::codec::{compute_token, decode_request, CMD_UDP_ASSOCIATE, TOKEN_LEN};
+use super::codec::{compute_token, decode_request, CMD_CONNECT, CMD_UDP_ASSOCIATE, TOKEN_LEN};
+
+/// True for Trojan UDP tunnel (Xray `commandUDP` or SOCKS associate via `0.0.0.0:0`).
+fn is_trojan_udp_associate(request: &super::codec::TrojanRequest) -> bool {
+    if request.command == CMD_UDP_ASSOCIATE {
+        return true;
+    }
+    request.command == CMD_CONNECT && is_unspecified_associate_dest(&request.dest)
+}
+
+fn is_unspecified_associate_dest(dest: &Address) -> bool {
+    match dest {
+        Address::Ipv4(ip, port) => ip.is_unspecified() && *port == 0,
+        Address::Ipv6(ip, port) => ip.is_unspecified() && *port == 0,
+        _ => false,
+    }
+}
 use super::udp::relay_trojan_udp;
 
 /// A Trojan inbound handler.
@@ -113,7 +129,7 @@ impl InboundHandler for TrojanInbound {
             "Trojan authenticated"
         );
 
-        if request.command == CMD_UDP_ASSOCIATE {
+        if is_trojan_udp_associate(&request) {
             return relay_trojan_udp(stream).await;
         }
 

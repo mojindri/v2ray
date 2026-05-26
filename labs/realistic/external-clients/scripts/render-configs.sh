@@ -45,6 +45,23 @@ for tpl in "$REALISTIC_DIR/configs/server"/*.json; do
     envsubst < "$tpl" > "$OUT_DIR/blackwire/server-$(basename "$tpl")"
 done
 
+# Docker embedded DNS — freedom outbound must resolve compose service names (target-http).
+MATRIX_DNS_SERVER="${MATRIX_DNS_SERVER:-127.0.0.11}"
+python3 - "$OUT_DIR/blackwire" "$MATRIX_DNS_SERVER" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+out_dir = Path(sys.argv[1])
+dns_server = sys.argv[2]
+dns_block = {"servers": [f"udp://{dns_server}:53"]}
+
+for path in sorted(out_dir.glob("server-*.json")):
+    cfg = json.loads(path.read_text())
+    cfg["dns"] = dns_block
+    path.write_text(json.dumps(cfg, indent=2) + "\n")
+PY
+
 for tpl in "$LAB_DIR/configs/xray"/*.json.tmpl; do
     envsubst < "$tpl" > "$OUT_DIR/xray/$(basename "$tpl" .tmpl)"
 done

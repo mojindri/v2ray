@@ -78,8 +78,8 @@ copy_to_client() {
 
 port_for_protocol() {
     case "$1" in
-        trojan-tls) echo 8445 ;;
-        vless-tcp) echo 10080 ;;
+        trojan-tls|trojan-udp) echo 8445 ;;
+        vless-tcp|vless-mux) echo 10080 ;;
         vless-vision) echo 10082 ;;
         vless-udp) echo 10081 ;;
         vless-ws) echo 8443 ;;
@@ -161,10 +161,28 @@ start_server() {
         > '/tmp/blackwire-external-${protocol}.log' 2>&1 & echo \$! > /tmp/blackwire-external.pid"
 }
 
+requires_udp_probe() {
+    case "$1" in
+        trojan-udp) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 wait_for_socks() {
     ssh_client "for i in \$(seq 1 ${SOCKS_WAIT_TRIES}); do \
         curl -fsS --max-time 3 --socks5-hostname 127.0.0.1:1080 '${TARGET_URL}' >/dev/null && exit 0; \
         sleep ${SOCKS_WAIT_SLEEP}; done; exit 1"
+}
+
+wait_for_socks_udp() {
+    ssh_client "cat > /tmp/udp-socks-probe.sh && chmod +x /tmp/udp-socks-probe.sh" \
+        <"$LAB_DIR/scripts/udp-socks-probe.sh"
+    ssh_client "command -v dig >/dev/null 2>&1 || \
+        (apk add --no-cache bind-tools proxychains-ng 2>/dev/null || \
+         (apt-get update && apt-get install -y dnsutils proxychains4)); \
+        for i in \$(seq 1 ${SOCKS_WAIT_TRIES}); do \
+          /tmp/udp-socks-probe.sh 127.0.0.1 1080 && exit 0; \
+          sleep ${SOCKS_WAIT_SLEEP}; done; exit 1"
 }
 
 start_client() {
@@ -216,6 +234,12 @@ run_client_case() {
 
     if wait_for_socks >>"$log" 2>&1; then
         if [[ "$expect_pass" == "pass" ]]; then
+            if requires_udp_probe "$protocol" && ! wait_for_socks_udp >>"$log" 2>&1; then
+                echo "FAIL ${label} (udp socks probe)" | tee -a "$SUMMARY"
+                append_logs "$log" "$protocol" "$client"
+                stop_client
+                return 1
+            fi
             echo "PASS ${label}" | tee -a "$SUMMARY"
             stop_client
             return 0
