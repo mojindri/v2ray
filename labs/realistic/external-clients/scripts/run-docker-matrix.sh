@@ -64,7 +64,7 @@ matrix_bootstrap() {
         >> "$REPORT_DIR/compose.log" 2>&1
 
     "${COMPOSE[@]}" exec -T matrix-probe sh -c \
-        'command -v curl >/dev/null 2>&1 || apk add --no-cache curl netcat-openbsd bind-tools proxychains-ng >/dev/null' \
+        'command -v python3 >/dev/null 2>&1 || apk add --no-cache curl netcat-openbsd bind-tools python3 >/dev/null' \
         </dev/null >> "$REPORT_DIR/compose.log" 2>&1 || true
 
     local i

@@ -52,12 +52,12 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | HTTP CONNECT | Yes | No | **Supported** | `http_connect.rs`, `blackwire-core/http.rs`; e2e `e2e_http_connect.rs` |
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
-| VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab row `vless-udp` |
-| VLESS MUX command (0x03) | Partial | Partial | **Partial** | Mux.Cool + XUDP in `vless/mux.rs`; matrix `vless-mux` / `vless-udp` (xudp clients) |
+| VLESS UDP command | Yes | Partial | **Supported** | `vless/udp.rs` inbound relay; matrix `vless-udp` Xray+sing-box **PASS** |
+| VLESS MUX command (0x03) | Partial | Partial | **Supported** | Mux.Cool + XUDP in `vless/mux.rs`; matrix `vless-mux` Xray **PASS**; `vless-udp` Xray XUDP **PASS** |
 | VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
-| Trojan UDP | Yes | No | **Partial** | Xray `CMD 0x03`; matrix `trojan-udp` + SOCKS UDP probe — confirm with `interop-server-docker` |
+| Trojan UDP | Yes | No | **Supported** | Xray `CMD 0x03`; matrix `trojan-udp` Xray+sing-box **PASS** (`udp-socks-probe.sh`) |
 | Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
 | SS2022 UDP relay | No | No | **Unsupported** | TCP stream cipher path only in crate |
 | Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
