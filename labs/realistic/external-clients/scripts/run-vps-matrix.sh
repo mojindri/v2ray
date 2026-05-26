@@ -229,12 +229,17 @@ run_client_case() {
     local expect_pass="$1" label="$2" client="$3" client_cfg="$4" log="$5" protocol="$6"
     local neg_root=""
 
-    if [[ "$client_cfg" == "-" ]]; then
+    if [[ "$client_cfg" == "-" && "$label" != negative-* ]]; then
         echo "SKIP ${label}" | tee -a "$SUMMARY"
         return 0
     fi
 
+    local cfg="$client_cfg"
+    local neg_root=""
     if [[ "$label" == negative-* ]]; then
+        if [[ "$client_cfg" == "-" ]]; then
+            cfg="${protocol}.json"
+        fi
         if [[ "$client" == "xray" ]]; then
             neg_root="xray-negative"
         else
@@ -243,7 +248,7 @@ run_client_case() {
     fi
 
     assert_single_client
-    start_client "$client" "$client_cfg" "$neg_root"
+    start_client "$client" "$cfg" "$neg_root"
     assert_single_client
 
     if udp_only_protocol "$protocol"; then

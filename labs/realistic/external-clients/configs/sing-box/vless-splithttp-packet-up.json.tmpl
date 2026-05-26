@@ -14,9 +14,8 @@
       "transport": {
         "type": "http",
         "path": "/split",
-        "host": ["${EXTERNAL_TLS_SERVER_NAME}"],
-        "mode": "packet-up",
-        "method": "POST"
+        "method": "PUT",
+        "host": ["${EXTERNAL_TLS_SERVER_NAME}"]
       }
     }
   ],

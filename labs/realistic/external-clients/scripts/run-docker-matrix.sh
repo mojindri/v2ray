@@ -359,10 +359,53 @@ append_logs() {
     fi
 }
 
+resolve_client_cfg() {
+    local label="$1" client="$2" client_cfg="$3" protocol="$4"
+    local basename resolved
+
+    if [[ "$label" == negative-* ]]; then
+        if [[ "$client_cfg" == "-" ]]; then
+            basename="${protocol}.json"
+        else
+            basename="${client_cfg##*/}"
+        fi
+        case "$client" in
+            xray) resolved="xray-negative/${basename}" ;;
+            hiddify) resolved="sing-box-negative/${basename}" ;;
+            *) resolved="sing-box-negative/${basename}" ;;
+        esac
+        printf '%s' "$resolved"
+        return 0
+    fi
+
+    if [[ "$client_cfg" == "-" ]]; then
+        printf '%s' "-"
+        return 0
+    fi
+
+    if [[ "$client_cfg" == */* ]]; then
+        printf '%s' "$client_cfg"
+        return 0
+    fi
+
+    case "$client" in
+        xray) printf '%s' "xray/${client_cfg}" ;;
+        hiddify) printf '%s' "sing-box/${client_cfg}" ;;
+        *) printf '%s' "sing-box/${client_cfg}" ;;
+    esac
+}
+
 run_client_case() {
     local expect_pass="$1" label="$2" client="$3" client_cfg="$4" log="$5" protocol="${6:-}"
 
-    if [[ "$client_cfg" == "-" ]]; then
+    if [[ "$client_cfg" == "-" && "$label" != negative-* ]]; then
+        echo "SKIP ${label}" | tee -a "$REPORT_DIR/summary.txt"
+        return 0
+    fi
+
+    local resolved_cfg
+    resolved_cfg="$(resolve_client_cfg "$label" "$client" "$client_cfg" "$protocol")"
+    if [[ "$resolved_cfg" == "-" ]]; then
         echo "SKIP ${label}" | tee -a "$REPORT_DIR/summary.txt"
         return 0
     fi
@@ -376,35 +419,17 @@ run_client_case() {
     esac
 
     if [[ "$client" == "xray" ]]; then
-        if [[ "$client_cfg" == */* ]]; then
-            start_xray "$client_cfg" || {
-                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
-                return 1
-            }
-        else
-            start_xray "xray/${client_cfg}" || {
-                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
-                return 1
-            }
-        fi
+        start_xray "$resolved_cfg" || {
+            echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
+            return 1
+        }
     elif [[ "$client" == "hiddify" ]]; then
-        if [[ "$client_cfg" == */* ]]; then
-            start_hiddify "$client_cfg"
-        else
-            start_hiddify "sing-box/${client_cfg}"
-        fi
+        start_hiddify "$resolved_cfg"
     else
-        if [[ "$client_cfg" == */* ]]; then
-            start_sing_box "$client_cfg" || {
-                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
-                return 1
-            }
-        else
-            start_sing_box "sing-box/${client_cfg}" || {
-                echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
-                return 1
-            }
-        fi
+        start_sing_box "$resolved_cfg" || {
+            echo "FAIL ${label} (client start)" | tee -a "$REPORT_DIR/summary.txt"
+            return 1
+        }
     fi
     assert_single_client
 
@@ -491,11 +516,9 @@ run_protocol() {
             "$REPORT_DIR/logs/sing-box-${protocol}.log" "$protocol" || overall=1
     fi
 
-    local xray_neg="xray-negative/${xray_cfg}"
-    local sing_neg="sing-box-negative/${sing_cfg}"
-    run_client_case reject "negative-xray-${protocol}" xray "$xray_neg" \
+    run_client_case reject "negative-xray-${protocol}" xray "$xray_cfg" \
         "$REPORT_DIR/logs/negative-xray-${protocol}.log" "$protocol" || overall=1
-    run_client_case reject "negative-sing-box-${protocol}" sing-box "$sing_neg" \
+    run_client_case reject "negative-sing-box-${protocol}" sing-box "$sing_cfg" \
         "$REPORT_DIR/logs/negative-sing-box-${protocol}.log" "$protocol" || overall=1
 
     stop_blackwire
