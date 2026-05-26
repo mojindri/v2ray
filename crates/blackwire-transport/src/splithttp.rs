@@ -123,7 +123,6 @@ pub async fn splithttp_accept(
     let first = lines
         .next()
         .ok_or_else(|| ProxyError::Protocol("SplitHTTP missing request line".into()))?;
-    debug!(request_line = %first, headers = %request.lines().skip(1).collect::<Vec<_>>().join(" | "), "SplitHTTP inbound request");
     let mut parts = first.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let path = parts.next().unwrap_or_default();
