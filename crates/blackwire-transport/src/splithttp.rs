@@ -1,11 +1,13 @@
-//! SplitHTTP / xHTTP transport over HTTP/1.1 chunked bodies.
+//! SplitHTTP / xHTTP transport — HTTP/2 (stream-one via h2) with HTTP/1.1 fallback.
 //!
-//! **Supported for interop:** `stream-one` only (matrix `vless-splithttp`).
-//! Upstream: Xray `transport/internet/splithttp`, sing-box HTTP transport with `method: PUT`.
+//! **Supported for interop:** `stream-one` (matrix `vless-splithttp`).
+//! Upstream: Xray 26.x `transport/internet/splithttp` (HTTP/2 via ALPN h2),
+//! sing-box HTTP transport (also HTTP/2 via ALPN h2).
 //!
-//! `packet-up` is gated on `splithttpSettings.mode` but is **not** sing-box-complete
-//! (no seq reorder, Xmux, padding, or `downloadSettings`). Do not enable in the
-//! external-client matrix until [xray-parity-roadmap.md](../../docs/xray-parity-roadmap.md) P2.
+//! Wire format: both Xray 26.x and sing-box negotiate ALPN "h2" and send
+//! the standard HTTP/2 connection preface. After the handshake the client
+//! sends a single `PUT /split` request; the bidirectional DATA frame stream
+//! maps directly onto the VLESS tunnel — no gRPC framing.
 
 use std::collections::HashMap;
 use std::io;
@@ -17,6 +19,7 @@ use blackwire_common::{BoxedStream, ProxyError};
 use dashmap::DashMap;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, ReadBuf};
 use tokio::sync::Mutex;
+use tracing::debug;
 
 use blackwire_config::schema::{SplitHttpConfig, StreamSettingsConfig};
 
@@ -95,18 +98,32 @@ pub async fn splithttp_connect(
 
 static PACKET_UP_SESSIONS: LazyLock<DashMap<String, Arc<Mutex<Vec<u8>>>>> = LazyLock::new(DashMap::new);
 
-/// Accept SplitHTTP: validate request line and return a tunnel or upload-only result.
+/// Accept SplitHTTP/xHTTP: auto-detects HTTP/2 (ALPN h2, Xray 26.x / sing-box)
+/// vs HTTP/1.1 and dispatches accordingly.
 pub async fn splithttp_accept(
     mut stream: BoxedStream,
     expected_path: Option<&str>,
     expected_method: Option<&str>,
     mode: SplitHttpMode,
 ) -> Result<SplitHttpAcceptResult, ProxyError> {
+    // Peek at the first 3 bytes to distinguish HTTP/2 from HTTP/1.1.
+    // HTTP/2 connection preface begins with "PRI" (RFC 7540 §3.5).
+    let mut peek = [0u8; 3];
+    stream.read_exact(&mut peek).await?;
+    if &peek == b"PRI" {
+        // HTTP/2: reconstruct the stream by prepending the peeked bytes.
+        let stream: BoxedStream = Box::new(PrependStream::new(stream, peek.to_vec()));
+        return splithttp_accept_h2(stream, expected_path, expected_method).await;
+    }
+    // HTTP/1.1 path — prepend the 3 bytes we already consumed.
+    let mut stream: BoxedStream = Box::new(PrependStream::new(stream, peek.to_vec()));
+
     let request = read_headers(&mut stream).await?;
     let mut lines = request.lines();
     let first = lines
         .next()
         .ok_or_else(|| ProxyError::Protocol("SplitHTTP missing request line".into()))?;
+    debug!(request_line = %first, headers = %request.lines().skip(1).collect::<Vec<_>>().join(" | "), "SplitHTTP inbound request");
     let mut parts = first.split_whitespace();
     let method = parts.next().unwrap_or_default();
     let path = parts.next().unwrap_or_default();
@@ -125,7 +142,8 @@ pub async fn splithttp_accept(
 
     if let Some(expected) = expected_path {
         let got = path.split('?').next().unwrap_or(path);
-        if got != expected {
+        // Accept "*" (Xray 26.x xHTTP Xmux handshake path) in addition to the configured path.
+        if got != expected && got != "*" {
             return Err(ProxyError::Protocol(format!(
                 "SplitHTTP path mismatch: got '{got}', want '{expected}'"
             )));
@@ -165,13 +183,117 @@ pub async fn splithttp_accept(
 }
 
 /// Path, uplink method, and mode for an inbound's stream settings.
+///
+/// Returns `None` for the method when no explicit method is configured — in that case
+/// the caller should accept any standard method (GET/POST/PUT).
 pub fn splithttp_listen_params(
     stream_settings: &StreamSettingsConfig,
 ) -> (Option<String>, Option<String>, SplitHttpMode) {
     let cfg = split_http_config(stream_settings);
     let mode = normalize_splithttp_mode(&cfg.mode);
-    let method = uplink_method(&cfg, mode);
-    (Some(cfg.path.clone()), Some(method), mode)
+    let method = if cfg.method.is_empty() { None } else { Some(cfg.method.clone()) };
+    (Some(cfg.path.clone()), method, mode)
+}
+
+/// Accept an xHTTP connection over HTTP/2 (Xray 26.x / sing-box default).
+///
+/// Both Xray 26.x and sing-box negotiate ALPN "h2" for xHTTP over TLS.  After
+/// the HTTP/2 handshake the client sends a single PUT (or configured method)
+/// request; we bridge its bidirectional DATA frames directly to the VLESS
+/// tunnel without any additional framing.
+pub async fn splithttp_accept_h2(
+    stream: BoxedStream,
+    expected_path: Option<&str>,
+    expected_method: Option<&str>,
+) -> Result<SplitHttpAcceptResult, ProxyError> {
+    use bytes::Bytes;
+    use h2::server;
+
+    let mut conn = server::Builder::new()
+        .handshake(stream)
+        .await
+        .map_err(|e| ProxyError::Transport(format!("xHTTP h2 server handshake failed: {e}")))?;
+
+    let (request, mut respond) = conn
+        .accept()
+        .await
+        .ok_or_else(|| ProxyError::Transport("xHTTP h2: no incoming request".into()))?
+        .map_err(|e| ProxyError::Transport(format!("xHTTP h2 accept error: {e}")))?;
+
+    let method = request.method().as_str();
+    let path = request.uri().path();
+    debug!(method = %method, path = %path, "xHTTP h2 inbound request");
+
+    if let Some(expected) = expected_path {
+        let got = path.trim_end_matches('/');
+        let want = expected.trim_end_matches('/');
+        if got != want {
+            return Err(ProxyError::Protocol(format!(
+                "xHTTP h2 path mismatch: got '{path}', want '{expected}'"
+            )));
+        }
+    }
+    if let Some(expected) = expected_method {
+        if !method.eq_ignore_ascii_case(expected) {
+            return Err(ProxyError::Protocol(format!(
+                "xHTTP h2 method mismatch: got '{method}', want '{expected}'"
+            )));
+        }
+    }
+
+    let response = http::Response::builder()
+        .status(200)
+        .header("cache-control", "no-store")
+        .header("x-accel-buffering", "no")
+        .body(())
+        .map_err(|e| ProxyError::Protocol(format!("xHTTP h2: invalid response builder: {e}")))?;
+
+    let send_stream = respond
+        .send_response(response, false)
+        .map_err(|e| ProxyError::Transport(format!("xHTTP h2 send_response failed: {e}")))?;
+
+    let recv_body = request.into_body();
+
+    // Drive the connection in background so flow-control frames are handled.
+    tokio::spawn(async move { while conn.accept().await.is_some() {} });
+
+    // Bridge the h2 recv body + send stream into a BoxedStream duplex pipe.
+    let (proxy_end, user_end) = tokio::io::duplex(256 * 1024);
+    let (mut proxy_reader, mut proxy_writer) = tokio::io::split(proxy_end);
+
+    let mut recv = recv_body;
+    let mut send = send_stream;
+
+    tokio::spawn(async move {
+        loop {
+            match recv.data().await {
+                None => break,
+                Some(Err(_)) => break,
+                Some(Ok(chunk)) => {
+                    let _ = recv.flow_control().release_capacity(chunk.len());
+                    if proxy_writer.write_all(&chunk).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    tokio::spawn(async move {
+        let mut buf = [0u8; 8192];
+        loop {
+            let n = match proxy_reader.read(&mut buf).await {
+                Ok(0) | Err(_) => break,
+                Ok(n) => n,
+            };
+            let data = Bytes::copy_from_slice(&buf[..n]);
+            if send.send_data(data, false).is_err() {
+                break;
+            }
+        }
+    });
+
+    Ok(SplitHttpAcceptResult::Tunnel(Box::new(user_end)))
 }
 
 async fn write_stream_one_response(stream: &mut BoxedStream) -> Result<(), ProxyError> {
@@ -188,13 +310,13 @@ fn uplink_method(cfg: &SplitHttpConfig, mode: SplitHttpMode) -> String {
     if !cfg.uplink_http_method.is_empty() {
         return cfg.uplink_http_method.clone();
     }
-    if !cfg.method.is_empty() && cfg.method != "PUT" {
+    if !cfg.method.is_empty() {
         return cfg.method.clone();
     }
     if mode == SplitHttpMode::StreamOne {
         return "POST".to_string();
     }
-    cfg.method.clone()
+    "PUT".to_string()
 }
 
 fn split_http_config(stream_settings: &StreamSettingsConfig) -> SplitHttpConfig {
@@ -326,6 +448,56 @@ async fn read_request_body(
         return Ok(body);
     }
     Ok(Vec::new())
+}
+
+/// Prepend a small byte slice to a stream without any additional framing.
+/// Used to put back bytes we peeked at for protocol detection.
+struct PrependStream {
+    inner: BoxedStream,
+    prepended: Vec<u8>,
+    prep_offset: usize,
+}
+
+impl PrependStream {
+    fn new(inner: BoxedStream, prepended: Vec<u8>) -> Self {
+        Self { inner, prepended, prep_offset: 0 }
+    }
+}
+
+impl AsyncRead for PrependStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        if self.prep_offset < self.prepended.len() {
+            let n = buf
+                .remaining()
+                .min(self.prepended.len() - self.prep_offset);
+            buf.put_slice(&self.prepended[self.prep_offset..self.prep_offset + n]);
+            self.prep_offset += n;
+            return Poll::Ready(Ok(()));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for PrependStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 struct PrependedChunkStream {

@@ -425,8 +425,16 @@ pub(crate) fn build_conn_handler(
         let key_pem = std::fs::read_to_string(key_path)
             .map_err(|e| anyhow::anyhow!("cannot read key file '{key_path}': {e}"))?;
 
-        // gRPC runs over HTTP/2, which requires the "h2" ALPN token during TLS negotiation.
-        let alpn = if uses_grpc(stream_settings) {
+        // Select ALPN to advertise:
+        // - gRPC requires "h2" (HTTP/2 multiplexing).
+        // - SplitHTTP (xHTTP): both Xray 26.x and sing-box negotiate h2 for
+        //   xHTTP over TLS. Advertise "h2" so ALPN negotiation succeeds;
+        //   the SplitHTTP handler then accepts the HTTP/2 connection.
+        // - Explicit tlsSettings.alpn overrides both defaults.
+        // - Everything else: no ALPN (accept any client choice).
+        let alpn = if !tls_cfg.alpn.is_empty() {
+            tls_cfg.alpn.clone()
+        } else if uses_grpc(stream_settings) || uses_splithttp(stream_settings) {
             vec!["h2".to_string()]
         } else {
             vec![]

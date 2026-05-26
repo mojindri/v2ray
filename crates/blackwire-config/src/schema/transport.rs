@@ -215,7 +215,7 @@ pub struct SplitHttpConfig {
 }
 
 fn default_splithttp_method() -> String {
-    "PUT".to_string()
+    String::new()
 }
 
 /// gRPC transport settings.
