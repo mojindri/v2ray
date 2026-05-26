@@ -127,14 +127,7 @@ fn client_config(socks_port: u16, vless_port: u16) -> Arc<blackwire_config::sche
 }
 
 fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Config> {
-    let cert = std::fs::canonicalize(
-        "/Users/mojnader/RustroverProjects/v2ray/examples/phase3-hysteria2-client-server/cert.pem",
-    )
-    .expect("cert path");
-    let key = std::fs::canonicalize(
-        "/Users/mojnader/RustroverProjects/v2ray/examples/phase3-hysteria2-client-server/key.pem",
-    )
-    .expect("key path");
+    let (cert, key) = write_temp_tls_files();
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -162,9 +155,29 @@ fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Con
             "outbounds": [{{ "tag": "freedom", "protocol": "freedom" }}],
             "routing": {{ "rules": [{{ "outboundTag": "freedom" }}] }}
         }}"#,
-        cert.display(),
-        key.display()
+        cert,
+        key
     ))
+}
+
+fn write_temp_tls_files() -> (String, String) {
+    let (cert_pem, key_pem) = blackwire_transport::dev_self_signed().expect("self-signed cert");
+    let suffix = format!(
+        "{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos()
+    );
+    let cert_path = std::env::temp_dir().join(format!("blackwire-splithttp-{suffix}.crt"));
+    let key_path = std::env::temp_dir().join(format!("blackwire-splithttp-{suffix}.key"));
+    std::fs::write(&cert_path, cert_pem).expect("write cert");
+    std::fs::write(&key_path, key_pem).expect("write key");
+    (
+        cert_path.to_string_lossy().into_owned(),
+        key_path.to_string_lossy().into_owned(),
+    )
 }
 
 #[tokio::test]
