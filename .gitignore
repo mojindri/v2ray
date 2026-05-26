@@ -33,3 +33,9 @@ fuzz/artifacts/
 labs/realistic/reports/
 /reports/
 id_hetzner
+
+# Local benchmark/profiling artifacts (never commit).
+benches/reports/protocol-matrix-*.log
+benches/reports/flamegraphs/
+perf.data
+perf.data.old

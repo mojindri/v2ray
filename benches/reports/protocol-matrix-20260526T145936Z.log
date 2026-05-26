@@ -1,6 +1,0 @@
-protocol-matrix
-timestamp=20260526T145936Z
-quick=1
-features=none
-protocols=vless_tcp,vless_ws,vmess_grpc,ss2022,trojan_tcp
-
