@@ -104,13 +104,20 @@ pub fn try_into_tcp_stream(stream: BoxedStream) -> Result<TcpStream, BoxedStream
 /// `PrependedStream`. The relay can still optimize those connections by
 /// draining the unread prefix first, then switching to splice on the recovered
 /// raw sockets.
+///
+/// # Type detection note
+///
+/// We use `(*stream).as_any()` (deref through the Box) rather than
+/// `stream.as_any()` to force vtable dispatch.  The blanket impl that makes
+/// `Box<dyn AsyncReadWrite>` itself implement `AsyncReadWrite` would otherwise
+/// intercept `as_any()` and return the box type instead of the concrete inner
+/// type.  Dereffing ensures the vtable for the concrete type is used.
 #[cfg(target_os = "linux")]
 pub fn try_into_tcp_stream_with_prefix(
     stream: BoxedStream,
 ) -> Result<(TcpStream, Vec<u8>), BoxedStream> {
-    // First check the type by reference. This avoids consuming the box unless
-    // we already know the downcast should succeed.
-    if stream.as_any().is::<TcpStream>() {
+    // Check the concrete type via vtable dispatch (`*stream` not `stream`).
+    if (*stream).as_any().is::<TcpStream>() {
         let any = stream.into_any();
         let tcp = any
             .downcast::<TcpStream>()
@@ -118,7 +125,7 @@ pub fn try_into_tcp_stream_with_prefix(
         return Ok((*tcp, Vec::new()));
     }
 
-    if stream.as_any().is::<PrependedStream<TcpStream>>() {
+    if (*stream).as_any().is::<PrependedStream<TcpStream>>() {
         let any = stream.into_any();
         let prepended = any
             .downcast::<PrependedStream<TcpStream>>()
@@ -127,7 +134,7 @@ pub fn try_into_tcp_stream_with_prefix(
         return Ok((tcp, prefix));
     }
 
-    if stream.as_any().is::<PrependedStream<BoxedStream>>() {
+    if (*stream).as_any().is::<PrependedStream<BoxedStream>>() {
         let any = stream.into_any();
         let prepended = any
             .downcast::<PrependedStream<BoxedStream>>()
