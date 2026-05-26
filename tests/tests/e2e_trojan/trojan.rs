@@ -68,7 +68,7 @@ async fn trojan_plain_tcp_large_payload() {
 
 #[tokio::test]
 async fn trojan_wrong_password_is_rejected() {
-    use blackwire_protocol::trojan::codec::encode_request;
+    use blackwire_protocol::trojan::codec::{encode_request, CMD_CONNECT};
     use blackwire_protocol::trojan::compute_token;
 
     let _ = tracing_subscriber::fmt().with_env_filter("warn").try_init();
@@ -86,7 +86,7 @@ async fn trojan_wrong_password_is_rejected() {
         .unwrap();
     let bad_token = compute_token("wrong-password-12345");
     let dest = Address::Domain("example.com".into(), 80);
-    let header = encode_request(&bad_token, &dest).unwrap();
+    let header = encode_request(&bad_token, CMD_CONNECT, &dest).unwrap();
     stream.write_all(&header).await.unwrap();
     stream.flush().await.unwrap();
 

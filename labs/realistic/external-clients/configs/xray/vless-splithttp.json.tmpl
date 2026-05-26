@@ -24,7 +24,9 @@
         "tlsSettings": { "serverName": "${EXTERNAL_TLS_SERVER_NAME}", "allowInsecure": true },
         "splithttpSettings": {
           "path": "/split",
-          "host": "${EXTERNAL_TLS_SERVER_NAME}"
+          "host": "${EXTERNAL_TLS_SERVER_NAME}",
+          "mode": "stream-one",
+          "uplinkHTTPMethod": "PUT"
         }
       }
     }

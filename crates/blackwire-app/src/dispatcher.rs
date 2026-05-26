@@ -57,6 +57,13 @@ pub trait Dispatcher: Send + Sync + 'static {
         dest: Address,
         inbound_stream: BoxedStream,
     ) -> Result<(), ProxyError>;
+
+    /// Route and open an outbound stream without relaying (Mux.Cool sub-connections).
+    async fn connect_outbound(
+        &self,
+        ctx: Context,
+        dest: Address,
+    ) -> Result<BoxedStream, ProxyError>;
 }
 
 /// The standard dispatcher implementation.
@@ -158,51 +165,16 @@ impl Dispatcher for DefaultDispatcher {
             }
         }
 
-        let dest = self.restore_fakeip_destination(dest);
+        let inbound_tag = ctx.inbound_tag.clone();
+        let user_email = ctx.user.clone();
+        let dest_label = dest.to_string();
 
-        let protocol_label = ctx.sniffed_protocol.as_deref().unwrap_or("tcp");
-        record_connection_accepted(&ctx.inbound_tag, protocol_label);
-
-        // Step 1: Route per Xray `routing.domainStrategy` (AsIs / IPIfNonMatch / IPOnDemand).
-        let route = self
-            .pick_route_xray(
-                &ctx.inbound_tag,
-                &dest,
-                ctx.user.as_deref(),
-                ctx.sniffed_protocol.as_deref(),
-                ctx.sniffed_domain.as_deref(),
-            )
-            .await?;
-
-        debug!(outbound = %route.outbound_tag, "route selected");
-
-        // Step 2: Find the outbound handler.
-        let outbound = self
-            .outbounds
-            .get(route.outbound_tag.as_ref())
-            .ok_or_else(|| {
-                ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
-            })?;
-
-        // Step 3: Open a connection to the destination via the outbound.
         let start = Instant::now();
-        let outbound_stream = outbound.connect(&ctx, &dest).await.map_err(|e| {
-            warn!(
-                outbound = %route.outbound_tag,
-                dest = %dest,
-                error = %e,
-                "outbound connect failed"
-            );
-            e
-        })?;
+        let outbound_stream = self.connect_outbound(ctx, dest).await?;
 
-        info!(
-            outbound = %route.outbound_tag,
-            dest = %dest,
-            "relay started"
-        );
+        info!(dest = %dest_label, inbound = %inbound_tag, "relay started");
 
-        // Step 4: Relay bytes bidirectionally until either side closes.
+        // Relay bytes bidirectionally until either side closes.
         //
         // The relay helper uses Linux splice(2) for raw TCP-to-TCP streams and
         // falls back to copy_bidirectional for every other stream type.
@@ -219,8 +191,8 @@ impl Dispatcher for DefaultDispatcher {
         match &result {
             Ok((up, down)) => {
                 info!(
-                    outbound = %route.outbound_tag,
-                    dest = %dest,
+                    dest = %dest_label,
+                    inbound = %inbound_tag,
                     uplink_bytes = up,
                     downlink_bytes = down,
                     duration_ms = elapsed.as_millis(),
@@ -228,11 +200,9 @@ impl Dispatcher for DefaultDispatcher {
                 );
             }
             Err(e) => {
-                // Connection errors during relay are normal (client disconnected,
-                // server reset, etc.) — log at debug level, not warn.
                 debug!(
-                    outbound = %route.outbound_tag,
-                    dest = %dest,
+                    dest = %dest_label,
+                    inbound = %inbound_tag,
                     error = %e,
                     "relay error"
                 );
@@ -240,16 +210,65 @@ impl Dispatcher for DefaultDispatcher {
         }
 
         let (rx_bytes, tx_bytes) = result.unwrap_or((0, 0));
-        record_connection_closed(&ctx.inbound_tag, rx_bytes, tx_bytes, elapsed);
-        if let Some(user) = ctx.user.as_deref() {
+        record_connection_closed(&inbound_tag, rx_bytes, tx_bytes, elapsed);
+        if let Some(user) = user_email.as_deref() {
             runtime_stats::record_user_traffic(user, rx_bytes, tx_bytes);
         }
 
         Ok(())
     }
+
+    async fn connect_outbound(
+        &self,
+        ctx: Context,
+        dest: Address,
+    ) -> Result<BoxedStream, ProxyError> {
+        DefaultDispatcher::connect_outbound(self, ctx, dest).await
+    }
 }
 
 impl DefaultDispatcher {
+    /// Route and dial the destination without starting a relay loop.
+    pub async fn connect_outbound(
+        &self,
+        ctx: Context,
+        dest: Address,
+    ) -> Result<BoxedStream, ProxyError> {
+        let dest = self.restore_fakeip_destination(dest);
+
+        let protocol_label = ctx.sniffed_protocol.as_deref().unwrap_or("tcp");
+        record_connection_accepted(&ctx.inbound_tag, protocol_label);
+
+        let route = self
+            .pick_route_xray(
+                &ctx.inbound_tag,
+                &dest,
+                ctx.user.as_deref(),
+                ctx.sniffed_protocol.as_deref(),
+                ctx.sniffed_domain.as_deref(),
+            )
+            .await?;
+
+        debug!(outbound = %route.outbound_tag, "route selected");
+
+        let outbound = self
+            .outbounds
+            .get(route.outbound_tag.as_ref())
+            .ok_or_else(|| {
+                ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
+            })?;
+
+        outbound.connect(&ctx, &dest).await.map_err(|e| {
+            warn!(
+                outbound = %route.outbound_tag,
+                dest = %dest,
+                error = %e,
+                "outbound connect failed"
+            );
+            e
+        })
+    }
+
     /// Xray routing: https://xtls.github.io/en/config/routing.html#domainstrategy
     async fn pick_route_xray(
         &self,

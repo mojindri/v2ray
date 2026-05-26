@@ -121,7 +121,11 @@ async fn vmess_header_fragmented_at_every_byte_boundary() {
 #[tokio::test]
 async fn trojan_header_fragmented_at_every_byte_boundary() {
     let token = trojan_codec::compute_token("frag-password");
-    let msg = trojan_codec::encode_request(&token, &Address::Domain("frag.example".into(), 443))
+    let msg = trojan_codec::encode_request(
+        &token,
+        trojan_codec::CMD_CONNECT,
+        &Address::Domain("frag.example".into(), 443),
+    )
         .expect("encode");
     for split in 1..msg.len() {
         let (mut w, r) = tokio::io::duplex(4096);

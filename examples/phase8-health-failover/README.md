@@ -16,15 +16,21 @@ one path dead, new connections should fail over to the other path. If both paths
 are dead, the balancer falls back to the first configured outbound so failures
 stay explicit instead of disappearing silently.
 
-Current caveat: balancer registration and background health-check tasks are now
-wired into the main instance, but this example is still a narrow config/template
-exercise rather than full failover proof under real load or multi-outbound fault
-injection. Treat it as a starting point, not a production claim.
+## Validation
 
-Validate:
+Config syntax only:
 
 ```sh
 cargo run -q -p blackwire -- test -c examples/phase8-health-failover/config.json
 ```
+
+Runtime failover proof (recommended):
+
+```sh
+cargo test -p integration-tests --test e2e_health_failover health_failover_routes_to_backup_when_primary_unhealthy
+make -C labs/realistic health-failover
+```
+
+See [labs/realistic/health-failover/README.md](../../labs/realistic/health-failover/README.md).
 
 Author: @moji.ndr

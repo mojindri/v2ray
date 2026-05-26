@@ -19,6 +19,7 @@
         "splithttpSettings": {
           "path": "/split",
           "host": ["blackwire.local"],
+          "mode": "stream-one",
           "method": "PUT"
         }
       }

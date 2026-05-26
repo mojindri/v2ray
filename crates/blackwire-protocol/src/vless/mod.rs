@@ -38,6 +38,7 @@
 
 pub mod codec;
 pub mod inbound;
+pub mod mux;
 pub mod outbound;
 pub mod registry;
 pub mod udp;

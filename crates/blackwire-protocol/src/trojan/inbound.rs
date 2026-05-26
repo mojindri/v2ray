@@ -33,7 +33,8 @@ use blackwire_app::dispatcher::Dispatcher;
 use blackwire_app::features::InboundHandler;
 use blackwire_common::{BoxedStream, Network, ProxyError};
 
-use super::codec::{compute_token, decode_request, TOKEN_LEN};
+use super::codec::{compute_token, decode_request, CMD_UDP_ASSOCIATE, TOKEN_LEN};
+use super::udp::relay_trojan_udp;
 
 /// A Trojan inbound handler.
 pub struct TrojanInbound {
@@ -112,8 +113,10 @@ impl InboundHandler for TrojanInbound {
             "Trojan authenticated"
         );
 
-        // Hand the stream to the dispatcher for relay to the destination.
-        // The stream is now positioned at the start of the payload.
+        if request.command == CMD_UDP_ASSOCIATE {
+            return relay_trojan_udp(stream).await;
+        }
+
         let ctx = Context::new(&self.tag, source);
         dispatcher.dispatch(ctx, request.dest, stream).await
     }

@@ -197,9 +197,17 @@ pub struct SplitHttpConfig {
     #[serde(default)]
     pub host: Vec<String>,
 
-    /// HTTP method to use for the upload request.
+    /// HTTP method to use for the upload request (legacy field; Xray uses `uplinkHTTPMethod`).
     #[serde(default = "default_splithttp_method")]
     pub method: String,
+
+    /// XHTTP mode: `stream-one`, `packet-up`, `stream-up`, or `auto` (empty = `stream-one` on server).
+    #[serde(default)]
+    pub mode: String,
+
+    /// Uplink HTTP method for XHTTP (`POST` in Xray when unset).
+    #[serde(default, rename = "uplinkHTTPMethod")]
+    pub uplink_http_method: String,
 
     /// Extra HTTP headers.
     #[serde(default)]

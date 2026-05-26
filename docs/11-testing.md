@@ -159,14 +159,31 @@ make -C labs/realistic docker-down
 
 ## Tier 5 — Advanced features smoke
 
-Local smoke tests for ShadowTLS v3, mKCP, health/failover config guards, and
-DNS/geo/FakeIP startup guards.
+Local smoke tests for ShadowTLS v3, mKCP, health/failover config guards, failover
+runtime e2e, and DNS/geo/FakeIP startup guards.
 
 ```sh
 make -C labs/realistic advanced-features-smoke
 ```
 
 Writes `labs/realistic/reports/advanced-features-smoke.log`.
+
+### Tier 5b — Health-check failover lab
+
+Proves balancer traffic continues when a member outbound fails health probes.
+
+```sh
+make -C labs/realistic health-failover
+# or: make verify-health-failover
+```
+
+In-process only (no Docker):
+
+```sh
+cargo test -p integration-tests --test e2e_health_failover health_failover_routes_to_backup_when_primary_unhealthy
+```
+
+Writes `labs/realistic/reports/health-failover.log`.
 
 ---
 

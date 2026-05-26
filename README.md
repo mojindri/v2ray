@@ -61,7 +61,7 @@ Other internal steps:
 | --- | --- |
 | `stable` | In-process Rust integration matrix |
 | `interop-docker` | Both interop legs above |
-| `advanced-features-smoke` | ShadowTLS, mKCP, health, DNS guards |
+| `health-failover` | Balancer failover e2e (+ Docker probe/echo when available) |
 | `negative-auth` | Wrong creds rejected / REALITY fallback |
 
 On VPS, `verify-remote` runs **`interop-server-vps`** (server-compat only — same scenarios over real network).
@@ -85,7 +85,7 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 
 | Feature | What works today | What is still missing |
 | --- | --- | --- |
-| **Health checks + outbound failover** | Config, startup, basic runtime wiring | Real multi-outbound failure scenarios under load |
+| **Health checks + outbound failover** | Runtime wiring + in-process e2e | Load/soak under concurrent fault injection (Docker lab optional) |
 | **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
 | **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
 | **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |

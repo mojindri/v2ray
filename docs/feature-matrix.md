@@ -53,11 +53,11 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
 | VLESS UDP command | Yes | Partial | **Partial** | `vless/udp.rs` inbound relay; lab row `vless-udp` |
-| VLESS MUX command (0x03) | Partial | Partial | **Partial** | Decoded per Xray; relayed as TCP until full Mux.Cool demux |
+| VLESS MUX command (0x03) | Partial | Partial | **Partial** | Mux.Cool TCP+UDP in `vless/mux.rs` (e2e); **not** XUDP GlobalID; matrix `vless-udp` ≠ mux proof |
 | VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |
-| Trojan UDP | No | No | **Unsupported** | No UDP associate path in trojan module |
+| Trojan UDP | Yes | No | **Partial** | Xray `CMD 0x03` + framed packets (max 8192 B) in `trojan/udp.rs`; e2e only — **no** external-client matrix row yet |
 | Shadowsocks 2022 | Yes | Yes | **Supported** | `ss2022/`; e2e `e2e_ss2022.rs`, `e2e_phase6_ss2022_local.rs` |
 | SS2022 UDP relay | No | No | **Unsupported** | TCP stream cipher path only in crate |
 | Hysteria2 | Yes | Yes | **Experimental** | `blackwire-transport/hysteria2/`, `blackwire-core/hysteria2.rs`; e2e `e2e_phase3_hysteria2.rs`; lab mandatory path; QUIC/UDP needs more hostility testing |
@@ -84,7 +84,7 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | Hysteria2 (QUIC + HTTP/3 auth) | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path |
 | TUN transparent proxy | **Partial** | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`) |
 | HTTPUpgrade | **Supported** | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix) |
-| SplitHTTP / xHTTP | **Experimental** | Server: minimal PUT tunnel + e2e. Matrix: both clients **SKIP** (full xHTTP framing TBD) |
+| SplitHTTP / xHTTP | **Experimental** | **stream-one** matrix-proven (`vless-splithttp`). `packet-up` code path is **not** sing-box-complete — do not set in matrix until P2 |
 
 ---
 
@@ -129,7 +129,8 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | `inboundTag` | **Supported** | |
 | `protocol` / sniffed domain rules | **Partial** | Requires inbound sniffing + `sniffed_protocol` on routing context; lab row `vless-sniff` |
 | GeoIP / geosite (`geoip:`, `geosite:`) | **Supported** | `geo/`; missing data files → empty matchers + warn |
-| Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; latency uses HTTP 204 health checks |
+| Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; HTTP health probes; in-process failover e2e `e2e_health_failover.rs` |
+| Health-check failover under fault | **Partial** | Proven: dead primary outbound + live backup (`make -C labs/realistic health-failover`); not yet load/soak gated |
 | Route to balancer tag | **Supported** | `production_readiness` tests |
 
 ---
@@ -218,7 +219,8 @@ production certification on all Experimental rows.
 | Gate | Command | What it proves |
 |------|---------|----------------|
 | Stable integration | `make -C labs/realistic stable` | In-process protocol matrix |
-| Advanced smoke | `make -C labs/realistic advanced-features-smoke` | ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health/DNS guards |
+| Advanced smoke | `make -C labs/realistic advanced-features-smoke` | ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health guards + failover runtime |
+| Health failover lab | `make -C labs/realistic health-failover` | In-process failover e2e + optional Docker probe/echo services |
 | External clients | `make -C labs/realistic interop-server-docker` | Xray/sing-box → blackwire (**52 PASS / 8 SKIP** on 15 rows) |
 | Full finalize | `make -C labs/realistic finalize` | All of the above |
 

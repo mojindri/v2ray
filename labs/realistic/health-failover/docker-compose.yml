@@ -1,0 +1,14 @@
+services:
+  health-probe:
+    image: hashicorp/http-echo:1.0
+    command:
+      - "-listen=:8080"
+      - "-text=ok"
+    ports:
+      - "18081:8080"
+
+  echo-target:
+    image: alpine/socat:1.8.0.3
+    command: "tcp-listen:19090,fork,reuseaddr exec:/bin/cat"
+    ports:
+      - "19091:19090"

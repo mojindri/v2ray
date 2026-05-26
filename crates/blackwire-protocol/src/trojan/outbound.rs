@@ -26,7 +26,7 @@ use blackwire_app::context::Context;
 use blackwire_app::features::OutboundHandler;
 use blackwire_common::{Address, BoxedStream, ProxyError};
 
-use super::codec::{compute_token, encode_request};
+use super::codec::{compute_token, encode_request, CMD_CONNECT};
 
 /// Configuration for a Trojan outbound connection.
 #[derive(Debug, Clone)]
@@ -101,7 +101,7 @@ pub async fn connect_trojan_on_stream(
     token: &str,
     dest: &Address,
 ) -> Result<BoxedStream, ProxyError> {
-    let header = encode_request(token, dest)?;
+    let header = encode_request(token, CMD_CONNECT, dest)?;
     stream.write_all(&header).await?;
     // No server-to-client handshake in Trojan — payload follows immediately.
     Ok(stream)

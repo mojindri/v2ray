@@ -120,6 +120,7 @@ help:
 	@echo "  make security        - audit/deny + lab security helpers"
 	@echo "  make fuzz-smoke      - short nightly fuzz pass"
 	@echo "  make advanced-features-smoke - lab: ShadowTLS, mKCP, QUIC/SplitHTTP e2e (host only)"
+	@echo "  make health-failover       - lab: balancer failover e2e (+ Docker when available)"
 	@echo "  make finalize        - lab: stable + advanced smoke + Docker external-client matrix"
 	@echo "  make interop-server-docker   - lab: Xray/sing-box clients -> our server (Docker)"
 	@echo "  make perf            - Lima VM benchmark"
