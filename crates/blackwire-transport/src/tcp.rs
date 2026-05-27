@@ -180,6 +180,11 @@ impl TcpServerTransport {
         // setting it here keeps the transport ready for multi-listener scaling.
         sock.set_reuse_port(true)?;
 
+        // 4 MiB socket buffers improve throughput on high-RTT, high-bandwidth
+        // links. The OS may silently cap these at the kernel's rmem_max/wmem_max.
+        let _ = sock.set_recv_buffer_size(4 * 1024 * 1024);
+        let _ = sock.set_send_buffer_size(4 * 1024 * 1024);
+
         Ok(())
     }
 }
@@ -228,6 +233,8 @@ impl TcpClientTransport {
         }
 
         socket.set_nodelay(true).map_err(ProxyError::Io)?;
+        let _ = socket.set_recv_buffer_size(4 * 1024 * 1024);
+        let _ = socket.set_send_buffer_size(4 * 1024 * 1024);
 
         let stream = match tokio::time::timeout(TCP_CONNECT_TIMEOUT, socket.connect(addr)).await {
             Ok(Ok(s)) => s,

@@ -29,6 +29,7 @@
 //! Outbound handlers and listen ports are still fixed at startup.
 
 use anyhow::{Context as _, Result};
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -232,7 +233,7 @@ impl Instance {
             .and_then(|r| r.domain_strategy.clone());
         let router = LiveRouter::new(rules, default_tag, geoip, geosite, domain_strategy.clone());
         let sniffing_shared =
-            Arc::new(std::sync::RwLock::new(build_sniffing_map(&config.inbounds)));
+            Arc::new(ArcSwap::from_pointee(build_sniffing_map(&config.inbounds)));
         // Shared with the config watcher: router swap + VLESS registry refresh on reload.
         let inbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
             config.inbounds.iter().map(|i| i.tag.clone()).collect(),

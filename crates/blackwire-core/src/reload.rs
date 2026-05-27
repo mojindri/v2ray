@@ -32,6 +32,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use anyhow::Result;
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use serde_json::Value;
 use tracing::info;
@@ -51,12 +52,8 @@ pub struct ReloadState {
     pub router: Arc<LiveRouter>,
     /// One VLESS user registry per inbound tag (key = inbound `tag`).
     pub vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
-    /// Per-inbound sniffing map (hot-swapped on reload).
-    pub sniffing: Arc<
-        std::sync::RwLock<
-            std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>,
-        >,
-    >,
+    /// Per-inbound sniffing map (hot-swapped on reload via lock-free ArcSwap).
+    pub sniffing: Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
     /// Inbound tags from the active config (HandlerService ListInbounds).
     pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     /// Outbound tags from the active config (HandlerService ListOutbounds).
@@ -91,10 +88,10 @@ impl ReloadState {
             .swap(rules, default_tag, geoip, geosite, domain_strategy);
         info!("routing rules hot-swapped");
 
-        if let Ok(mut guard) = self.sniffing.write() {
-            *guard = build_sniffing_map(&config.inbounds);
-            info!(count = guard.len(), "sniffing map hot-swapped");
-        }
+        let new_sniffing = build_sniffing_map(&config.inbounds);
+        let count = new_sniffing.len();
+        self.sniffing.store(Arc::new(new_sniffing));
+        info!(count, "sniffing map hot-swapped");
 
         if let Ok(mut tags) = self.inbound_tags.write() {
             *tags = config.inbounds.iter().map(|i| i.tag.clone()).collect();
