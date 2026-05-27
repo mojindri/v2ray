@@ -305,12 +305,8 @@ mod tests {
         let mut server = server_stream;
 
         // Read frames until we see End.
-        loop {
-            // Read the meta length prefix
-            let meta_len = match server.read_u16().await {
-                Ok(n) => n as usize,
-                Err(_) => break,
-            };
+        while let Ok(n) = server.read_u16().await {
+            let meta_len = n as usize;
             let mut meta_buf = vec![0u8; meta_len];
             if server.read_exact(&mut meta_buf).await.is_err() {
                 break;
