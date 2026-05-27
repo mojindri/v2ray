@@ -303,15 +303,39 @@ impl DefaultDispatcher {
             }
         }
 
+        // For IpIfNonMatch on a domain destination, start DNS resolution in the
+        // background immediately — before we know whether a domain rule will match.
+        // The domain rule check is synchronous and fast; by overlapping it with
+        // DNS we avoid serialising the two when the domain rule misses and IP rules
+        // need to be consulted. A tokio task is spawned only when DNS is configured
+        // AND the router has IP-based rules (otherwise DNS would be pointless).
+        let prefetch = if strategy == RoutingDomainStrategy::IpIfNonMatch
+            && matches!(dest, Address::Domain(..))
+            && self.router.has_ip_rules()
+        {
+            self.prefetch_dns(dest)
+        } else {
+            None
+        };
+
         let ctx = Self::routing_ctx(dest, inbound_tag, user, sniffed_protocol, sniffed_domain);
         let (route, matched) = self.router.pick_route_match(&ctx);
         if matched || strategy == RoutingDomainStrategy::AsIs {
+            if let Some(h) = prefetch {
+                h.abort();
+            }
             return Ok(route);
         }
 
         if strategy == RoutingDomainStrategy::IpIfNonMatch {
             if let Address::Domain(_, _) = dest {
-                if let Some(ips) = self.resolve_domain_ips(dest).await {
+                // Await the pre-fetched DNS result (may already be ready).
+                let ips = if let Some(h) = prefetch {
+                    h.await.ok().flatten()
+                } else {
+                    self.resolve_domain_ips(dest).await
+                };
+                if let Some(ips) = ips {
                     for ip_dest in &ips {
                         let ctx = Self::routing_ctx(
                             ip_dest,
@@ -330,6 +354,57 @@ impl DefaultDispatcher {
         }
 
         Ok(route)
+    }
+
+    /// Spawn a background task that resolves `dest` to IP addresses.
+    ///
+    /// Returns `None` when no DNS module is configured. The handle can be
+    /// awaited for the result or aborted if the resolution is no longer needed.
+    fn prefetch_dns(
+        &self,
+        dest: &Address,
+    ) -> Option<tokio::task::JoinHandle<Option<Vec<Address>>>> {
+        let Address::Domain(name, port) = dest else {
+            return None;
+        };
+        let dns = self.dns.clone()?;
+        let name = name.clone();
+        let port = *port;
+        Some(tokio::spawn(async move {
+            let dest = Address::Domain(name, port);
+            // Inline version of resolve_domain_ips without borrowing self.
+            let mut ips: Vec<Address> = Vec::new();
+            let resolved =
+                tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
+                    .await;
+            if let Ok(Ok(addrs)) = resolved {
+                for ip in addrs {
+                    ips.push(match ip {
+                        std::net::IpAddr::V4(v4) => Address::Ipv4(v4, port),
+                        std::net::IpAddr::V6(v6) => Address::Ipv6(v6, port),
+                    });
+                }
+            }
+            if ips.is_empty() {
+                let lookup = tokio::time::timeout(
+                    ROUTING_DNS_TIMEOUT,
+                    tokio::net::lookup_host((dest.domain().unwrap(), port)),
+                );
+                if let Ok(Ok(addrs)) = lookup.await {
+                    for addr in addrs {
+                        ips.push(match addr {
+                            std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), port),
+                            std::net::SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), port),
+                        });
+                    }
+                }
+            }
+            if ips.is_empty() {
+                None
+            } else {
+                Some(ips)
+            }
+        }))
     }
 
     fn routing_ctx<'a>(
