@@ -44,7 +44,10 @@ use blackwire_config::schema::SniffingConfig;
 use crate::context::Context;
 use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
-use crate::metrics::{record_connection_accepted, record_connection_closed};
+use crate::metrics::{
+    record_connection_accepted, record_connection_closed, record_dns, record_outbound_connect,
+    record_relay_error, record_route,
+};
 use crate::router::{normalize_routing_domain_strategy, Router, RoutingDomainStrategy};
 use crate::runtime_stats;
 
@@ -208,6 +211,7 @@ impl Dispatcher for DefaultDispatcher {
                     error = %e,
                     "relay error"
                 );
+                record_relay_error(&inbound_tag);
             }
         }
 
@@ -241,6 +245,7 @@ impl DefaultDispatcher {
         let protocol_label = ctx.sniffed_protocol.as_deref().unwrap_or("tcp");
         record_connection_accepted(&ctx.inbound_tag, protocol_label);
 
+        let t_route = Instant::now();
         let route = self
             .pick_route_xray(
                 &ctx.inbound_tag,
@@ -250,6 +255,7 @@ impl DefaultDispatcher {
                 ctx.sniffed_domain.as_deref(),
             )
             .await?;
+        record_route(&ctx.inbound_tag, t_route.elapsed());
 
         debug!(outbound = %route.outbound_tag, "route selected");
 
@@ -260,7 +266,8 @@ impl DefaultDispatcher {
                 ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
             })?;
 
-        outbound.connect(&ctx, &dest).await.map_err(|e| {
+        let t_connect = Instant::now();
+        let result = outbound.connect(&ctx, &dest).await.map_err(|e| {
             warn!(
                 outbound = %route.outbound_tag,
                 dest = %dest,
@@ -268,7 +275,9 @@ impl DefaultDispatcher {
                 "outbound connect failed"
             );
             e
-        })
+        });
+        record_outbound_connect(&ctx.inbound_tag, &route.outbound_tag, t_connect.elapsed());
+        result
     }
 
     /// Xray routing: https://xtls.github.io/en/config/routing.html#domainstrategy
@@ -286,7 +295,7 @@ impl DefaultDispatcher {
             && matches!(dest, Address::Domain(..))
             && self.router.has_ip_rules()
         {
-            if let Some(ips) = self.resolve_domain_ips(dest).await {
+            if let Some(ips) = self.resolve_domain_ips(dest, inbound_tag).await {
                 for ip_dest in &ips {
                     let ctx = Self::routing_ctx(
                         ip_dest,
@@ -333,7 +342,7 @@ impl DefaultDispatcher {
                 let ips = if let Some(h) = prefetch {
                     h.await.ok().flatten()
                 } else {
-                    self.resolve_domain_ips(dest).await
+                    self.resolve_domain_ips(dest, inbound_tag).await
                 };
                 if let Some(ips) = ips {
                     for ip_dest in &ips {
@@ -424,10 +433,11 @@ impl DefaultDispatcher {
         }
     }
 
-    async fn resolve_domain_ips(&self, dest: &Address) -> Option<Vec<Address>> {
+    async fn resolve_domain_ips(&self, dest: &Address, inbound_tag: &str) -> Option<Vec<Address>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
+        let t_dns = Instant::now();
         let mut ips = Vec::new();
         if let Some(dns) = &self.dns {
             let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
@@ -454,6 +464,7 @@ impl DefaultDispatcher {
                 }
             }
         }
+        record_dns(inbound_tag, t_dns.elapsed());
         if ips.is_empty() {
             None
         } else {
