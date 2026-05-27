@@ -14,7 +14,17 @@ BENCH_CONC     ?= 32
 DRY_RUN        ?= 0
 BW_BIN         ?= blackwire
 
-.PHONY: latency-local latency-local-dry latency-report latency-report-html latency-check-tools
+# Lima VM settings (latency-lima)
+LIMA_VM        ?= default
+
+# tc-netem chaos settings (latency-chaos)
+CHAOS_DELAY    ?= 50ms
+CHAOS_JITTER   ?= 10ms
+CHAOS_LOSS     ?= 5%
+CHAOS_IFACE    ?= lo
+
+.PHONY: latency-local latency-local-dry latency-report latency-report-html latency-check-tools \
+        latency-lima latency-lima-build latency-chaos latency-profile
 
 latency-check-tools: ## Check that tools required for latency benchmarks are installed
 	@echo "==> checking latency tools"
@@ -51,3 +61,69 @@ latency-report-html: ## Render latest results as HTML → latency/reports/report
 	    --dir "$(LATENCY_REPORTS)" \
 	    --out "$(LATENCY_REPORTS)/report.html"
 	@echo "Wrote $(LATENCY_REPORTS)/report.html"
+
+# ── Linux / Lima targets ───────────────────────────────────────────────────────
+
+latency-lima-build: ## Build blackwire inside Lima VM (Linux/amd64 native — faster than cross-compile)
+	@command -v limactl >/dev/null 2>&1 || { echo "ERROR: limactl not found — https://lima-vm.io"; exit 1; }
+	@limactl list --format '{{.Name}} {{.Status}}' 2>/dev/null | grep -q "^$(LIMA_VM) Running" || \
+	    { echo "ERROR: Lima VM '$(LIMA_VM)' is not running. Start with: limactl start $(LIMA_VM)"; exit 1; }
+	@echo "==> latency-lima-build: cargo build --release inside VM '$(LIMA_VM)'"
+	limactl shell $(LIMA_VM) -- bash -c \
+	    "cd $(CURDIR)/../../../ && cargo build --release -p blackwire 2>&1"
+	@echo "==> latency-lima-build: binary at target/release/blackwire inside VM"
+
+latency-lima: latency-check-tools ## Run latency smoke inside Lima Linux VM (netem-capable, repeatable)
+	@command -v limactl >/dev/null 2>&1 || { echo "ERROR: limactl not found — https://lima-vm.io"; exit 1; }
+	@limactl list --format '{{.Name}} {{.Status}}' 2>/dev/null | grep -q "^$(LIMA_VM) Running" || \
+	    { echo "ERROR: Lima VM '$(LIMA_VM)' is not running. Start with: limactl start $(LIMA_VM)"; exit 1; }
+	@echo "==> latency-lima: smoke inside VM '$(LIMA_VM)' ($(BENCH_DURATION)s × $(BENCH_CONC) conc)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	limactl shell $(LIMA_VM) -- bash -c \
+	    "BENCH_DURATION=$(BENCH_DURATION) \
+	     BENCH_CONC=$(BENCH_CONC) \
+	     REPORT_DIR=$(abspath $(LATENCY_REPORTS)) \
+	     DRY_RUN=$(DRY_RUN) \
+	     BW_BIN=$(BW_BIN) \
+	     bash $(abspath $(LATENCY_SCRIPTS))/compare.sh local-smoke"
+	@echo "==> latency-lima done — run 'make latency-report' to render results"
+
+latency-chaos: ## tc-netem 50ms jitter + 5% loss then smoke (Linux only, needs root/CAP_NET_ADMIN)
+	@uname -s | grep -q Linux || { echo "ERROR: latency-chaos is Linux-only (tc-netem)"; exit 1; }
+	@command -v tc >/dev/null 2>&1 || { echo "ERROR: 'tc' not found — install iproute2"; exit 1; }
+	@command -v hey >/dev/null 2>&1 || { echo "ERROR: 'hey' not found"; exit 1; }
+	@echo "==> latency-chaos: delay=$(CHAOS_DELAY) jitter=$(CHAOS_JITTER) loss=$(CHAOS_LOSS) on $(CHAOS_IFACE)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@set -e; \
+	 trap 'CHAOS_IFACE=$(CHAOS_IFACE) bash $(LATENCY_SCRIPTS)/setup-chaos.sh del' EXIT; \
+	 CHAOS_IFACE=$(CHAOS_IFACE) \
+	 CHAOS_DELAY=$(CHAOS_DELAY) \
+	 CHAOS_JITTER=$(CHAOS_JITTER) \
+	 CHAOS_LOSS=$(CHAOS_LOSS) \
+	 bash $(LATENCY_SCRIPTS)/setup-chaos.sh add; \
+	 BENCH_DURATION="$(BENCH_DURATION)" \
+	 BENCH_CONC="$(BENCH_CONC)" \
+	 REPORT_DIR="$(LATENCY_REPORTS)" \
+	 DRY_RUN="$(DRY_RUN)" \
+	 BW_BIN="$(BW_BIN)" \
+	 bash "$(LATENCY_SCRIPTS)/compare.sh" local-smoke
+	@echo "==> latency-chaos done — run 'make latency-report' to render results"
+
+latency-profile: ## perf flamegraph of blackwire-fast-lab under hey (Linux only; needs perf + FlameGraph)
+	@uname -s | grep -q Linux || { echo "ERROR: latency-profile is Linux-only (perf)"; exit 1; }
+	@command -v perf  >/dev/null 2>&1 || { echo "ERROR: 'perf' not found — install linux-perf / linux-tools"; exit 1; }
+	@command -v hey   >/dev/null 2>&1 || { echo "ERROR: 'hey' not found"; exit 1; }
+	@echo "==> latency-profile: flamegraph for blackwire-fast-lab"
+	@echo "    Set FLAMEGRAPH_DIR to override FlameGraph script location."
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@SERVER_CONFIG="$(abspath $(LATENCY_DIR)configs/blackwire-fast-lab-server.json)" \
+	 CLIENT_CONFIG="$(abspath $(LATENCY_DIR)configs/blackwire-fast-lab-client.json)" \
+	 CLIENT_PORT=1081 \
+	 PROXY_ADDR=127.0.0.1:1081 \
+	 BENCH_DURATION="$(BENCH_DURATION)" \
+	 BENCH_CONC="$(BENCH_CONC)" \
+	 REPORT_DIR="$(abspath $(LATENCY_REPORTS))" \
+	 BW_BIN="$(BW_BIN)" \
+	 FLAMEGRAPH_DIR="$(FLAMEGRAPH_DIR)" \
+	 bash "$(LATENCY_SCRIPTS)/run-flamegraph.sh" blackwire-fast-lab http://127.0.0.1:18080/
+	@echo "==> latency-profile done — open SVG from $(LATENCY_REPORTS)/"

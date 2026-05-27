@@ -16,7 +16,8 @@ SSH_EXTRA_OPTS ?=
 	xray advanced-features-smoke health-failover negative-auth restart-smoke stress report-summary realistic-all docker-full docker-down \
 	vm-pack vps-configs external-clients-docker external-clients-vps external-clients-report \
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean \
-	latency-local latency-local-dry latency-report latency-report-html latency-check-tools
+	latency-local latency-local-dry latency-report latency-report-html latency-check-tools \
+	latency-lima latency-lima-build latency-chaos latency-profile
 
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'
