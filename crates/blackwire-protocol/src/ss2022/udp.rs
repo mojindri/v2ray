@@ -296,15 +296,14 @@ pub async fn relay_ss2022_udp(socket: Arc<UdpSocket>, psk: [u8; 32]) {
             }
         };
 
-        let pkt = buf[..n].to_vec();
-        let (client_session_id, _packet_id, dest, payload) = match decode_client_packet(&pkt, &psk)
-        {
-            Ok(v) => v,
-            Err(e) => {
-                debug!(source = %client_addr, error = %e, "SS2022 UDP decode failed");
-                continue;
-            }
-        };
+        let (client_session_id, _packet_id, dest, payload) =
+            match decode_client_packet(&buf[..n], &psk) {
+                Ok(v) => v,
+                Err(e) => {
+                    debug!(source = %client_addr, error = %e, "SS2022 UDP decode failed");
+                    continue;
+                }
+            };
 
         debug!(
             source = %client_addr,
