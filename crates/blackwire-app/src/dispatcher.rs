@@ -30,6 +30,16 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tracing::{debug, info, warn};
 
+macro_rules! relay_log {
+    ($profile:expr, $($args:tt)*) => {
+        if $profile == ProfileMode::Fast {
+            debug!($($args)*);
+        } else {
+            info!($($args)*);
+        }
+    };
+}
+
 /// DNS resolution budget for routing decisions (IPOnDemand / IPIfNonMatch).
 ///
 /// Slow DNS during routing would stall the entire connection dispatch, so we cap
@@ -39,7 +49,7 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 use std::collections::HashMap;
 
 use blackwire_common::{Address, BoxedStream, ProxyError};
-use blackwire_config::schema::SniffingConfig;
+use blackwire_config::schema::{ProfileMode, SniffingConfig};
 
 use crate::context::Context;
 use crate::dns::DnsModule;
@@ -85,6 +95,9 @@ pub struct DefaultDispatcher {
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
     sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+    /// Operating profile. Under `Fast`, per-connection relay logs are emitted at
+    /// `debug` level rather than `info` to reduce log overhead on hot paths.
+    profile: ProfileMode,
 }
 
 impl DefaultDispatcher {
@@ -102,6 +115,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: None,
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            profile: ProfileMode::default(),
         })
     }
 
@@ -116,6 +130,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: None,
             sniffing,
+            profile: ProfileMode::default(),
         })
     }
 
@@ -133,6 +148,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: Some(dns),
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            profile: ProfileMode::default(),
         })
     }
 
@@ -148,7 +164,32 @@ impl DefaultDispatcher {
             outbounds,
             dns: Some(dns),
             sniffing,
+            profile: ProfileMode::default(),
         })
+    }
+
+    /// Set the operating profile, returning the same `Arc`.
+    ///
+    /// Call this after construction to apply a non-default profile from config.
+    pub fn with_profile(self: Arc<Self>, profile: ProfileMode) -> Arc<Self> {
+        if self.profile == profile {
+            return self;
+        }
+        // We own the only Arc reference here (just constructed), so unwrap is safe.
+        // If multiple references exist, clone the inner value.
+        match Arc::try_unwrap(self) {
+            Ok(mut inner) => {
+                inner.profile = profile;
+                Arc::new(inner)
+            }
+            Err(arc) => Arc::new(Self {
+                router: Arc::clone(&arc.router),
+                outbounds: arc.outbounds.clone(),
+                dns: arc.dns.clone(),
+                sniffing: Arc::clone(&arc.sniffing),
+                profile,
+            }),
+        }
     }
 }
 
@@ -177,7 +218,7 @@ impl Dispatcher for DefaultDispatcher {
         let start = Instant::now();
         let outbound_stream = self.connect_outbound(ctx, dest).await?;
 
-        info!(dest = %dest_label, inbound = %inbound_tag, "relay started");
+        relay_log!(self.profile, dest = %dest_label, inbound = %inbound_tag, "relay started");
 
         // Relay bytes bidirectionally until either side closes.
         //
@@ -195,7 +236,8 @@ impl Dispatcher for DefaultDispatcher {
 
         match &result {
             Ok((up, down)) => {
-                info!(
+                relay_log!(
+                    self.profile,
                     dest = %dest_label,
                     inbound = %inbound_tag,
                     uplink_bytes = up,
@@ -257,7 +299,7 @@ impl DefaultDispatcher {
             .await?;
         record_route(&ctx.inbound_tag, t_route.elapsed());
 
-        debug!(outbound = %route.outbound_tag, "route selected");
+        relay_log!(self.profile, outbound = %route.outbound_tag, "route selected");
 
         let outbound = self
             .outbounds

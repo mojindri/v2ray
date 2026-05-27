@@ -258,7 +258,8 @@ impl Instance {
                 Arc::clone(&sniffing_shared),
             ),
             None => DefaultDispatcher::new_with_sniffing(router, outbound_map, sniffing_shared),
-        };
+        }
+        .with_profile(config.profile);
 
         // ── Step 4 & 5: Build inbounds and start listeners ───────────────────
         for in_cfg in &config.inbounds {
