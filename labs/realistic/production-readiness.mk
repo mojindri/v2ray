@@ -102,7 +102,9 @@ vm-fingerprint-total: vm-browser-baseline ## Fully automated VM browser baseline
 
 
 lima-browser-baseline: ## Fully automated Lima Ubuntu VM browser baseline. Installs Lima if needed.
-	bash scripts/run-lima-browser-baseline.sh reports/production 2>&1 | tee reports/production/lima-browser-baseline.log
+	@set -o pipefail; \
+	bash scripts/run-lima-browser-baseline.sh reports/production 2>&1 | tee reports/production/lima-browser-baseline.log; \
+	test $${PIPESTATUS[0]} -eq 0
 
 lima-fingerprint-total: lima-browser-baseline ## Fully automated Lima VM browser baseline + strict fingerprint verify.
 

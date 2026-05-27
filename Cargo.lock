@@ -508,6 +508,7 @@ dependencies = [
  "bytes",
  "criterion",
  "serde_json",
+ "socket2",
  "tokio",
  "tracing-subscriber",
 ]

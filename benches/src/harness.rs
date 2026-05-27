@@ -5,12 +5,59 @@
 //! running for the whole bench run so TCP listener startup cost is excluded
 //! from measurements.
 
+use std::io;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::runtime::Runtime;
+
+/// Outbound connects with `SO_LINGER=0` so macOS does not accumulate TIME_WAIT entries
+/// when Criterion opens many short SOCKS sessions during handshake warmup.
+#[cfg(unix)]
+fn set_linger_abort(stream: &TcpStream) {
+    use socket2::SockRef;
+    let sock = SockRef::from(stream);
+    let _ = sock.set_linger(Some(Duration::from_secs(0)));
+}
+
+#[cfg(not(unix))]
+fn set_linger_abort(_stream: &TcpStream) {}
+
+/// Call before dropping a bench connection that will not read a graceful FIN (handshake-only).
+pub fn abort_tcp_on_close(stream: &TcpStream) {
+    set_linger_abort(stream);
+}
+
+async fn localhost_tcp_connect(port: u16) -> io::Result<TcpStream> {
+    TcpStream::connect(("127.0.0.1", port)).await
+}
+
+/// Wait until something accepts TCP on `127.0.0.1:port` (proxy SOCKS/HTTP inbound).
+pub async fn wait_for_tcp_listen(port: u16, label: &str) {
+    let deadline = Instant::now() + Duration::from_secs(15);
+    let mut delay = Duration::from_millis(5);
+    loop {
+        match localhost_tcp_connect(port).await {
+            Ok(stream) => {
+                drop(stream);
+                return;
+            }
+            Err(e)
+                if e.kind() == io::ErrorKind::ConnectionRefused
+                    || e.kind() == io::ErrorKind::AddrNotAvailable =>
+            {
+                if Instant::now() >= deadline {
+                    panic!("{label} on 127.0.0.1:{port} not ready after 15s: {e}");
+                }
+                tokio::time::sleep(delay).await;
+                delay = delay.saturating_mul(2).min(Duration::from_millis(100));
+            }
+            Err(e) => panic!("{label} on 127.0.0.1:{port}: {e}"),
+        }
+    }
+}
 
 // ── UUIDs / passwords ─────────────────────────────────────────────────────────
 
@@ -76,9 +123,9 @@ pub async fn spawn_echo_server() -> (u16, tokio::task::JoinHandle<()>) {
 // ── SOCKS5 client helper ───────────────────────────────────────────────────────
 
 pub async fn socks5_connect(socks_port: u16, host: &str, port: u16) -> TcpStream {
-    let mut s = TcpStream::connect(("127.0.0.1", socks_port))
+    let mut s = localhost_tcp_connect(socks_port)
         .await
-        .expect("socks connect");
+        .unwrap_or_else(|e| panic!("socks connect 127.0.0.1:{socks_port}: {e}"));
     s.write_all(&[5, 1, 0]).await.expect("socks greet");
     let mut g = [0u8; 2];
     s.read_exact(&mut g).await.expect("socks greet reply");
@@ -156,9 +203,6 @@ impl ProxyPair {
         let client = blackwire_core::Instance::from_config(client_cfg)
             .await
             .expect("client start");
-
-        // Give listeners a moment to accept before the bench loop starts.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
         // Read socks_port from the client config after startup via the known
         // field; we pass it in directly through the config builders below.
@@ -486,9 +530,9 @@ pub fn trojan_tcp_client(
 // ── HTTP CONNECT client (VMess gRPC chain) ─────────────────────────────────────
 
 pub async fn http_connect(proxy_port: u16, host: &str, port: u16) -> TcpStream {
-    let mut stream = TcpStream::connect(("127.0.0.1", proxy_port))
+    let mut stream = localhost_tcp_connect(proxy_port)
         .await
-        .expect("http proxy connect");
+        .unwrap_or_else(|e| panic!("http proxy connect 127.0.0.1:{proxy_port}: {e}"));
 
     let req = format!("CONNECT {host}:{port} HTTP/1.1\r\nHost: {host}:{port}\r\n\r\n");
     stream
@@ -571,9 +615,16 @@ impl ProtocolPath {
             ),
         };
 
-        ProxyPair::new(server_cfg, client_cfg)
+        let label = if self.uses_http_connect() {
+            "http inbound"
+        } else {
+            "socks inbound"
+        };
+        let pair = ProxyPair::new(server_cfg, client_cfg)
             .await
-            .with_proxy_port(proxy_port, self.uses_http_connect())
+            .with_proxy_port(proxy_port, self.uses_http_connect());
+        wait_for_tcp_listen(proxy_port, label).await;
+        pair
     }
 }
 
@@ -624,7 +675,9 @@ pub async fn short_lived_session(pair: &ProxyPair, payload_len: usize) -> usize 
     let mut stream = pair.connect().await;
     let payload = vec![0xABu8; payload_len];
     echo_transfer(&mut stream, &payload).await;
-    payload.len()
+    let len = payload.len();
+    abort_tcp_on_close(&stream);
+    len
 }
 
 pub async fn mixed_small_writes(stream: &mut TcpStream, chunk_size: usize, rounds: usize) -> usize {
@@ -668,7 +721,9 @@ pub async fn concurrent_short_lived(
             };
             let payload = vec![0xFEu8; payload_len];
             echo_transfer(&mut stream, &payload).await;
-            payload.len()
+            let len = payload.len();
+            abort_tcp_on_close(&stream);
+            len
         }));
     }
 
