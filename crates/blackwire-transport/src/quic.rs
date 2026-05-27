@@ -140,18 +140,16 @@ pub fn build_hysteria2_server_endpoint(
 /// bandwidth-delay product. Windows are clamped to a [8 MB, 128 MB] range.
 pub(crate) fn bdp_windows(rx_mbps: u64, tx_mbps: u64) -> (quinn::VarInt, quinn::VarInt, u64) {
     const RTT_MS: u64 = 500;
-    const MIN_BYTES: u64 = 8 * 1024 * 1024;   // 8 MB floor
-    const MAX_BYTES: u64 = 128 * 1024 * 1024;  // 128 MB ceiling
+    const MIN_BYTES: u64 = 8 * 1024 * 1024; // 8 MB floor
+    const MAX_BYTES: u64 = 128 * 1024 * 1024; // 128 MB ceiling
 
     let rx_bps = rx_mbps.saturating_mul(1_000_000 / 8);
     let tx_bps = tx_mbps.saturating_mul(1_000_000 / 8);
 
-    let stream_rx = (rx_bps.saturating_mul(RTT_MS) / 1000)
-        .clamp(MIN_BYTES, MAX_BYTES);
+    let stream_rx = (rx_bps.saturating_mul(RTT_MS) / 1000).clamp(MIN_BYTES, MAX_BYTES);
     // Connection receive window covers multiple concurrent streams.
     let conn_rx = stream_rx.saturating_mul(3).min(MAX_BYTES);
-    let conn_tx = (tx_bps.saturating_mul(RTT_MS) / 1000)
-        .clamp(MIN_BYTES, MAX_BYTES);
+    let conn_tx = (tx_bps.saturating_mul(RTT_MS) / 1000).clamp(MIN_BYTES, MAX_BYTES);
 
     (
         quinn::VarInt::from_u64(stream_rx).unwrap_or(quinn::VarInt::MAX),

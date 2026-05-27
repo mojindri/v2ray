@@ -232,8 +232,7 @@ impl Instance {
             .as_ref()
             .and_then(|r| r.domain_strategy.clone());
         let router = LiveRouter::new(rules, default_tag, geoip, geosite, domain_strategy.clone());
-        let sniffing_shared =
-            Arc::new(ArcSwap::from_pointee(build_sniffing_map(&config.inbounds)));
+        let sniffing_shared = Arc::new(ArcSwap::from_pointee(build_sniffing_map(&config.inbounds)));
         // Shared with the config watcher: router swap + VLESS registry refresh on reload.
         let inbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
             config.inbounds.iter().map(|i| i.tag.clone()).collect(),
@@ -511,7 +510,8 @@ impl Instance {
                 ..Default::default()
             };
 
-            let transport = std::sync::Arc::new(blackwire_transport::TcpServerTransport::new(tcp_config));
+            let transport =
+                std::sync::Arc::new(blackwire_transport::TcpServerTransport::new(tcp_config));
             // One accept-loop shard per logical CPU; the kernel distributes
             // incoming SYNs across them via SO_REUSEPORT.
             let shards = std::thread::available_parallelism()

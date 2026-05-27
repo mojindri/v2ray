@@ -151,7 +151,7 @@ impl GeoSiteMatcher {
         }
 
         // 4. Regex match.
-        if self.regex.is_match(&lower) {
+        if self.regex.is_match(lower) {
             return true;
         }
 

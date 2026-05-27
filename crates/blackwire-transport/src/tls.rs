@@ -307,6 +307,8 @@ pub async fn tls_connect_with_config(
     Ok(Box::new(tls_stream))
 }
 
+type ClientConfigCache = DashMap<(Vec<String>, bool), Arc<ClientConfig>>;
+
 /// Return a cached `Arc<ClientConfig>` for the given (alpn, skip_verify) pair.
 ///
 /// The cache stores one `ClientConfig` per unique `(alpn_key, skip_verify)`
@@ -317,7 +319,7 @@ pub fn cached_client_config(
     alpn: &[&str],
     skip_verify: bool,
 ) -> Result<Arc<ClientConfig>, ProxyError> {
-    static CACHE: OnceLock<DashMap<(Vec<String>, bool), Arc<ClientConfig>>> = OnceLock::new();
+    static CACHE: OnceLock<ClientConfigCache> = OnceLock::new();
     let cache = CACHE.get_or_init(DashMap::new);
 
     let key = (

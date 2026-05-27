@@ -167,8 +167,7 @@ impl<S: AsyncRead + Unpin> AsyncRead for VisionStream<S> {
                     // Take feed_scratch out so we can borrow read_state mutably at the same time.
                     let mut scratch = std::mem::take(&mut self.feed_scratch);
                     scratch.clear();
-                    let switch_to_direct =
-                        self.read_state.feed(&uuid, rb.filled(), &mut scratch);
+                    let switch_to_direct = self.read_state.feed(&uuid, rb.filled(), &mut scratch);
                     self.feed_scratch = scratch;
                     if switch_to_direct {
                         self.read_direct_copy = true;
