@@ -68,7 +68,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Item | Work |
 |------|------|
 | SplitHTTP packet-up extras (Xmux, padding, `downloadSettings`) | Optional; hiddify-sing-box manual |
-| Kernel TLS (`SO_KTLS`) | Experimental opt-in via `BLACKWIRE_ENABLE_KTLS=1`; default TLS path stays on rustls after large-payload reset issues in CI |
+| Kernel TLS (`SO_KTLS`) | Experimental, isolated opt-in via `BLACKWIRE_ENABLE_KTLS=1` (`force` for debugging); default TLS path stays on rustls locally; CI sets `BLACKWIRE_ENABLE_KTLS=1` on Linux |
 | In-place listener rebind | P4 |
 
 ## Related
