@@ -463,7 +463,7 @@ pub async fn relay_mux_cool(
                             "mux: new TCP sub-connection"
                         );
                         let mut upstream = dispatcher
-                            .connect_outbound(ctx.clone(), dest.clone())
+                            .connect_outbound(&ctx, &dest)
                             .await
                             .map_err(|e| {
                                 warn!(
@@ -750,11 +750,11 @@ mod tests {
 
         async fn connect_outbound(
             &self,
-            _ctx: Context,
-            dest: Address,
+            _ctx: &Context,
+            dest: &Address,
         ) -> Result<BoxedStream, ProxyError> {
             let socket_addr = match dest {
-                Address::Ipv4(ip, port) => SocketAddr::from((ip, port)),
+                Address::Ipv4(ip, port) => SocketAddr::from((*ip, *port)),
                 _ => return Err(ProxyError::Protocol("mux test: ipv4 only".into())),
             };
             Ok(Box::new(tcp_connect(socket_addr).await?))

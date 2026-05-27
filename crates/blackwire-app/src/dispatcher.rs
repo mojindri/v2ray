@@ -23,6 +23,7 @@
 //! kernel pipes without copying them into userspace. Non-Linux builds and
 //! non-raw streams keep using `copy_bidirectional`.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -81,8 +82,8 @@ pub trait Dispatcher: Send + Sync + 'static {
     /// Route and open an outbound stream without relaying (Mux.Cool sub-connections).
     async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError>;
 }
 
@@ -211,14 +212,10 @@ impl Dispatcher for DefaultDispatcher {
             }
         }
 
-        let inbound_tag = ctx.inbound_tag.clone();
-        let user_email = ctx.user.clone();
-        let dest_label = dest.to_string();
-
         let start = Instant::now();
-        let outbound_stream = self.connect_outbound(ctx, dest).await?;
+        let outbound_stream = self.connect_outbound(&ctx, &dest).await?;
 
-        relay_log!(self.profile, dest = %dest_label, inbound = %inbound_tag, "relay started");
+        relay_log!(self.profile, dest = %dest, inbound = %ctx.inbound_tag, "relay started");
 
         // Relay bytes bidirectionally until either side closes.
         //
@@ -238,8 +235,8 @@ impl Dispatcher for DefaultDispatcher {
             Ok((up, down)) => {
                 relay_log!(
                     self.profile,
-                    dest = %dest_label,
-                    inbound = %inbound_tag,
+                    dest = %dest,
+                    inbound = %ctx.inbound_tag,
                     uplink_bytes = up,
                     downlink_bytes = down,
                     duration_ms = elapsed.as_millis(),
@@ -248,18 +245,18 @@ impl Dispatcher for DefaultDispatcher {
             }
             Err(e) => {
                 debug!(
-                    dest = %dest_label,
-                    inbound = %inbound_tag,
+                    dest = %dest,
+                    inbound = %ctx.inbound_tag,
                     error = %e,
                     "relay error"
                 );
-                record_relay_error(&inbound_tag);
+                record_relay_error(&ctx.inbound_tag);
             }
         }
 
         let (rx_bytes, tx_bytes) = result.unwrap_or((0, 0));
-        record_connection_closed(&inbound_tag, rx_bytes, tx_bytes, elapsed);
-        if let Some(user) = user_email.as_deref() {
+        record_connection_closed(&ctx.inbound_tag, rx_bytes, tx_bytes, elapsed);
+        if let Some(user) = ctx.user.as_deref() {
             runtime_stats::record_user_traffic(user, rx_bytes, tx_bytes);
         }
 
@@ -268,8 +265,8 @@ impl Dispatcher for DefaultDispatcher {
 
     async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError> {
         DefaultDispatcher::connect_outbound(self, ctx, dest).await
     }
@@ -279,8 +276,8 @@ impl DefaultDispatcher {
     /// Route and dial the destination without starting a relay loop.
     pub async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError> {
         let dest = self.restore_fakeip_destination(dest);
 
@@ -309,7 +306,7 @@ impl DefaultDispatcher {
             })?;
 
         let t_connect = Instant::now();
-        let result = outbound.connect(&ctx, &dest).await.map_err(|e| {
+        let result = outbound.connect(ctx, &dest).await.map_err(|e| {
             warn!(
                 outbound = %route.outbound_tag,
                 dest = %dest,
@@ -514,17 +511,20 @@ impl DefaultDispatcher {
         }
     }
 
-    fn restore_fakeip_destination(&self, dest: Address) -> Address {
+    fn restore_fakeip_destination<'a>(&self, dest: &'a Address) -> Cow<'a, Address> {
         let Some(dns) = &self.dns else {
-            return dest;
+            return Cow::Borrowed(dest);
         };
 
         match dest {
-            Address::Ipv4(ip, port) if dns.is_fake_ip(std::net::IpAddr::V4(ip)) => dns
-                .reverse_fake(ip)
-                .map(|domain| Address::Domain(domain, port))
-                .unwrap_or(Address::Ipv4(ip, port)),
-            other => other,
+            Address::Ipv4(ip, port) if dns.is_fake_ip(std::net::IpAddr::V4(*ip)) => {
+                let resolved = dns
+                    .reverse_fake(*ip)
+                    .map(|domain| Address::Domain(domain, *port))
+                    .unwrap_or(Address::Ipv4(*ip, *port));
+                Cow::Owned(resolved)
+            }
+            _ => Cow::Borrowed(dest),
         }
     }
 }
@@ -565,8 +565,9 @@ mod tests {
             dns,
         );
 
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(fake, 443));
-        assert_eq!(restored, Address::Domain("example.com".into(), 443));
+        let fake_addr = Address::Ipv4(fake, 443);
+        let restored = dispatcher.restore_fakeip_destination(&fake_addr);
+        assert_eq!(restored.into_owned(), Address::Domain("example.com".into(), 443));
     }
 
     #[tokio::test]
@@ -586,7 +587,8 @@ mod tests {
         );
 
         let ip = "198.18.0.100".parse().unwrap();
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(ip, 443));
-        assert_eq!(restored, Address::Ipv4(ip, 443));
+        let addr = Address::Ipv4(ip, 443);
+        let restored = dispatcher.restore_fakeip_destination(&addr);
+        assert_eq!(*restored, Address::Ipv4(ip, 443));
     }
 }
