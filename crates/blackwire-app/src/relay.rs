@@ -78,10 +78,10 @@ pub async fn relay_bidirectional(
 }
 
 async fn tokio_copy_bidirectional(
-    mut inbound: BoxedStream,
-    mut outbound: BoxedStream,
+    inbound: BoxedStream,
+    outbound: BoxedStream,
 ) -> io::Result<(u64, u64)> {
-    tokio::io::copy_bidirectional(&mut inbound, &mut outbound).await
+    blackwire_common::relay::copy_bidirectional_pooled(inbound, outbound).await
 }
 
 #[cfg(test)]
