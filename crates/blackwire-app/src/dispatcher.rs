@@ -24,11 +24,17 @@
 //! non-raw streams keep using `copy_bidirectional`.
 
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tracing::{debug, info, warn};
+
+/// DNS resolution budget for routing decisions (IPOnDemand / IPIfNonMatch).
+///
+/// Slow DNS during routing would stall the entire connection dispatch, so we cap
+/// the budget well below the connection handshake timeout.
+const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 
 use std::collections::HashMap;
 
@@ -349,8 +355,9 @@ impl DefaultDispatcher {
         };
         let mut ips = Vec::new();
         if let Some(dns) = &self.dns {
-            if let Ok(resolved) = dns.resolve(name).await {
-                for ip in resolved {
+            let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
+            if let Ok(Ok(addrs)) = resolved {
+                for ip in addrs {
                     ips.push(match ip {
                         std::net::IpAddr::V4(v4) => Address::Ipv4(v4, *port),
                         std::net::IpAddr::V6(v6) => Address::Ipv6(v6, *port),
@@ -359,7 +366,9 @@ impl DefaultDispatcher {
             }
         }
         if ips.is_empty() {
-            if let Ok(addrs) = tokio::net::lookup_host((name.as_str(), *port)).await {
+            let lookup =
+                tokio::time::timeout(ROUTING_DNS_TIMEOUT, tokio::net::lookup_host((name.as_str(), *port)));
+            if let Ok(Ok(addrs)) = lookup.await {
                 for addr in addrs {
                     ips.push(match addr {
                         std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), *port),

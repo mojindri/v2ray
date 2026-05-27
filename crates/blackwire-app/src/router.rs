@@ -423,19 +423,36 @@ pub struct IpMatcher {
 impl IpMatcher {
     /// Build an `IpMatcher` from a list of CIDR range strings.
     pub fn new(ranges: Vec<String>) -> anyhow::Result<Self> {
-        let parsed = ranges
+        let mut parsed = ranges
             .iter()
             .map(|r| {
                 r.parse::<IpNet>()
                     .map_err(|e| anyhow::anyhow!("invalid CIDR '{}': {}", r, e))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+        parsed.sort_unstable();
         Ok(Self { ranges: parsed })
     }
 
     /// Returns `true` if `ip` falls within any of the configured CIDR ranges.
+    ///
+    /// Uses binary search (O(log n)) since ranges are sorted at construction time.
     pub fn matches(&self, ip: IpAddr) -> bool {
-        self.ranges.iter().any(|net| net.contains(&ip))
+        if self.ranges.is_empty() {
+            return false;
+        }
+        let full_prefix = match ip {
+            IpAddr::V4(_) => 32u8,
+            IpAddr::V6(_) => 128u8,
+        };
+        let Ok(probe) = IpNet::new(ip, full_prefix) else {
+            return self.ranges.iter().any(|net| net.contains(&ip));
+        };
+        let idx = self.ranges.partition_point(|net| *net <= probe);
+        self.ranges[idx.saturating_sub(4)..idx]
+            .iter()
+            .rev()
+            .any(|net| net.contains(&ip))
     }
 }
 
