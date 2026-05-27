@@ -63,12 +63,21 @@ async fn resolve_udp_dest(dest: &Address) -> Result<SocketAddr, ProxyError> {
 }
 
 /// Relay UDP until the SOCKS5 TCP control connection closes.
+///
+/// One upstream `UdpSocket` is bound once per association and reused for all
+/// datagrams, replacing the previous pattern of creating a new socket per packet.
 pub async fn relay_socks5_udp(
     mut control: BoxedStream,
     udp: UdpSocket,
     client_ip: std::net::IpAddr,
 ) -> Result<(), ProxyError> {
+    // Single upstream socket shared across all datagrams in this association.
+    let upstream_sock = UdpSocket::bind("0.0.0.0:0")
+        .await
+        .map_err(|e| ProxyError::Transport(format!("SOCKS5 UDP upstream bind: {e}")))?;
+
     let mut buf = vec![0u8; 65535];
+    let mut reply_buf = vec![0u8; 65535];
     let mut ctrl = [0u8; 64];
 
     loop {
@@ -92,17 +101,14 @@ pub async fn relay_socks5_udp(
                     Ok(a) => a,
                     Err(_) => continue,
                 };
-                let sock = match UdpSocket::bind("0.0.0.0:0").await {
-                    Ok(s) => s,
-                    Err(_) => continue,
-                };
-                if sock.send_to(payload, upstream).await.is_err() {
+                if upstream_sock.send_to(payload, upstream).await.is_err() {
                     continue;
                 }
-                let mut reply_buf = vec![0u8; 65535];
-                if let Ok(Ok(m)) =
-                    tokio::time::timeout(std::time::Duration::from_secs(5), sock.recv(&mut reply_buf))
-                        .await
+                if let Ok(Ok(m)) = tokio::time::timeout(
+                    std::time::Duration::from_secs(5),
+                    upstream_sock.recv(&mut reply_buf),
+                )
+                .await
                 {
                     if m > 0 {
                         if let Ok(pkt) = encode_udp_datagram(&dest, &reply_buf[..m]) {
