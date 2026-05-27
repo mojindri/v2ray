@@ -7,6 +7,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  BLACKWIRE_ENABLE_KTLS: "1"
 
 jobs:
   rust:

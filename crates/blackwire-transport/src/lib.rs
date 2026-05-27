@@ -16,6 +16,8 @@
 //! is what the protocol layer receives. The protocol layer never knows which
 //! transport is underneath.
 
+#[cfg(target_os = "linux")]
+mod ktls;
 mod pem;
 pub mod reality;
 pub mod tcp;
