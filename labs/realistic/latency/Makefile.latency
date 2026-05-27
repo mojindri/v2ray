@@ -1,0 +1,53 @@
+# Makefile.latency — latency lab targets
+# Included from labs/realistic/Makefile via:  include latency/Makefile.latency
+#
+# macOS (latency-local): smoke only, no tc-netem, NOT a hard perf gate.
+# Linux/Lima (latency-lima): repeatable with netem — see labs/realistic/latency/scripts/setup-chaos.sh
+# VPS pair (latency-vps): production-like — release evidence only.
+
+LATENCY_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+LATENCY_SCRIPTS := $(LATENCY_DIR)scripts
+LATENCY_REPORTS := $(LATENCY_DIR)reports
+
+BENCH_DURATION ?= 30
+BENCH_CONC     ?= 32
+DRY_RUN        ?= 0
+BW_BIN         ?= blackwire
+
+.PHONY: latency-local latency-local-dry latency-report latency-report-html latency-check-tools
+
+latency-check-tools: ## Check that tools required for latency benchmarks are installed
+	@echo "==> checking latency tools"
+	@command -v hey >/dev/null 2>&1 || { echo "ERROR: 'hey' not found."; echo "  macOS:  brew install hey"; echo "  Linux:  go install github.com/rakyll/hey@latest"; exit 1; }
+	@command -v python3 >/dev/null 2>&1 || { echo "ERROR: python3 not found"; exit 1; }
+	@echo "ok"
+
+latency-local: latency-check-tools ## macOS-safe smoke: direct + socks-direct + vless-loopback (30s each)
+	@echo "==> latency-local (smoke, ${BENCH_DURATION}s × ${BENCH_CONC} conc)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@BENCH_DURATION="$(BENCH_DURATION)" \
+	 BENCH_CONC="$(BENCH_CONC)" \
+	 REPORT_DIR="$(LATENCY_REPORTS)" \
+	 DRY_RUN="$(DRY_RUN)" \
+	 BW_BIN="$(BW_BIN)" \
+	 bash "$(LATENCY_SCRIPTS)/compare.sh" local-smoke
+	@echo "==> latency-local done — run 'make latency-report' to render results"
+
+latency-local-dry: ## Dry-run latency-local (prints commands, writes stub JSON, does not start processes)
+	@echo "==> latency-local dry-run (no tool check, no processes started)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@BENCH_DURATION=5 \
+	 BENCH_CONC=4 \
+	 REPORT_DIR="$(LATENCY_REPORTS)" \
+	 DRY_RUN=1 \
+	 BW_BIN="$(BW_BIN)" \
+	 bash "$(LATENCY_SCRIPTS)/compare.sh" local-smoke
+
+latency-report: ## Render latest results as Markdown (stdout)
+	@python3 "$(LATENCY_SCRIPTS)/report.py" --dir "$(LATENCY_REPORTS)"
+
+latency-report-html: ## Render latest results as HTML → latency/reports/report.html
+	@python3 "$(LATENCY_SCRIPTS)/report.py" --format html \
+	    --dir "$(LATENCY_REPORTS)" \
+	    --out "$(LATENCY_REPORTS)/report.html"
+	@echo "Wrote $(LATENCY_REPORTS)/report.html"
