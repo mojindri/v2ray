@@ -8,27 +8,53 @@
 //! - If the file exists but cannot be decoded (corrupt data), the same
 //!   "empty map + warning" behavior applies.
 //! - Panics are never allowed from this module.
+//!
+//! # Hot-reload caching
+//!
+//! `load_geoip` and `load_geosite` cache the last loaded result keyed by the
+//! file's BLAKE3 content hash. On a hot-reload where the database file has not
+//! changed, the cached `Arc<HashMap<...>>` is cloned instead of re-parsing the
+//! binary protobuf — avoiding the 5–10 MB re-parse + 100 k+ entry rebuild.
 
 use std::collections::HashMap;
 use std::path::Path;
+use std::sync::{Arc, Mutex, OnceLock};
 
 use prost::Message;
-use tracing::warn;
+use tracing::{debug, warn};
 
 use super::geoip::GeoIpMatcher;
 use super::geosite::GeoSiteMatcher;
 use super::proto::{GeoIpList, GeoSiteList};
 
+// ---- GeoIP cache ----
+
+struct GeoCache<T> {
+    hash: [u8; 32],
+    data: Arc<HashMap<String, T>>,
+}
+
+static GEOIP_CACHE: OnceLock<Mutex<Option<GeoCache<GeoIpMatcher>>>> = OnceLock::new();
+static GEOSITE_CACHE: OnceLock<Mutex<Option<GeoCache<GeoSiteMatcher>>>> = OnceLock::new();
+
+fn geoip_cache() -> &'static Mutex<Option<GeoCache<GeoIpMatcher>>> {
+    GEOIP_CACHE.get_or_init(|| Mutex::new(None))
+}
+
+fn geosite_cache() -> &'static Mutex<Option<GeoCache<GeoSiteMatcher>>> {
+    GEOSITE_CACHE.get_or_init(|| Mutex::new(None))
+}
+
 /// Load a `geoip.dat` file and return a map of country code → `GeoIpMatcher`.
 ///
 /// Country codes are normalised to uppercase (e.g. `"cn"` → `"CN"`).
 ///
-/// # Graceful degradation
+/// The result is cached by BLAKE3 content hash: if the file has not changed
+/// since the last call (same hash), the cached `Arc<HashMap>` is cloned
+/// instead of re-parsing the protobuf — making hot-reloads with unchanged
+/// geo databases essentially free.
 ///
-/// Returns an empty `HashMap` if:
-/// - The file path does not exist.
-/// - The file cannot be read.
-/// - The file bytes cannot be decoded as a `GeoIPList` protobuf.
+/// Returns an empty `HashMap` if the file is missing, unreadable, or corrupt.
 pub fn load_geoip(path: impl AsRef<Path>) -> HashMap<String, GeoIpMatcher> {
     let path = path.as_ref();
     let bytes = match std::fs::read(path) {
@@ -39,6 +65,20 @@ pub fn load_geoip(path: impl AsRef<Path>) -> HashMap<String, GeoIpMatcher> {
         }
     };
 
+    let hash = *blake3::hash(&bytes).as_bytes();
+
+    // Return cached data if the file content is unchanged.
+    {
+        let guard = geoip_cache().lock().unwrap();
+        if let Some(cached) = guard.as_ref() {
+            if cached.hash == hash {
+                debug!(path = %path.display(), "GeoIP cache hit — skipping re-parse");
+                return Arc::try_unwrap(Arc::clone(&cached.data))
+                    .unwrap_or_else(|arc| (*arc).clone());
+            }
+        }
+    }
+
     let list = match GeoIpList::decode(bytes.as_slice()) {
         Ok(l) => l,
         Err(e) => {
@@ -47,22 +87,30 @@ pub fn load_geoip(path: impl AsRef<Path>) -> HashMap<String, GeoIpMatcher> {
         }
     };
 
-    list.entry
+    let map: HashMap<String, GeoIpMatcher> = list
+        .entry
         .iter()
         .map(|entry| {
             let code = entry.country_code.to_uppercase();
             let matcher = GeoIpMatcher::from_proto(entry);
             (code, matcher)
         })
-        .collect()
+        .collect();
+
+    let shared = Arc::new(map);
+    *geoip_cache().lock().unwrap() = Some(GeoCache {
+        hash,
+        data: Arc::clone(&shared),
+    });
+
+    Arc::try_unwrap(shared).unwrap_or_else(|arc| (*arc).clone())
 }
 
 /// Load a `geosite.dat` file and return a map of group name → `GeoSiteMatcher`.
 ///
 /// Group names are normalised to uppercase.
 ///
-/// # Graceful degradation
-///
+/// The result is cached by BLAKE3 content hash — identical to `load_geoip`.
 /// Returns an empty `HashMap` if the file is missing, unreadable, or corrupt.
 pub fn load_geosite(path: impl AsRef<Path>) -> HashMap<String, GeoSiteMatcher> {
     let path = path.as_ref();
@@ -74,6 +122,19 @@ pub fn load_geosite(path: impl AsRef<Path>) -> HashMap<String, GeoSiteMatcher> {
         }
     };
 
+    let hash = *blake3::hash(&bytes).as_bytes();
+
+    {
+        let guard = geosite_cache().lock().unwrap();
+        if let Some(cached) = guard.as_ref() {
+            if cached.hash == hash {
+                debug!(path = %path.display(), "GeoSite cache hit — skipping re-parse");
+                return Arc::try_unwrap(Arc::clone(&cached.data))
+                    .unwrap_or_else(|arc| (*arc).clone());
+            }
+        }
+    }
+
     let list = match GeoSiteList::decode(bytes.as_slice()) {
         Ok(l) => l,
         Err(e) => {
@@ -82,14 +143,23 @@ pub fn load_geosite(path: impl AsRef<Path>) -> HashMap<String, GeoSiteMatcher> {
         }
     };
 
-    list.entry
+    let map: HashMap<String, GeoSiteMatcher> = list
+        .entry
         .iter()
         .map(|entry| {
             let code = entry.country_code.to_uppercase();
             let matcher = GeoSiteMatcher::from_proto(entry);
             (code, matcher)
         })
-        .collect()
+        .collect();
+
+    let shared = Arc::new(map);
+    *geosite_cache().lock().unwrap() = Some(GeoCache {
+        hash,
+        data: Arc::clone(&shared),
+    });
+
+    Arc::try_unwrap(shared).unwrap_or_else(|arc| (*arc).clone())
 }
 
 #[cfg(test)]
