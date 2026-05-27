@@ -53,7 +53,7 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Freedom / direct | No | Yes | **Supported** | `freedom.rs` — default direct outbound |
 | VLESS (TCP) | Yes | Yes | **Supported** | `vless/`; golden + e2e matrix |
 | VLESS UDP command | Yes | Yes | **Supported** | `vless/udp.rs` inbound relay; matrix `vless-udp` Xray+sing-box **PASS**; outbound `Command::Udp`; e2e `e2e_vless_udp_outbound.rs` PASS |
-| VLESS MUX command (0x03) | Partial | Partial | **Supported** | Mux.Cool + XUDP in `vless/mux.rs`; matrix `vless-mux` Xray **PASS**; `vless-udp` Xray XUDP **PASS** |
+| VLESS MUX command (0x03) | Yes | Yes | **Supported** | Mux.Cool + XUDP in `vless/mux.rs`; outbound client in `vless/mux_client.rs` (N logical streams over one VLESS conn); matrix `vless-mux` Xray **PASS**; `vless-udp` Xray XUDP **PASS** |
 | VLESS flow `xtls-rprx-vision` | Partial | Partial | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green |
 | VMess AEAD | Yes | Yes | **Supported** | `vmess/`; legacy **alterId unsupported** |
 | Trojan (TCP) | Yes | Yes | **Supported** | `trojan/`; e2e `e2e_trojan/` |

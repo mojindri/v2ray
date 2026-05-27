@@ -1,0 +1,21 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    {
+      "type": "socks",
+      "tag": "socks-in",
+      "listen": "127.0.0.1",
+      "listen_port": 1083
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-out",
+      "server": "${SERVER_ADDR}",
+      "server_port": ${SERVER_PORT},
+      "uuid": "00000000-0000-4000-8000-000000000001"
+    }
+  ],
+  "route": { "final": "vless-out" }
+}
