@@ -59,7 +59,7 @@ pub(crate) enum KtlsSkipReason {
 pub(crate) enum KtlsDecision {
     /// Keep using the original rustls stream.
     Skipped {
-        stream: ServerTlsStream<BoxedStream>,
+        stream: Box<ServerTlsStream<BoxedStream>>,
         reason: KtlsSkipReason,
     },
     /// Use the kTLS stream.
@@ -73,14 +73,14 @@ pub(crate) fn try_upgrade_server_stream(
 ) -> Result<KtlsDecision, ProxyError> {
     if mode == KtlsMode::Off {
         return Ok(KtlsDecision::Skipped {
-            stream: tls_stream,
+            stream: Box::new(tls_stream),
             reason: KtlsSkipReason::ModeOff,
         });
     }
 
     if mode != KtlsMode::Force && !upgrade_safe(tls_stream.get_ref().1) {
         return Ok(KtlsDecision::Skipped {
-            stream: tls_stream,
+            stream: Box::new(tls_stream),
             reason: KtlsSkipReason::UnsafeRustlsState,
         });
     }
@@ -92,7 +92,7 @@ pub(crate) fn try_upgrade_server_stream(
         let inner_dyn: &dyn AsyncReadWrite = tls_stream.get_ref().0.as_ref();
         if !inner_dyn.as_any().is::<TcpStream>() {
             return Ok(KtlsDecision::Skipped {
-                stream: tls_stream,
+                stream: Box::new(tls_stream),
                 reason: KtlsSkipReason::NonTcpTransport,
             });
         }
@@ -109,7 +109,7 @@ pub(crate) fn try_upgrade_server_stream(
     if let Err(e) = enable_ulp(fd) {
         tracing::debug!("kTLS skipped because TCP_ULP was rejected: {e}");
         return Ok(KtlsDecision::Skipped {
-            stream: tls_stream,
+            stream: Box::new(tls_stream),
             reason: KtlsSkipReason::NonTcpTransport,
         });
     }
