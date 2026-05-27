@@ -1,0 +1,24 @@
+{
+  "profile": "fast",
+  "fast": { "strictProduction": false },
+  "log": { "level": "warn" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1081
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-out",
+      "protocol": "vless",
+      "settings": {
+        "address": "127.0.0.1",
+        "port": 10080,
+        "users": [{ "id": "00000000-0000-4000-8000-000000000001", "flow": "" }]
+      }
+    }
+  ]
+}
