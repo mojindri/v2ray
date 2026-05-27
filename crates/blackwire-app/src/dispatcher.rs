@@ -30,6 +30,16 @@ use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tracing::{debug, info, warn};
 
+macro_rules! relay_log {
+    ($profile:expr, $($args:tt)*) => {
+        if $profile == ProfileMode::Fast {
+            debug!($($args)*);
+        } else {
+            info!($($args)*);
+        }
+    };
+}
+
 /// DNS resolution budget for routing decisions (IPOnDemand / IPIfNonMatch).
 ///
 /// Slow DNS during routing would stall the entire connection dispatch, so we cap
@@ -39,12 +49,15 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 use std::collections::HashMap;
 
 use blackwire_common::{Address, BoxedStream, ProxyError};
-use blackwire_config::schema::SniffingConfig;
+use blackwire_config::schema::{ProfileMode, SniffingConfig};
 
 use crate::context::Context;
 use crate::dns::DnsModule;
 use crate::features::OutboundHandler;
-use crate::metrics::{record_connection_accepted, record_connection_closed};
+use crate::metrics::{
+    record_connection_accepted, record_connection_closed, record_dns, record_outbound_connect,
+    record_relay_error, record_route,
+};
 use crate::router::{normalize_routing_domain_strategy, Router, RoutingDomainStrategy};
 use crate::runtime_stats;
 
@@ -82,6 +95,9 @@ pub struct DefaultDispatcher {
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
     sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+    /// Operating profile. Under `Fast`, per-connection relay logs are emitted at
+    /// `debug` level rather than `info` to reduce log overhead on hot paths.
+    profile: ProfileMode,
 }
 
 impl DefaultDispatcher {
@@ -99,6 +115,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: None,
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            profile: ProfileMode::default(),
         })
     }
 
@@ -113,6 +130,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: None,
             sniffing,
+            profile: ProfileMode::default(),
         })
     }
 
@@ -130,6 +148,7 @@ impl DefaultDispatcher {
             outbounds,
             dns: Some(dns),
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
+            profile: ProfileMode::default(),
         })
     }
 
@@ -145,7 +164,32 @@ impl DefaultDispatcher {
             outbounds,
             dns: Some(dns),
             sniffing,
+            profile: ProfileMode::default(),
         })
+    }
+
+    /// Set the operating profile, returning the same `Arc`.
+    ///
+    /// Call this after construction to apply a non-default profile from config.
+    pub fn with_profile(self: Arc<Self>, profile: ProfileMode) -> Arc<Self> {
+        if self.profile == profile {
+            return self;
+        }
+        // We own the only Arc reference here (just constructed), so unwrap is safe.
+        // If multiple references exist, clone the inner value.
+        match Arc::try_unwrap(self) {
+            Ok(mut inner) => {
+                inner.profile = profile;
+                Arc::new(inner)
+            }
+            Err(arc) => Arc::new(Self {
+                router: Arc::clone(&arc.router),
+                outbounds: arc.outbounds.clone(),
+                dns: arc.dns.clone(),
+                sniffing: Arc::clone(&arc.sniffing),
+                profile,
+            }),
+        }
     }
 }
 
@@ -174,7 +218,7 @@ impl Dispatcher for DefaultDispatcher {
         let start = Instant::now();
         let outbound_stream = self.connect_outbound(ctx, dest).await?;
 
-        info!(dest = %dest_label, inbound = %inbound_tag, "relay started");
+        relay_log!(self.profile, dest = %dest_label, inbound = %inbound_tag, "relay started");
 
         // Relay bytes bidirectionally until either side closes.
         //
@@ -192,7 +236,8 @@ impl Dispatcher for DefaultDispatcher {
 
         match &result {
             Ok((up, down)) => {
-                info!(
+                relay_log!(
+                    self.profile,
                     dest = %dest_label,
                     inbound = %inbound_tag,
                     uplink_bytes = up,
@@ -208,6 +253,7 @@ impl Dispatcher for DefaultDispatcher {
                     error = %e,
                     "relay error"
                 );
+                record_relay_error(&inbound_tag);
             }
         }
 
@@ -241,6 +287,7 @@ impl DefaultDispatcher {
         let protocol_label = ctx.sniffed_protocol.as_deref().unwrap_or("tcp");
         record_connection_accepted(&ctx.inbound_tag, protocol_label);
 
+        let t_route = Instant::now();
         let route = self
             .pick_route_xray(
                 &ctx.inbound_tag,
@@ -250,8 +297,9 @@ impl DefaultDispatcher {
                 ctx.sniffed_domain.as_deref(),
             )
             .await?;
+        record_route(&ctx.inbound_tag, t_route.elapsed());
 
-        debug!(outbound = %route.outbound_tag, "route selected");
+        relay_log!(self.profile, outbound = %route.outbound_tag, "route selected");
 
         let outbound = self
             .outbounds
@@ -260,7 +308,8 @@ impl DefaultDispatcher {
                 ProxyError::Protocol(format!("outbound '{}' not found", route.outbound_tag))
             })?;
 
-        outbound.connect(&ctx, &dest).await.map_err(|e| {
+        let t_connect = Instant::now();
+        let result = outbound.connect(&ctx, &dest).await.map_err(|e| {
             warn!(
                 outbound = %route.outbound_tag,
                 dest = %dest,
@@ -268,7 +317,9 @@ impl DefaultDispatcher {
                 "outbound connect failed"
             );
             e
-        })
+        });
+        record_outbound_connect(&ctx.inbound_tag, &route.outbound_tag, t_connect.elapsed());
+        result
     }
 
     /// Xray routing: https://xtls.github.io/en/config/routing.html#domainstrategy
@@ -286,7 +337,7 @@ impl DefaultDispatcher {
             && matches!(dest, Address::Domain(..))
             && self.router.has_ip_rules()
         {
-            if let Some(ips) = self.resolve_domain_ips(dest).await {
+            if let Some(ips) = self.resolve_domain_ips(dest, inbound_tag).await {
                 for ip_dest in &ips {
                     let ctx = Self::routing_ctx(
                         ip_dest,
@@ -333,7 +384,7 @@ impl DefaultDispatcher {
                 let ips = if let Some(h) = prefetch {
                     h.await.ok().flatten()
                 } else {
-                    self.resolve_domain_ips(dest).await
+                    self.resolve_domain_ips(dest, inbound_tag).await
                 };
                 if let Some(ips) = ips {
                     for ip_dest in &ips {
@@ -424,10 +475,11 @@ impl DefaultDispatcher {
         }
     }
 
-    async fn resolve_domain_ips(&self, dest: &Address) -> Option<Vec<Address>> {
+    async fn resolve_domain_ips(&self, dest: &Address, inbound_tag: &str) -> Option<Vec<Address>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
+        let t_dns = Instant::now();
         let mut ips = Vec::new();
         if let Some(dns) = &self.dns {
             let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
@@ -454,6 +506,7 @@ impl DefaultDispatcher {
                 }
             }
         }
+        record_dns(inbound_tag, t_dns.elapsed());
         if ips.is_empty() {
             None
         } else {

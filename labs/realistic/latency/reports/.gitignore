@@ -1,0 +1,4 @@
+# Ignore generated report files — baselines only in baselines/
+*.json
+*.html
+!baselines/

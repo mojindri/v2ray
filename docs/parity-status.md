@@ -24,7 +24,7 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Priority | Item | Matrix / proof today |
 |----------|------|----------------------|
 | **P0** | Trojan UDP (`CMD 0x03`, 8192 B frames) | `trojan-udp` Xray+sing-box **PASS** (`udp-socks-probe.sh` Python SOCKS5 UDP ASSOCIATE) |
-| **P0** | Mux.Cool TCP (`v1.mux.cool`) | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool) |
+| ~~**P0**~~ | ~~Mux.Cool TCP (`v1.mux.cool`)~~ | `vless-mux` Xray **PASS**; sing-box SKIP (smux ≠ Mux.Cool); outbound client shipped (PR #19) |
 | **P1** | XUDP (GlobalID, session 0) | `vless-udp` Xray **PASS** (Mux.Cool session 0 + GlobalID); sing-box **PASS** (VLESS CMD UDP + xudp) |
 | **P1** | SplitHTTP stream-one (HTTP/2 via ALPN h2) | `vless-splithttp` Xray+sing-box **PASS** |
 | ~~**P2**~~ | ~~SplitHTTP packet-up (seq; H2 GET/POST)~~ | `vless-splithttp-packet-up` Xray **PASS**; sing-box **SKIP** (upstream has no packet-up) |

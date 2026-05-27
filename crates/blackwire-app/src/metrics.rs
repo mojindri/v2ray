@@ -15,6 +15,11 @@
 //! | `proxy_bytes_total` | Counter | `direction` (rx/tx), `inbound` |
 //! | `proxy_active_connections` | Gauge | `inbound` |
 //! | `proxy_connection_duration_seconds` | Histogram | `inbound` |
+//! | `proxy_inbound_parse_seconds` | Histogram | `inbound` |
+//! | `proxy_route_seconds` | Histogram | `inbound` |
+//! | `proxy_dns_seconds` | Histogram | `inbound` |
+//! | `proxy_outbound_connect_seconds` | Histogram | `inbound`, `outbound` |
+//! | `proxy_relay_errors_total` | Counter | `inbound` |
 //!
 //! # Usage
 //!
@@ -121,6 +126,31 @@ fn describe_metrics() {
         metrics::Unit::Seconds,
         "Connection lifetime in seconds"
     );
+    metrics::describe_histogram!(
+        "proxy_inbound_parse_seconds",
+        metrics::Unit::Seconds,
+        "Time to decode the inbound protocol header (VLESS/Trojan/etc.)"
+    );
+    metrics::describe_histogram!(
+        "proxy_route_seconds",
+        metrics::Unit::Seconds,
+        "Time to select an outbound via the routing engine"
+    );
+    metrics::describe_histogram!(
+        "proxy_dns_seconds",
+        metrics::Unit::Seconds,
+        "Time spent in DNS resolution during routing (IpOnDemand / IpIfNonMatch)"
+    );
+    metrics::describe_histogram!(
+        "proxy_outbound_connect_seconds",
+        metrics::Unit::Seconds,
+        "Time to establish the outbound connection (TCP dial + TLS/REALITY handshake)"
+    );
+    metrics::describe_counter!(
+        "proxy_relay_errors_total",
+        metrics::Unit::Count,
+        "Total relay errors by inbound"
+    );
 }
 
 // ── HTTP handlers ─────────────────────────────────────────────────────────────
@@ -169,6 +199,52 @@ pub fn record_connection_accepted(inbound: &str, protocol: &str) {
         "inbound" => inbound.to_owned()
     )
     .increment(1.0);
+}
+
+/// Record how long the inbound protocol header parse took.
+pub fn record_inbound_parse(inbound: &str, elapsed: std::time::Duration) {
+    metrics::histogram!(
+        "proxy_inbound_parse_seconds",
+        "inbound" => inbound.to_owned()
+    )
+    .record(elapsed.as_secs_f64());
+}
+
+/// Record how long the routing decision took.
+pub fn record_route(inbound: &str, elapsed: std::time::Duration) {
+    metrics::histogram!(
+        "proxy_route_seconds",
+        "inbound" => inbound.to_owned()
+    )
+    .record(elapsed.as_secs_f64());
+}
+
+/// Record how long a DNS resolution took during routing.
+pub fn record_dns(inbound: &str, elapsed: std::time::Duration) {
+    metrics::histogram!(
+        "proxy_dns_seconds",
+        "inbound" => inbound.to_owned()
+    )
+    .record(elapsed.as_secs_f64());
+}
+
+/// Record how long the outbound connect (dial + handshake) took.
+pub fn record_outbound_connect(inbound: &str, outbound: &str, elapsed: std::time::Duration) {
+    metrics::histogram!(
+        "proxy_outbound_connect_seconds",
+        "inbound" => inbound.to_owned(),
+        "outbound" => outbound.to_owned()
+    )
+    .record(elapsed.as_secs_f64());
+}
+
+/// Increment the relay error counter for an inbound.
+pub fn record_relay_error(inbound: &str) {
+    metrics::counter!(
+        "proxy_relay_errors_total",
+        "inbound" => inbound.to_owned()
+    )
+    .increment(1);
 }
 
 /// Record that a connection on `inbound` has closed.

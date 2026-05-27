@@ -31,6 +31,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 use tracing::{error, info};
 
+use blackwire_config::schema::{validate_fast_profile, ProfileMode, ProfileViolation};
 use blackwire_config::ConfigManager;
 use blackwire_core::{requires_instance_restart, Instance};
 
@@ -95,6 +96,15 @@ struct RunArgs {
     /// Example: `blackwire run -c /etc/blackwire/config.json`
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: PathBuf,
+
+    /// Override the operating profile (`compat` or `fast`).
+    ///
+    /// Overrides the `profile` field in the config file. `fast` enforces a
+    /// latency-first subset: VLESS+TCP only, no sniffing, no FakeIP.
+    ///
+    /// Example: `blackwire run -c config.json --profile fast`
+    #[arg(long = "profile", value_name = "PROFILE")]
+    profile: Option<ProfileMode>,
 }
 
 /// Arguments for the `test` subcommand.
@@ -105,6 +115,12 @@ struct TestArgs {
     /// Example: `blackwire test -c /etc/blackwire/config.json`
     #[arg(short = 'c', long = "config", value_name = "PATH")]
     config: PathBuf,
+
+    /// Override the operating profile (`compat` or `fast`).
+    ///
+    /// Validates the config against the given profile's constraints.
+    #[arg(long = "profile", value_name = "PROFILE")]
+    profile: Option<ProfileMode>,
 }
 
 // ── Entry point ───────────────────────────────────────────────────────────────
@@ -131,7 +147,7 @@ fn main() {
 
             // `block_on` runs the async function to completion on this thread.
             // It returns only when the proxy exits (Ctrl-C or error).
-            if let Err(e) = rt.block_on(run_proxy(args.config)) {
+            if let Err(e) = rt.block_on(run_proxy(args)) {
                 // Print a human-readable error chain, e.g.:
                 //   Error: failed to start proxy
                 //     caused by: building VLESS outbound 'out-vless'
@@ -153,7 +169,7 @@ fn main() {
                 }
             };
 
-            if let Err(e) = rt.block_on(test_config(args.config)) {
+            if let Err(e) = rt.block_on(test_config(args)) {
                 eprintln!("Config error: {e:#}");
                 std::process::exit(1);
             }
@@ -174,23 +190,27 @@ fn main() {
 /// Load config, build the Instance, run until a shutdown signal arrives.
 ///
 /// This is an `async fn` so it can use `.await` for Tokio-based I/O.
-async fn run_proxy(config_path: PathBuf) -> Result<()> {
+async fn run_proxy(args: RunArgs) -> Result<()> {
     // Step 1: Initialise logging.
     // We do this before anything else so all startup messages are captured.
     init_tracing();
 
     info!(
         version = env!("CARGO_PKG_VERSION"),
-        config  = %config_path.display(),
+        config  = %args.config.display(),
         "blackwire starting"
     );
 
     // Step 2: Load and validate the config.
     // `ConfigManager::load()` reads the file, substitutes ${ENV} vars,
     // parses JSON, and runs the validator rules.
-    let manager: Arc<ConfigManager> = ConfigManager::load(&config_path)
+    let manager: Arc<ConfigManager> = ConfigManager::load(&args.config)
         .await
-        .with_context(|| format!("loading config from {}", config_path.display()))?;
+        .with_context(|| format!("loading config from {}", args.config.display()))?;
+
+    // Apply CLI profile override and run Fast Profile validation.
+    let profile_override = args.profile;
+    apply_profile_override_and_validate(&manager.get(), profile_override)?;
 
     // Step 3: Start the file watcher for hot-reload.
     // The watcher runs in a background Tokio task. When the config file
@@ -210,7 +230,7 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
     // Step 4: Build the proxy Instance.
     // `Instance::from_config()` reads the current config snapshot, builds
     // all inbound/outbound handlers, and starts all TCP listener tasks.
-    let config = manager.get();
+    let config = effective_config(manager.get(), profile_override);
     let instance = Arc::new(tokio::sync::Mutex::new(Some(RunningInstance {
         config: Arc::clone(&config),
         instance: Instance::from_config(config)
@@ -228,7 +248,8 @@ async fn run_proxy(config_path: PathBuf) -> Result<()> {
                 if reload_rx.changed().await.is_err() {
                     break;
                 }
-                let new_config = reload_rx.borrow_and_update().clone();
+                let new_config =
+                    effective_config(reload_rx.borrow_and_update().clone(), profile_override);
 
                 let should_restart = {
                     let guard = live_instance.lock().await;
@@ -350,10 +371,81 @@ async fn shutdown_signal(instance: Arc<tokio::sync::Mutex<Option<RunningInstance
 // ── `test` subcommand ─────────────────────────────────────────────────────────
 
 /// Parse and validate the config file; return Ok or an error.
-async fn test_config(config_path: PathBuf) -> Result<()> {
-    ConfigManager::load(&config_path)
+async fn test_config(args: TestArgs) -> Result<()> {
+    let manager = ConfigManager::load(&args.config)
         .await
-        .with_context(|| format!("loading config from {}", config_path.display()))?;
+        .with_context(|| format!("loading config from {}", args.config.display()))?;
+    apply_profile_override_and_validate(&manager.get(), args.profile)?;
+    Ok(())
+}
+
+// ── Profile helpers ───────────────────────────────────────────────────────────
+
+/// Return an `Arc<Config>` with the CLI profile override applied (if any).
+fn effective_config(
+    base: Arc<blackwire_config::schema::Config>,
+    override_: Option<ProfileMode>,
+) -> Arc<blackwire_config::schema::Config> {
+    let Some(profile) = override_ else {
+        return base;
+    };
+    if base.profile == profile {
+        return base;
+    }
+    let mut cfg = (*base).clone();
+    cfg.profile = profile;
+    Arc::new(cfg)
+}
+
+/// Run Fast Profile validation on `config`, printing warnings and returning an
+/// error if any hard violations are present.
+fn apply_profile_override_and_validate(
+    config: &blackwire_config::schema::Config,
+    override_: Option<ProfileMode>,
+) -> Result<()> {
+    // Build effective config for validation (clone only if override is set).
+    let effective_profile = override_.unwrap_or(config.profile);
+    if effective_profile != ProfileMode::Fast {
+        return Ok(());
+    }
+
+    // Temporarily override profile in a clone for validation.
+    let validated = if override_.is_some() && config.profile != effective_profile {
+        let mut c = config.clone();
+        c.profile = effective_profile;
+        std::borrow::Cow::Owned(c)
+    } else {
+        std::borrow::Cow::Borrowed(config)
+    };
+
+    let violations = validate_fast_profile(&validated);
+
+    for v in &violations {
+        match v {
+            ProfileViolation::Warning(msg) => {
+                eprintln!("Fast Profile warning: {msg}");
+            }
+            ProfileViolation::Error(_) => {}
+        }
+    }
+
+    let errors: Vec<&str> = violations
+        .iter()
+        .filter(|v| v.is_error())
+        .map(|v| v.message())
+        .collect();
+
+    if !errors.is_empty() {
+        let mut msg = format!(
+            "config rejected by Fast Profile ({} error(s)):\n",
+            errors.len()
+        );
+        for e in errors {
+            msg.push_str(&format!("  • {e}\n"));
+        }
+        anyhow::bail!("{}", msg.trim_end());
+    }
+
     Ok(())
 }
 

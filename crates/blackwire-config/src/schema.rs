@@ -9,12 +9,14 @@
 
 mod endpoint;
 mod logging_dns;
+mod profile;
 mod protocol;
 mod routing;
 mod transport;
 
 pub use endpoint::{InboundConfig, InboundLimitsConfig, OutboundConfig};
 pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
+pub use profile::{validate_fast_profile, FastConfig, ProfileMode, ProfileViolation};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{
@@ -31,6 +33,15 @@ use validator::Validate;
 /// optional except `inbounds` and `outbounds`.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct Config {
+    /// Operating profile. `"compat"` (default) enables all features.
+    /// `"fast"` enforces a strict latency-first subset.
+    #[serde(default)]
+    pub profile: ProfileMode,
+
+    /// Extra settings that apply only when `profile = "fast"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fast: Option<FastConfig>,
+
     /// Logging settings.
     #[serde(default)]
     pub log: LogConfig,

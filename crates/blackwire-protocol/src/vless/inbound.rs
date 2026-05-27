@@ -109,10 +109,13 @@ impl InboundHandler for VlessInbound {
 
         // We decode the header using a "recording" reader that saves bytes
         // as they are read.
+        let t_parse = std::time::Instant::now();
         let request = {
             let mut recorder = RecordingReader::new(&mut stream, &mut header_buf);
             with_handshake_timeout(self.handshake_timeout, decode_request(&mut recorder)).await
         };
+        metrics::histogram!("proxy_inbound_parse_seconds", "inbound" => self.tag.clone())
+            .record(t_parse.elapsed().as_secs_f64());
 
         match request {
             Ok(req) => {
