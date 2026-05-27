@@ -94,7 +94,7 @@ pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
-    sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+    sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     /// Operating profile. Under `Fast`, per-connection relay logs are emitted at
     /// `debug` level rather than `info` to reduce log overhead on hot paths.
     profile: ProfileMode,
@@ -123,7 +123,7 @@ impl DefaultDispatcher {
     pub fn new_with_sniffing(
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
-        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -157,7 +157,7 @@ impl DefaultDispatcher {
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
         dns: Arc<DnsModule>,
-        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -204,9 +204,9 @@ impl Dispatcher for DefaultDispatcher {
         let sniff_cfg = self.sniffing.load().get(&ctx.inbound_tag).cloned();
         if let Some(cfg) = sniff_cfg {
             if cfg.enabled {
-                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
+                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &*cfg).await?;
                 inbound_stream = stream;
-                dest = crate::sniff::apply_dest_override(dest, &sniff, &cfg);
+                dest = crate::sniff::apply_dest_override(dest, &sniff, &*cfg);
                 ctx = ctx.with_sniff(sniff.protocol, sniff.domain);
             }
         }

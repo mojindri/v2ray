@@ -294,12 +294,12 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
 
 pub(crate) fn build_sniffing_map(
     inbounds: &[blackwire_config::schema::InboundConfig],
-) -> std::collections::HashMap<String, blackwire_config::schema::SniffingConfig> {
+) -> std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>> {
     let mut map = std::collections::HashMap::new();
     for inbound in inbounds {
         if let Some(sniff) = &inbound.sniffing {
             if sniff.enabled {
-                map.insert(inbound.tag.clone(), sniff.clone());
+                map.insert(inbound.tag.clone(), Arc::new(sniff.clone()));
             }
         }
     }

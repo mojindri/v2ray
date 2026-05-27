@@ -74,7 +74,7 @@ pub struct ReloadState {
     pub vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
     /// Per-inbound sniffing map (hot-swapped on reload via lock-free ArcSwap).
     pub sniffing:
-        Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+        Arc<ArcSwap<std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>>>>,
     /// Inbound tags from the active config (HandlerService ListInbounds).
     pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     /// Outbound tags from the active config (HandlerService ListOutbounds).
@@ -89,7 +89,7 @@ impl ReloadState {
         router: Arc<LiveRouter>,
         vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
         sniffing: Arc<
-            ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>,
+            ArcSwap<std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>>>,
         >,
         inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
         outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
