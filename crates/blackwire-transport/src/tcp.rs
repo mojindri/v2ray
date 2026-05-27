@@ -37,6 +37,11 @@ use tracing::{debug, error, info, warn};
 use blackwire_app::features::ConnectionHandler;
 use blackwire_common::{BoxedStream, ProxyError, TCP_CONNECT_TIMEOUT};
 
+#[cfg(target_os = "linux")]
+const TCP_FASTOPEN: libc::c_int = 23;
+#[cfg(target_os = "linux")]
+const TCP_FASTOPEN_CONNECT: libc::c_int = 30;
+
 /// Configuration for the TCP transport.
 #[derive(Debug, Clone, Default)]
 pub struct TcpConfig {
@@ -77,6 +82,50 @@ impl TcpServerTransport {
     /// Create a new TCP server transport with the given config.
     pub fn new(config: TcpConfig) -> Self {
         Self { config }
+    }
+
+    /// Bind a `TcpListener` on `addr`, applying socket options (including TCP Fast Open)
+    /// before the kernel starts accepting connections.
+    ///
+    /// Prefer this over `TcpListener::bind` when `tcp_fast_open` may be enabled, because
+    /// `TCP_FASTOPEN` must be set on the socket before `listen(2)`.
+    pub fn bind(&self, addr: SocketAddr) -> Result<TcpListener, ProxyError> {
+        use socket2::{Domain, Protocol, Socket, Type};
+
+        let domain = if addr.is_ipv6() {
+            Domain::IPV6
+        } else {
+            Domain::IPV4
+        };
+        let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
+            .map_err(ProxyError::Io)?;
+
+        socket.set_reuse_address(true).map_err(ProxyError::Io)?;
+        #[cfg(unix)]
+        socket.set_reuse_port(true).map_err(ProxyError::Io)?;
+        socket.set_nonblocking(true).map_err(ProxyError::Io)?;
+        socket.bind(&addr.into()).map_err(ProxyError::Io)?;
+
+        #[cfg(target_os = "linux")]
+        if self.config.tcp_fast_open {
+            // Queue length of 256 pending TFO cookies — matches Xray's default.
+            let qlen: libc::c_int = 256;
+            let rc = unsafe {
+                libc::setsockopt(
+                    std::os::unix::io::AsRawFd::as_raw_fd(&socket),
+                    libc::IPPROTO_TCP,
+                    TCP_FASTOPEN,
+                    &qlen as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                )
+            };
+            if rc != 0 {
+                debug!("TCP_FASTOPEN not available on this kernel; skipping");
+            }
+        }
+
+        socket.listen(128).map_err(ProxyError::Io)?;
+        TcpListener::from_std(std::net::TcpListener::from(socket)).map_err(ProxyError::Io)
     }
 
     /// Start listening on `addr` and call `handler` for each connection.
@@ -235,6 +284,23 @@ impl TcpClientTransport {
         socket.set_nodelay(true).map_err(ProxyError::Io)?;
         let _ = socket.set_recv_buffer_size(4 * 1024 * 1024);
         let _ = socket.set_send_buffer_size(4 * 1024 * 1024);
+
+        // Enable TCP Fast Open (client side): data is piggybacked on the SYN packet,
+        // saving one RTT for the first byte. Requires Linux 4.11+; silently ignored otherwise.
+        #[cfg(target_os = "linux")]
+        if self.config.tcp_fast_open {
+            use std::os::unix::io::AsRawFd;
+            let optval: libc::c_int = 1;
+            unsafe {
+                libc::setsockopt(
+                    socket.as_raw_fd(),
+                    libc::IPPROTO_TCP,
+                    TCP_FASTOPEN_CONNECT,
+                    &optval as *const libc::c_int as *const libc::c_void,
+                    std::mem::size_of::<libc::c_int>() as libc::socklen_t,
+                );
+            }
+        }
 
         let stream = match tokio::time::timeout(TCP_CONNECT_TIMEOUT, socket.connect(addr)).await {
             Ok(Ok(s)) => s,

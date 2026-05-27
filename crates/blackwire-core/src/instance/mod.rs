@@ -507,12 +507,13 @@ impl Instance {
                     .and_then(|limits| limits.max_connections)
                     .or(config.limits.max_connections_per_inbound)
                     .or(config.limits.max_connections),
+                tcp_fast_open: true,
                 ..Default::default()
             };
 
             let transport = blackwire_transport::TcpServerTransport::new(tcp_config);
-            let listener = tokio::net::TcpListener::bind(addr)
-                .await
+            let listener = transport
+                .bind(addr)
                 .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;
             let task = tokio::spawn(async move {
                 if let Err(e) = transport.serve_listener(listener, conn_handler).await {
