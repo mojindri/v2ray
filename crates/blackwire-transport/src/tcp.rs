@@ -145,6 +145,45 @@ impl TcpServerTransport {
         self.serve_listener(listener, handler).await
     }
 
+    /// Bind `shard_count` SO_REUSEPORT listeners on `addr` and spawn one accept
+    /// loop per listener as separate Tokio tasks.
+    ///
+    /// The Linux kernel distributes incoming SYNs across the sockets without
+    /// any cross-thread synchronisation, removing the single-thread accept
+    /// bottleneck at high connection rates (>50 k connections/s).
+    ///
+    /// All per-connection tasks are still spawned onto the global Tokio
+    /// multi-thread scheduler, so CPU-bound protocol work scales independently
+    /// of the accept shards.
+    ///
+    /// Returns the set of spawned JoinHandles (one per shard). The caller
+    /// should `await` them or drive them via a select loop.
+    pub fn serve_multi(
+        self: Arc<Self>,
+        addr: SocketAddr,
+        shard_count: usize,
+        handler: Arc<dyn ConnectionHandler>,
+    ) -> Result<Vec<tokio::task::JoinHandle<()>>, ProxyError> {
+        let count = shard_count.max(1);
+        let mut handles = Vec::with_capacity(count);
+
+        for i in 0..count {
+            let listener = self.bind(addr)?;
+            let handler = Arc::clone(&handler);
+            let transport = Arc::clone(&self);
+            let h = tokio::spawn(async move {
+                debug!(addr = %addr, shard = i, shards = count, "TCP accept shard started");
+                if let Err(e) = transport.serve_listener(listener, handler).await {
+                    error!(addr = %addr, shard = i, error = %e, "TCP accept shard failed");
+                }
+            });
+            handles.push(h);
+        }
+
+        info!(addr = %addr, shards = count, "TCP multi-shard listener started");
+        Ok(handles)
+    }
+
     /// Serve connections from an already-bound listener.
     ///
     /// This lets higher layers bind synchronously during startup so bind

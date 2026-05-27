@@ -511,16 +511,16 @@ impl Instance {
                 ..Default::default()
             };
 
-            let transport = blackwire_transport::TcpServerTransport::new(tcp_config);
-            let listener = transport
-                .bind(addr)
+            let transport = std::sync::Arc::new(blackwire_transport::TcpServerTransport::new(tcp_config));
+            // One accept-loop shard per logical CPU; the kernel distributes
+            // incoming SYNs across them via SO_REUSEPORT.
+            let shards = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            let mut shard_tasks = transport
+                .serve_multi(addr, shards, conn_handler)
                 .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;
-            let task = tokio::spawn(async move {
-                if let Err(e) = transport.serve_listener(listener, conn_handler).await {
-                    error!(addr = %addr, error = %e, "inbound listener failed");
-                }
-            });
-            tasks.push(task);
+            tasks.append(&mut shard_tasks);
         }
 
         // ── Optional: start metrics/health HTTP server ───────────────────────
