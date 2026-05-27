@@ -366,8 +366,10 @@ impl DefaultDispatcher {
             }
         }
         if ips.is_empty() {
-            let lookup =
-                tokio::time::timeout(ROUTING_DNS_TIMEOUT, tokio::net::lookup_host((name.as_str(), *port)));
+            let lookup = tokio::time::timeout(
+                ROUTING_DNS_TIMEOUT,
+                tokio::net::lookup_host((name.as_str(), *port)),
+            );
             if let Ok(Ok(addrs)) = lookup.await {
                 for addr in addrs {
                     ips.push(match addr {
