@@ -1,4 +1,4 @@
-# Xray / sing-box wire parity roadmap
+x§# Xray / sing-box wire parity roadmap
 
 Gap tracker ordered **strictly** by [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md). A row is not **Supported** until step **4** (external-client matrix PASS) unless documented as intentional deviation.
 

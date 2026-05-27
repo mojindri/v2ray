@@ -47,6 +47,9 @@ Use for Linux browser/TLS fingerprint capture and VM benchmarks.
 make verify-lab-lima
 make perf
 make lab-lima-down    # or: make lima-stop
+
+# If a prior Lima first-boot failed, recreate the lab VM:
+LIMA_RECREATE=1 make -C labs/realistic lima-fingerprint-total
 ```
 
 Full lab gate (Docker + Lima):
