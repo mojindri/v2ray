@@ -17,6 +17,15 @@ BW_BIN         ?= blackwire
 # Lima VM settings (latency-lima)
 LIMA_VM        ?= default
 
+# VPS settings (latency-vps)
+VPS_CLIENT_HOST  ?=
+VPS_SERVER_HOST  ?= 127.0.0.1
+VPS_CLIENT_USER  ?= root
+VPS_CLIENT_PORT  ?= 22
+VPS_SSH_KEY      ?=
+VPS_REPO_PATH    ?= ~/Blackwire
+VPS_SCENARIO     ?= local-smoke
+
 # tc-netem chaos settings (latency-chaos)
 CHAOS_DELAY    ?= 50ms
 CHAOS_JITTER   ?= 10ms
@@ -24,7 +33,8 @@ CHAOS_LOSS     ?= 5%
 CHAOS_IFACE    ?= lo
 
 .PHONY: latency-local latency-local-dry latency-report latency-report-html latency-check-tools \
-        latency-lima latency-lima-build latency-chaos latency-profile
+        latency-lima latency-lima-build latency-chaos latency-profile \
+        latency-compare latency-vps
 
 latency-check-tools: ## Check that tools required for latency benchmarks are installed
 	@echo "==> checking latency tools"
@@ -108,6 +118,38 @@ latency-chaos: ## tc-netem 50ms jitter + 5% loss then smoke (Linux only, needs r
 	 BW_BIN="$(BW_BIN)" \
 	 bash "$(LATENCY_SCRIPTS)/compare.sh" local-smoke
 	@echo "==> latency-chaos done — run 'make latency-report' to render results"
+
+latency-compare: latency-check-tools ## All local variants: smoke + xray-compare + singbox-compare
+	@echo "==> latency-compare (all variants, $(BENCH_DURATION)s × $(BENCH_CONC) conc)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@BENCH_DURATION="$(BENCH_DURATION)" \
+	 BENCH_CONC="$(BENCH_CONC)" \
+	 REPORT_DIR="$(LATENCY_REPORTS)" \
+	 DRY_RUN="$(DRY_RUN)" \
+	 BW_BIN="$(BW_BIN)" \
+	 bash "$(LATENCY_SCRIPTS)/compare.sh" compare-all
+	@echo "==> latency-compare done — run 'make latency-report' to render results"
+
+latency-vps: ## Run latency benchmark on remote VPS pair and pull results (VPS_CLIENT_HOST required)
+	@test -n "$(VPS_CLIENT_HOST)" || { \
+	    echo "ERROR: VPS_CLIENT_HOST is not set."; \
+	    echo "  Source configs/.env.example (copy to .env.latency first) or set inline:"; \
+	    echo "  make latency-vps VPS_CLIENT_HOST=client.example.com VPS_SERVER_HOST=server.example.com"; \
+	    exit 1; }
+	@echo "==> latency-vps: client=$(VPS_CLIENT_HOST) server=$(VPS_SERVER_HOST)"
+	@mkdir -p "$(LATENCY_REPORTS)"
+	@VPS_CLIENT_HOST="$(VPS_CLIENT_HOST)" \
+	 VPS_SERVER_HOST="$(VPS_SERVER_HOST)" \
+	 VPS_CLIENT_USER="$(VPS_CLIENT_USER)" \
+	 VPS_CLIENT_PORT="$(VPS_CLIENT_PORT)" \
+	 VPS_SSH_KEY="$(VPS_SSH_KEY)" \
+	 VPS_REPO_PATH="$(VPS_REPO_PATH)" \
+	 BENCH_DURATION="$(BENCH_DURATION)" \
+	 BENCH_CONC="$(BENCH_CONC)" \
+	 REPORT_DIR="$(abspath $(LATENCY_REPORTS))" \
+	 BW_BIN="$(BW_BIN)" \
+	 bash "$(LATENCY_SCRIPTS)/run-vps.sh" "$(VPS_SCENARIO)"
+	@echo "==> latency-vps done — run 'make latency-report' to render results"
 
 latency-profile: ## perf flamegraph of blackwire-fast-lab under hey (Linux only; needs perf + FlameGraph)
 	@uname -s | grep -q Linux || { echo "ERROR: latency-profile is Linux-only (perf)"; exit 1; }

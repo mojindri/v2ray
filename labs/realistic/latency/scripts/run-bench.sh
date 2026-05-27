@@ -16,6 +16,11 @@
 #   REPORT_DIR     Where to write <variant>.json (default ./reports)
 #   DRY_RUN        Set to 1 to print commands without running them
 #   BW_BIN         Path to blackwire binary (default: blackwire in PATH)
+#   SERVER_CMD     Full command to start server, e.g. "xray run -config"
+#                  (default: "$BW_BIN run -c")
+#   CLIENT_CMD     Full command to start client (default: "$BW_BIN run -c")
+#   CONFIG_ENVSUBST  Set to 1 to run envsubst on config files before use
+#                    (for configs with ${SERVER_ADDR}, ${SERVER_PORT}, etc.)
 set -euo pipefail
 
 VARIANT="${1:?Usage: run-bench.sh <variant> <target-url>}"
@@ -32,6 +37,11 @@ SERVER_PORT="${SERVER_PORT:-}"
 CLIENT_CONFIG="${CLIENT_CONFIG:-}"
 CLIENT_PORT="${CLIENT_PORT:-}"
 BENCH_DISABLE_KEEPALIVE="${BENCH_DISABLE_KEEPALIVE:-0}"
+CONFIG_ENVSUBST="${CONFIG_ENVSUBST:-0}"
+
+_DEFAULT_CMD="${BW_BIN:-blackwire} run -c"
+SERVER_CMD="${SERVER_CMD:-$_DEFAULT_CMD}"
+CLIENT_CMD="${CLIENT_CMD:-$_DEFAULT_CMD}"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
 REPORT_FILE="$REPORT_DIR/${VARIANT}-${TS}.json"
@@ -47,6 +57,25 @@ _run() {
 
 log() { echo "  [run-bench] $*"; }
 
+# ── Config preprocessing (envsubst) ───────────────────────────────────────────
+
+_TMPFILES=()
+cleanup_tmpfiles() { rm -f "${_TMPFILES[@]}" 2>/dev/null || true; }
+trap cleanup_tmpfiles EXIT
+
+maybe_envsubst() {
+    local cfg="$1"
+    if [ "$CONFIG_ENVSUBST" != "1" ]; then
+        echo "$cfg"
+        return
+    fi
+    command -v envsubst >/dev/null 2>&1 || { echo "ERROR: envsubst not found (install gettext)"; exit 1; }
+    local tmp; tmp="$(mktemp /tmp/bw-cfg-XXXXXX.json)"
+    _TMPFILES+=("$tmp")
+    envsubst < "$cfg" > "$tmp"
+    echo "$tmp"
+}
+
 # ── Tool check ────────────────────────────────────────────────────────────────
 
 if [ "$DRY_RUN" != "1" ] && ! command -v hey >/dev/null 2>&1; then
@@ -60,9 +89,10 @@ fi
 
 SERVER_PID=
 if [ -n "$SERVER_CONFIG" ]; then
-    log "starting server: $BW_BIN run -c $SERVER_CONFIG"
+    _SERVER_CFG="$(maybe_envsubst "$SERVER_CONFIG")"
+    log "starting server: $SERVER_CMD $_SERVER_CFG"
     if [ "$DRY_RUN" != "1" ]; then
-        $BW_BIN run -c "$SERVER_CONFIG" >/tmp/bw-server-$VARIANT.log 2>&1 &
+        $SERVER_CMD "$_SERVER_CFG" >/tmp/bw-server-$VARIANT.log 2>&1 &
         SERVER_PID=$!
         if [ -n "$SERVER_PORT" ]; then
             for i in $(seq 1 20); do
@@ -81,9 +111,10 @@ fi
 
 CLIENT_PID=
 if [ -n "$CLIENT_CONFIG" ]; then
-    log "starting client: $BW_BIN run -c $CLIENT_CONFIG"
+    _CLIENT_CFG="$(maybe_envsubst "$CLIENT_CONFIG")"
+    log "starting client: $CLIENT_CMD $_CLIENT_CFG"
     if [ "$DRY_RUN" != "1" ]; then
-        $BW_BIN run -c "$CLIENT_CONFIG" >/tmp/bw-client-$VARIANT.log 2>&1 &
+        $CLIENT_CMD "$_CLIENT_CFG" >/tmp/bw-client-$VARIANT.log 2>&1 &
         CLIENT_PID=$!
         POLL_PORT="${CLIENT_PORT:-${PROXY_ADDR##*:}}"
         if [ -n "$POLL_PORT" ]; then
@@ -110,6 +141,7 @@ log "running: hey ${HEY_ARGS[*]} $TARGET"
 cleanup() {
     [ -n "$CLIENT_PID" ] && kill "$CLIENT_PID" 2>/dev/null || true
     [ -n "$SERVER_PID" ] && kill "$SERVER_PID" 2>/dev/null || true
+    cleanup_tmpfiles
 }
 trap cleanup EXIT
 
