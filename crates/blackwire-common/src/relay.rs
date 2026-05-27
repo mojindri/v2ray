@@ -1,17 +1,31 @@
 //! Relay helpers aligned with Xray policy defaults.
 
-use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, OnceLock};
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::pin;
-use tokio::sync::Mutex;
-use tokio::time::Instant;
 
-use crate::ProxyError;
+use crate::{BufferPool, ProxyError};
 
 /// Default idle timeout for established connections (Xray `ConnectionIdle`).
 pub const CONNECTION_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+/// Milliseconds elapsed since the relay module was first used.
+/// Provides a lightweight monotonic clock for idle-timeout tracking without
+/// allocating a mutex or taking a lock on every packet.
+fn now_ms() -> u64 {
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// Shared buffer pool for the idle relay helper.
+/// Reusing 16 KiB buffers avoids per-connection heap allocations.
+fn relay_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
 
 /// Run an async handshake step with an optional wall-clock limit.
 pub async fn with_handshake_timeout<T, F>(
@@ -39,7 +53,9 @@ where
     let (a_read, a_write) = tokio::io::split(a);
     let (b_read, b_write) = tokio::io::split(b);
 
-    let last_activity = Arc::new(Mutex::new(Instant::now()));
+    // AtomicU64 stores the last-activity timestamp (ms since module init).
+    // Both relay halves update it lock-free; `sleep_until_idle` reads it.
+    let last_activity = Arc::new(AtomicU64::new(now_ms()));
 
     let up = copy_one_way_with_idle(b_read, a_write, idle, Arc::clone(&last_activity));
     let down = copy_one_way_with_idle(a_read, b_write, idle, last_activity);
@@ -51,18 +67,22 @@ async fn copy_one_way_with_idle<R, W>(
     mut reader: R,
     mut writer: W,
     idle: Duration,
-    last_activity: Arc<Mutex<Instant>>,
+    last_activity: Arc<AtomicU64>,
 ) where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
 {
-    let mut buf = vec![0u8; 8192];
+    const BUF_SIZE: usize = 16 * 1024; // medium size class — matches BufferPool
+    let pool = relay_pool();
+    let mut buf = pool.acquire(BUF_SIZE);
+    buf.resize(BUF_SIZE, 0); // make the full capacity addressable for reads
+
     loop {
-        let read_fut = reader.read(&mut buf);
+        let read_fut = reader.read(&mut buf[..]);
         pin!(read_fut);
 
-        let sleep_fut = sleep_until_activity_deadline(&last_activity, idle);
-        pin!(sleep_fut);
+        let idle_fut = sleep_until_idle(&last_activity, idle);
+        pin!(idle_fut);
 
         let n = tokio::select! {
             biased;
@@ -70,32 +90,34 @@ async fn copy_one_way_with_idle<R, W>(
                 Ok(0) | Err(_) => break,
                 Ok(n) => n,
             },
-            _ = &mut sleep_fut => break,
+            _ = &mut idle_fut => break,
         };
 
         if writer.write_all(&buf[..n]).await.is_err() {
             break;
         }
-        *last_activity.lock().await = Instant::now();
+        last_activity.store(now_ms(), Ordering::Relaxed);
     }
+
+    pool.release(buf);
 }
 
-async fn sleep_until_activity_deadline(last_activity: &Arc<Mutex<Instant>>, idle: Duration) {
+/// Sleeps until the idle deadline (last_activity + idle) expires without renewal.
+async fn sleep_until_idle(last_activity: &Arc<AtomicU64>, idle: Duration) {
+    let idle_ms = idle.as_millis() as u64;
     loop {
-        let deadline = {
-            let guard = last_activity.lock().await;
-            *guard + idle
-        };
-        let sleep = tokio::time::sleep_until(deadline);
-        pin!(sleep);
-        sleep.await;
-        let still_active = {
-            let guard = last_activity.lock().await;
-            Instant::now() < *guard + idle
-        };
-        if !still_active {
+        let last_ms = last_activity.load(Ordering::Relaxed);
+        let deadline_ms = last_ms.saturating_add(idle_ms);
+        let now = now_ms();
+        if now >= deadline_ms {
             break;
         }
+        tokio::time::sleep(Duration::from_millis(deadline_ms - now)).await;
+        // If activity didn't change during sleep, the connection is idle.
+        if last_activity.load(Ordering::Relaxed) == last_ms {
+            break;
+        }
+        // Activity occurred during sleep — recompute and sleep again.
     }
 }
 

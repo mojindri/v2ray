@@ -23,9 +23,10 @@
 //! kernel pipes without copying them into userspace. Non-Linux builds and
 //! non-raw streams keep using `copy_bidirectional`.
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::time::Instant;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 use tracing::{debug, info, instrument, warn};
 
@@ -74,7 +75,7 @@ pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
-    sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+    sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
 }
 
 impl DefaultDispatcher {
@@ -91,7 +92,7 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: None,
-            sniffing: Arc::new(RwLock::new(HashMap::new())),
+            sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         })
     }
 
@@ -99,7 +100,7 @@ impl DefaultDispatcher {
     pub fn new_with_sniffing(
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
-        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -122,7 +123,7 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: Some(dns),
-            sniffing: Arc::new(RwLock::new(HashMap::new())),
+            sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         })
     }
 
@@ -131,7 +132,7 @@ impl DefaultDispatcher {
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
         dns: Arc<DnsModule>,
-        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -151,11 +152,7 @@ impl Dispatcher for DefaultDispatcher {
         mut dest: Address,
         mut inbound_stream: BoxedStream,
     ) -> Result<(), ProxyError> {
-        let sniff_cfg = self
-            .sniffing
-            .read()
-            .ok()
-            .and_then(|g| g.get(&ctx.inbound_tag).cloned());
+        let sniff_cfg = self.sniffing.load().get(&ctx.inbound_tag).cloned();
         if let Some(cfg) = sniff_cfg {
             if cfg.enabled {
                 let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
