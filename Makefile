@@ -17,6 +17,7 @@ include make/aliases.mk
 .PHONY: all build dev test fmt fmt-check lint lint-strict audit deny update-geoip fuzz-build \
 	fmt fmt-check lint audit audit-optional deny-optional fuzz-smoke \
 	clean clean-generated clean-all-generated clean-reports clean-pcaps clean-lima-artifacts clean-bench \
+	bench bench-build bench-xray bench-singbox bench-smoke \
 	bench-protocol bench-protocol-quick bench-flamegraph \
 	help help-compat help-internal bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total \
 	perf perf-vps lima-stop lima-browser-baseline lima-fingerprint-total \
@@ -124,6 +125,9 @@ help:
 	@echo "  make health-failover       - lab: balancer failover e2e (+ Docker when available)"
 	@echo "  make finalize        - lab: stable + advanced smoke + Docker external-client matrix"
 	@echo "  make interop-server-docker   - lab: Xray/sing-box clients -> our server (Docker)"
+	@echo "  make bench           - Docker latency benchmark: xray + singbox + blackwire"
+	@echo "  make bench-xray      - Docker benchmark: xray series only"
+	@echo "  make bench-singbox   - Docker benchmark: singbox series only"
 	@echo "  make perf            - Lima VM benchmark"
 	@echo "  make perf-remote     - VPS benchmark (needs SSH_SERVER/SSH_CLIENT)"
 	@echo "  make clean-generated - remove reports/logs/pcaps/bench outputs"
@@ -176,7 +180,28 @@ clean-all-generated: clean-generated ## Remove generated repo reports plus Rust 
 
 
 
-.PHONY: bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total check-perf-vm check-perf-vps check-perf-total clean-bench
+.PHONY: bench bench-build bench-xray bench-singbox bench-smoke \
+        bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total check-perf-vm check-perf-vps check-perf-total clean-bench
+
+## bench: Docker benchmark — build image + run full xray/singbox/blackwire comparison + print report
+bench:
+	$(MAKE) -C labs/realistic bench
+
+## bench-build: Build the blackwire-bench Docker image
+bench-build:
+	$(MAKE) -C labs/realistic bench-build
+
+## bench-xray: Docker benchmark — Xray client vs Xray / Blackwire Compat / Blackwire Fast servers
+bench-xray:
+	$(MAKE) -C labs/realistic bench-xray
+
+## bench-singbox: Docker benchmark — sing-box client vs sing-box / Blackwire Compat / Blackwire Fast servers
+bench-singbox:
+	$(MAKE) -C labs/realistic bench-singbox
+
+## bench-smoke: Docker benchmark — Blackwire only (direct / socks / vless loopback)
+bench-smoke:
+	$(MAKE) -C labs/realistic bench-smoke
 
 bench-vm-smoke:
 	$(MAKE) -C labs/realistic bench-vm-smoke
