@@ -9,15 +9,25 @@
 //!
 //! The matcher uses the same four-bucket approach as `router.rs`'s
 //! `DomainMatcher`, but is built from GeoSite protobuf data.
+//!
+//! # Hot-path optimizations
+//!
+//! - `to_lowercase()` is deferred: we first check with the original casing
+//!   (fast path for already-lowercase domains) and only allocate if needed.
+//! - Suffix match walks label boundaries with `find('.')` — zero allocations.
+//! - Keywords use an `AhoCorasick` automaton (O(n) single pass) instead of a
+//!   `Vec<String>` linear scan (O(n·k)).
 
 use std::collections::HashSet;
 
+use aho_corasick::AhoCorasick;
 use regex::RegexSet;
 use tracing::warn;
 
 use super::proto::{DomainType, GeoSite};
 
 /// Matches domain names against a GeoSite entry.
+#[derive(Clone)]
 pub struct GeoSiteMatcher {
     /// Full (exact) matches.
     full: HashSet<String>,
@@ -25,8 +35,8 @@ pub struct GeoSiteMatcher {
     /// Suffix matches. We check each suffix level of the input domain.
     suffix: HashSet<String>,
 
-    /// Keywords to search for in the domain string.
-    keywords: Vec<String>,
+    /// Keyword automaton — matches if the domain contains any keyword (O(n) scan).
+    keyword: AhoCorasick,
 
     /// Compiled regex set.
     regex: RegexSet,
@@ -59,11 +69,15 @@ impl GeoSiteMatcher {
             }
         }
 
+        let keyword = AhoCorasick::builder()
+            .ascii_case_insensitive(true)
+            .build(&keywords)
+            .unwrap_or_else(|_| AhoCorasick::new(&[] as &[&str]).unwrap());
+
         let regex = match RegexSet::new(&regex_patterns) {
             Ok(rs) => rs,
             Err(e) => {
                 warn!("GeoSite regex compile error: {e}; some patterns skipped");
-                // Try building regex patterns one by one, skipping bad ones.
                 let valid: Vec<_> = regex_patterns
                     .iter()
                     .filter(|p| regex::Regex::new(p).is_ok())
@@ -76,7 +90,7 @@ impl GeoSiteMatcher {
         Self {
             full,
             suffix,
-            keywords,
+            keyword,
             regex,
         }
     }
@@ -88,41 +102,56 @@ impl GeoSiteMatcher {
         keywords: Vec<String>,
         regexes: Vec<String>,
     ) -> anyhow::Result<Self> {
+        let keyword = AhoCorasick::builder()
+            .ascii_case_insensitive(true)
+            .build(&keywords)
+            .map_err(|e| anyhow::anyhow!("AhoCorasick build failed: {e}"))?;
         Ok(Self {
             full: full.into_iter().map(|s| s.to_lowercase()).collect(),
             suffix: suffix.into_iter().map(|s| s.to_lowercase()).collect(),
-            keywords: keywords.into_iter().map(|s| s.to_lowercase()).collect(),
+            keyword,
             regex: RegexSet::new(&regexes)?,
         })
     }
 
     /// Returns `true` if `domain` matches any pattern in this matcher.
     pub fn match_domain(&self, domain: &str) -> bool {
-        let lower = domain.to_lowercase();
+        // Avoid allocation for already-lowercase domains (the common case).
+        // Only call to_lowercase() lazily when an uppercase char is detected.
+        let lower_buf;
+        let lower: &str = if domain.bytes().any(|b| b.is_ascii_uppercase()) {
+            lower_buf = domain.to_lowercase();
+            &lower_buf
+        } else {
+            domain
+        };
 
         // 1. Full exact match.
-        if self.full.contains(&lower) {
+        if self.full.contains(lower) {
             return true;
         }
 
-        // 2. Suffix match: check each level of the domain hierarchy.
+        // 2. Suffix match: walk label boundaries without allocating.
         {
-            let parts: Vec<&str> = lower.split('.').collect();
-            for i in 0..parts.len() {
-                let suffix = parts[i..].join(".");
-                if self.suffix.contains(&suffix) {
+            let mut start = 0;
+            while start < lower.len() {
+                if self.suffix.contains(&lower[start..]) {
                     return true;
+                }
+                match lower[start..].find('.') {
+                    Some(dot) => start += dot + 1,
+                    None => break,
                 }
             }
         }
 
-        // 3. Keyword match.
-        if self.keywords.iter().any(|kw| lower.contains(kw.as_str())) {
+        // 3. Keyword match — AhoCorasick O(n) single-pass scan.
+        if self.keyword.is_match(lower) {
             return true;
         }
 
         // 4. Regex match.
-        if self.regex.is_match(&lower) {
+        if self.regex.is_match(lower) {
             return true;
         }
 

@@ -110,6 +110,9 @@ impl LiveRouter {
         geosite: HashMap<String, GeoSiteMatcher>,
         domain_strategy: Option<String>,
     ) -> Arc<Self> {
+        let has_ip_rules = rules
+            .iter()
+            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty());
         Arc::new(Self {
             inner: ArcSwap::from_pointee(RouterInner {
                 rules,
@@ -117,6 +120,7 @@ impl LiveRouter {
                 geoip,
                 geosite,
                 domain_strategy,
+                has_ip_rules,
             }),
         })
     }
@@ -133,12 +137,16 @@ impl LiveRouter {
         geosite: HashMap<String, GeoSiteMatcher>,
         domain_strategy: Option<String>,
     ) {
+        let has_ip_rules = rules
+            .iter()
+            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty());
         self.inner.store(Arc::new(RouterInner {
             rules,
             default_tag: default_tag.into(),
             geoip,
             geosite,
             domain_strategy,
+            has_ip_rules,
         }));
     }
 }
@@ -149,11 +157,7 @@ impl Router for LiveRouter {
     }
 
     fn has_ip_rules(&self) -> bool {
-        let inner = self.inner.load();
-        inner
-            .rules
-            .iter()
-            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty())
+        self.inner.load().has_ip_rules
     }
 
     fn pick_route_match(&self, ctx: &RoutingContext<'_>) -> (Route, bool) {
@@ -213,6 +217,9 @@ struct RouterInner {
     geosite: HashMap<String, GeoSiteMatcher>,
     /// Xray `domainStrategy` for pre-routing DNS resolution.
     domain_strategy: Option<String>,
+    /// Precomputed: true if any rule matches by IP (ip_matcher or geoip codes).
+    /// Avoids an O(n) rules scan on every connection in IPOnDemand mode.
+    has_ip_rules: bool,
 }
 
 /// A single compiled routing rule, ready for fast matching.
@@ -363,6 +370,9 @@ pub struct DomainMatcher {
 
 impl DomainMatcher {
     /// Build a `DomainMatcher` from lists of patterns in each category.
+    ///
+    /// Patterns are stored lowercase; `matches()` normalises input lazily so
+    /// already-lowercase domains (the common case) require no allocation.
     pub fn new(
         full: Vec<String>,
         suffix: Vec<String>,
@@ -370,41 +380,52 @@ impl DomainMatcher {
         regexes: Vec<String>,
     ) -> anyhow::Result<Self> {
         Ok(Self {
-            full: full.into_iter().map(|s| (s, ())).collect(),
-            suffix: suffix.into_iter().map(|s| (s, ())).collect(),
-            keyword: AhoCorasick::new(&keywords)?,
+            full: full.into_iter().map(|s| (s.to_lowercase(), ())).collect(),
+            suffix: suffix.into_iter().map(|s| (s.to_lowercase(), ())).collect(),
+            keyword: AhoCorasick::builder()
+                .ascii_case_insensitive(true)
+                .build(&keywords)?,
             regex: RegexSet::new(&regexes)?,
         })
     }
 
     /// Returns `true` if `domain` matches any pattern in this matcher.
     pub fn matches(&self, domain: &str) -> bool {
+        // Defer allocation: only lowercase if an uppercase byte is found.
+        let lower_buf;
+        let lower: &str = if domain.bytes().any(|b| b.is_ascii_uppercase()) {
+            lower_buf = domain.to_lowercase();
+            &lower_buf
+        } else {
+            domain
+        };
+
         // 1. Full exact match.
-        if self.full.contains_key(domain) {
+        if self.full.contains_key(lower) {
             return true;
         }
 
         // 2. Suffix match: walk domain labels without allocating.
         {
             let mut start = 0;
-            while start < domain.len() {
-                if self.suffix.contains_key(&domain[start..]) {
+            while start < lower.len() {
+                if self.suffix.contains_key(&lower[start..]) {
                     return true;
                 }
-                match domain[start..].find('.') {
+                match lower[start..].find('.') {
                     Some(dot) => start += dot + 1,
                     None => break,
                 }
             }
         }
 
-        // 3. Keyword match — does the domain contain any keyword?
-        if self.keyword.is_match(domain) {
+        // 3. Keyword match — AhoCorasick O(n) single-pass scan.
+        if self.keyword.is_match(lower) {
             return true;
         }
 
         // 4. Regex match.
-        if self.regex.is_match(domain) {
+        if self.regex.is_match(lower) {
             return true;
         }
 
@@ -423,19 +444,36 @@ pub struct IpMatcher {
 impl IpMatcher {
     /// Build an `IpMatcher` from a list of CIDR range strings.
     pub fn new(ranges: Vec<String>) -> anyhow::Result<Self> {
-        let parsed = ranges
+        let mut parsed = ranges
             .iter()
             .map(|r| {
                 r.parse::<IpNet>()
                     .map_err(|e| anyhow::anyhow!("invalid CIDR '{}': {}", r, e))
             })
             .collect::<anyhow::Result<Vec<_>>>()?;
+        parsed.sort_unstable();
         Ok(Self { ranges: parsed })
     }
 
     /// Returns `true` if `ip` falls within any of the configured CIDR ranges.
+    ///
+    /// Uses binary search (O(log n)) since ranges are sorted at construction time.
     pub fn matches(&self, ip: IpAddr) -> bool {
-        self.ranges.iter().any(|net| net.contains(&ip))
+        if self.ranges.is_empty() {
+            return false;
+        }
+        let full_prefix = match ip {
+            IpAddr::V4(_) => 32u8,
+            IpAddr::V6(_) => 128u8,
+        };
+        let Ok(probe) = IpNet::new(ip, full_prefix) else {
+            return self.ranges.iter().any(|net| net.contains(&ip));
+        };
+        let idx = self.ranges.partition_point(|net| *net <= probe);
+        self.ranges[idx.saturating_sub(4)..idx]
+            .iter()
+            .rev()
+            .any(|net| net.contains(&ip))
     }
 }
 
@@ -593,5 +631,29 @@ mod tests {
     fn invalid_cidr_returns_error() {
         let result = IpMatcher::new(vec!["not-a-cidr".into()]);
         assert!(result.is_err());
+    }
+
+    // Checks that domain matching is case-insensitive for all match types.
+    #[test]
+    fn domain_case_insensitive() {
+        let matcher = DomainMatcher::new(
+            vec!["Example.COM".into()],
+            vec!["Suffix.NET".into()],
+            vec!["VPN".into()],
+            vec![],
+        )
+        .unwrap();
+
+        // Full match: stored lowercase, input mixed-case.
+        assert!(matcher.matches("example.com"));
+        assert!(matcher.matches("EXAMPLE.COM"));
+
+        // Suffix match: stored lowercase.
+        assert!(matcher.matches("sub.Suffix.NET"));
+        assert!(matcher.matches("SUB.SUFFIX.NET"));
+
+        // Keyword: AhoCorasick with ascii_case_insensitive.
+        assert!(matcher.matches("MyVPN.com"));
+        assert!(matcher.matches("vpn-service.io"));
     }
 }

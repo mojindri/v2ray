@@ -5,11 +5,21 @@
 //!
 //! # Memory layout
 //!
-//! Ranges are stored as a `Vec<IpNet>` sorted by network address. This allows
-//! binary-search lookups in O(log n) instead of O(n) linear scan.
+//! Ranges are stored as a `Vec<IpNet>` sorted by (addr_family, network_address,
+//! prefix_len). This enables O(log n) binary-search lookup instead of O(n) linear
+//! scan. The typical GeoIP country list has 1 000–8 000 CIDR entries; binary
+//! search reduces ~5 000 comparisons to ~13.
 //!
-//! For the typical country CIDR list sizes (a few thousand entries), this
-//! comfortably handles millions of lookups per second.
+//! # Binary-search algorithm
+//!
+//! For a query IP:
+//!   1. Construct a /32 (IPv4) or /128 (IPv6) probe from the query IP.
+//!   2. Use `partition_point` to find the first range whose sorted key > probe.
+//!   3. Scan backwards up to `MAX_OVERLAP_SCAN` candidates (handles nested CIDRs
+//!      such as a /8 that encloses a /24 in the same list).
+//!
+//! GeoIP lists are non-overlapping, so one backwards step is always enough in
+//! practice; the small constant scan guards against edge cases.
 
 use std::net::IpAddr;
 
@@ -18,10 +28,14 @@ use tracing::warn;
 
 use super::proto::{Cidr, GeoIp};
 
+/// How many candidates to check backwards after binary search.
+/// 1 is correct for non-overlapping CIDR lists; a small constant handles nesting.
+const MAX_OVERLAP_SCAN: usize = 4;
+
 /// Matches IP addresses against a set of CIDR ranges.
+#[derive(Clone)]
 pub struct GeoIpMatcher {
-    /// Sorted list of IP ranges. Sorting enables a future binary-search
-    /// optimization; currently we use linear scan for correctness.
+    /// Sorted list of IP ranges (by network address then prefix length).
     ranges: Vec<IpNet>,
 }
 
@@ -31,7 +45,8 @@ impl GeoIpMatcher {
     /// CIDR entries that cannot be parsed (malformed IP bytes or mismatched
     /// prefix length) are skipped with a warning rather than causing a panic.
     pub fn from_proto(entry: &GeoIp) -> Self {
-        let ranges = entry.cidr.iter().filter_map(parse_cidr).collect();
+        let mut ranges: Vec<IpNet> = entry.cidr.iter().filter_map(parse_cidr).collect();
+        ranges.sort_unstable();
         Self { ranges }
     }
 
@@ -39,12 +54,42 @@ impl GeoIpMatcher {
     ///
     /// Useful in tests where you want to avoid constructing protobuf messages.
     pub fn from_ranges(ranges: Vec<IpNet>) -> Self {
-        Self { ranges }
+        let mut sorted = ranges;
+        sorted.sort_unstable();
+        Self { ranges: sorted }
     }
 
     /// Returns `true` if `ip` falls within any of the configured CIDR ranges.
     pub fn match_ip(&self, ip: IpAddr) -> bool {
-        self.ranges.iter().any(|net| net.contains(&ip))
+        if self.ranges.is_empty() {
+            return false;
+        }
+
+        // Build a /32 or /128 probe from the query IP so we can binary-search
+        // for it. IpNet::new(ip, full_prefix) produces a network whose base
+        // address equals `ip` itself (no bits are masked away).
+        let full_prefix = match ip {
+            IpAddr::V4(_) => 32u8,
+            IpAddr::V6(_) => 128u8,
+        };
+        let probe = match IpNet::new(ip, full_prefix) {
+            Ok(p) => p,
+            Err(_) => return self.ranges.iter().any(|net| net.contains(&ip)),
+        };
+
+        // partition_point returns the index of the first element > probe.
+        // All elements at idx-1 and below have base address ≤ ip.
+        let idx = self.ranges.partition_point(|net| *net <= probe);
+
+        // Scan backwards from idx; stop after MAX_OVERLAP_SCAN or when the
+        // range's base address is too small to possibly contain ip (handled
+        // implicitly — if ranges are sorted, all candidates here have base ≤ ip,
+        // so we only need to check `contains`).
+        let start = idx.saturating_sub(MAX_OVERLAP_SCAN);
+        self.ranges[start..idx]
+            .iter()
+            .rev()
+            .any(|net| net.contains(&ip))
     }
 }
 
@@ -106,6 +151,22 @@ mod tests {
         assert!(m.match_ip(IpAddr::V4(Ipv4Addr::new(172, 20, 0, 1))));
         assert!(m.match_ip(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 1))));
         assert!(!m.match_ip(IpAddr::V4(Ipv4Addr::new(8, 8, 8, 8))));
+    }
+
+    #[test]
+    fn binary_search_with_enclosing_supernet() {
+        // A /8 enclosing a /16 enclosing a /24 — verify binary search finds
+        // the right match even though the enclosing range is far back in the list.
+        let m = make_matcher(&["10.0.0.0/8", "10.5.0.0/16", "10.5.6.0/24", "192.168.0.0/16"]);
+        assert!(m.match_ip(IpAddr::V4(Ipv4Addr::new(10, 5, 6, 7))));
+        assert!(m.match_ip(IpAddr::V4(Ipv4Addr::new(10, 99, 0, 1))));
+        assert!(!m.match_ip(IpAddr::V4(Ipv4Addr::new(11, 0, 0, 1))));
+    }
+
+    #[test]
+    fn ip_between_ranges_no_match() {
+        let m = make_matcher(&["10.0.0.0/24", "10.0.2.0/24"]);
+        assert!(!m.match_ip(IpAddr::V4(Ipv4Addr::new(10, 0, 1, 5))));
     }
 
     #[test]

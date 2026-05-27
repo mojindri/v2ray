@@ -29,6 +29,7 @@
 //! Outbound handlers and listen ports are still fixed at startup.
 
 use anyhow::{Context as _, Result};
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
@@ -231,8 +232,7 @@ impl Instance {
             .as_ref()
             .and_then(|r| r.domain_strategy.clone());
         let router = LiveRouter::new(rules, default_tag, geoip, geosite, domain_strategy.clone());
-        let sniffing_shared =
-            Arc::new(std::sync::RwLock::new(build_sniffing_map(&config.inbounds)));
+        let sniffing_shared = Arc::new(ArcSwap::from_pointee(build_sniffing_map(&config.inbounds)));
         // Shared with the config watcher: router swap + VLESS registry refresh on reload.
         let inbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
             config.inbounds.iter().map(|i| i.tag.clone()).collect(),
@@ -240,13 +240,13 @@ impl Instance {
         let outbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
             config.outbounds.iter().map(|o| o.tag.clone()).collect(),
         ));
-        let reload = ReloadState {
-            router: Arc::clone(&router),
-            vless_registries: Arc::new(DashMap::new()),
-            sniffing: Arc::clone(&sniffing_shared),
-            inbound_tags: Arc::clone(&inbound_tags),
-            outbound_tags: Arc::clone(&outbound_tags),
-        };
+        let reload = ReloadState::new(
+            Arc::clone(&router),
+            Arc::new(DashMap::new()),
+            Arc::clone(&sniffing_shared),
+            Arc::clone(&inbound_tags),
+            Arc::clone(&outbound_tags),
+        );
         let vless_registries = Arc::clone(&reload.vless_registries);
 
         // ── Step 4: Create dispatcher ────────────────────────────────────────
@@ -506,19 +506,21 @@ impl Instance {
                     .and_then(|limits| limits.max_connections)
                     .or(config.limits.max_connections_per_inbound)
                     .or(config.limits.max_connections),
+                tcp_fast_open: true,
                 ..Default::default()
             };
 
-            let transport = blackwire_transport::TcpServerTransport::new(tcp_config);
-            let listener = tokio::net::TcpListener::bind(addr)
-                .await
+            let transport =
+                std::sync::Arc::new(blackwire_transport::TcpServerTransport::new(tcp_config));
+            // One accept-loop shard per logical CPU; the kernel distributes
+            // incoming SYNs across them via SO_REUSEPORT.
+            let shards = std::thread::available_parallelism()
+                .map(|n| n.get())
+                .unwrap_or(1);
+            let mut shard_tasks = transport
+                .serve_multi(addr, shards, conn_handler)
                 .with_context(|| format!("binding inbound listener '{}'", in_cfg.tag))?;
-            let task = tokio::spawn(async move {
-                if let Err(e) = transport.serve_listener(listener, conn_handler).await {
-                    error!(addr = %addr, error = %e, "inbound listener failed");
-                }
-            });
-            tasks.push(task);
+            tasks.append(&mut shard_tasks);
         }
 
         // ── Optional: start metrics/health HTTP server ───────────────────────

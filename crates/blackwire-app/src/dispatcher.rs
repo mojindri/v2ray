@@ -23,11 +23,18 @@
 //! kernel pipes without copying them into userspace. Non-Linux builds and
 //! non-raw streams keep using `copy_bidirectional`.
 
-use std::sync::{Arc, RwLock};
-use std::time::Instant;
+use std::sync::Arc;
+use std::time::{Duration, Instant};
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
+
+/// DNS resolution budget for routing decisions (IPOnDemand / IPIfNonMatch).
+///
+/// Slow DNS during routing would stall the entire connection dispatch, so we cap
+/// the budget well below the connection handshake timeout.
+const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 
 use std::collections::HashMap;
 
@@ -74,7 +81,7 @@ pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
-    sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+    sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
 }
 
 impl DefaultDispatcher {
@@ -91,7 +98,7 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: None,
-            sniffing: Arc::new(RwLock::new(HashMap::new())),
+            sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         })
     }
 
@@ -99,7 +106,7 @@ impl DefaultDispatcher {
     pub fn new_with_sniffing(
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
-        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -122,7 +129,7 @@ impl DefaultDispatcher {
             router,
             outbounds,
             dns: Some(dns),
-            sniffing: Arc::new(RwLock::new(HashMap::new())),
+            sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
         })
     }
 
@@ -131,7 +138,7 @@ impl DefaultDispatcher {
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
         dns: Arc<DnsModule>,
-        sniffing: Arc<RwLock<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -144,18 +151,13 @@ impl DefaultDispatcher {
 
 #[async_trait]
 impl Dispatcher for DefaultDispatcher {
-    #[instrument(skip(self, inbound_stream), fields(dest = %dest, inbound = %ctx.inbound_tag))]
     async fn dispatch(
         &self,
         mut ctx: Context,
         mut dest: Address,
         mut inbound_stream: BoxedStream,
     ) -> Result<(), ProxyError> {
-        let sniff_cfg = self
-            .sniffing
-            .read()
-            .ok()
-            .and_then(|g| g.get(&ctx.inbound_tag).cloned());
+        let sniff_cfg = self.sniffing.load().get(&ctx.inbound_tag).cloned();
         if let Some(cfg) = sniff_cfg {
             if cfg.enabled {
                 let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
@@ -301,15 +303,39 @@ impl DefaultDispatcher {
             }
         }
 
+        // For IpIfNonMatch on a domain destination, start DNS resolution in the
+        // background immediately — before we know whether a domain rule will match.
+        // The domain rule check is synchronous and fast; by overlapping it with
+        // DNS we avoid serialising the two when the domain rule misses and IP rules
+        // need to be consulted. A tokio task is spawned only when DNS is configured
+        // AND the router has IP-based rules (otherwise DNS would be pointless).
+        let prefetch = if strategy == RoutingDomainStrategy::IpIfNonMatch
+            && matches!(dest, Address::Domain(..))
+            && self.router.has_ip_rules()
+        {
+            self.prefetch_dns(dest)
+        } else {
+            None
+        };
+
         let ctx = Self::routing_ctx(dest, inbound_tag, user, sniffed_protocol, sniffed_domain);
         let (route, matched) = self.router.pick_route_match(&ctx);
         if matched || strategy == RoutingDomainStrategy::AsIs {
+            if let Some(h) = prefetch {
+                h.abort();
+            }
             return Ok(route);
         }
 
         if strategy == RoutingDomainStrategy::IpIfNonMatch {
             if let Address::Domain(_, _) = dest {
-                if let Some(ips) = self.resolve_domain_ips(dest).await {
+                // Await the pre-fetched DNS result (may already be ready).
+                let ips = if let Some(h) = prefetch {
+                    h.await.ok().flatten()
+                } else {
+                    self.resolve_domain_ips(dest).await
+                };
+                if let Some(ips) = ips {
                     for ip_dest in &ips {
                         let ctx = Self::routing_ctx(
                             ip_dest,
@@ -328,6 +354,57 @@ impl DefaultDispatcher {
         }
 
         Ok(route)
+    }
+
+    /// Spawn a background task that resolves `dest` to IP addresses.
+    ///
+    /// Returns `None` when no DNS module is configured. The handle can be
+    /// awaited for the result or aborted if the resolution is no longer needed.
+    fn prefetch_dns(
+        &self,
+        dest: &Address,
+    ) -> Option<tokio::task::JoinHandle<Option<Vec<Address>>>> {
+        let Address::Domain(name, port) = dest else {
+            return None;
+        };
+        let dns = self.dns.clone()?;
+        let name = name.clone();
+        let port = *port;
+        Some(tokio::spawn(async move {
+            let dest = Address::Domain(name, port);
+            // Inline version of resolve_domain_ips without borrowing self.
+            let mut ips: Vec<Address> = Vec::new();
+            let resolved =
+                tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
+                    .await;
+            if let Ok(Ok(addrs)) = resolved {
+                for ip in addrs {
+                    ips.push(match ip {
+                        std::net::IpAddr::V4(v4) => Address::Ipv4(v4, port),
+                        std::net::IpAddr::V6(v6) => Address::Ipv6(v6, port),
+                    });
+                }
+            }
+            if ips.is_empty() {
+                let lookup = tokio::time::timeout(
+                    ROUTING_DNS_TIMEOUT,
+                    tokio::net::lookup_host((dest.domain().unwrap(), port)),
+                );
+                if let Ok(Ok(addrs)) = lookup.await {
+                    for addr in addrs {
+                        ips.push(match addr {
+                            std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), port),
+                            std::net::SocketAddr::V6(v6) => Address::Ipv6(*v6.ip(), port),
+                        });
+                    }
+                }
+            }
+            if ips.is_empty() {
+                None
+            } else {
+                Some(ips)
+            }
+        }))
     }
 
     fn routing_ctx<'a>(
@@ -353,8 +430,9 @@ impl DefaultDispatcher {
         };
         let mut ips = Vec::new();
         if let Some(dns) = &self.dns {
-            if let Ok(resolved) = dns.resolve(name).await {
-                for ip in resolved {
+            let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
+            if let Ok(Ok(addrs)) = resolved {
+                for ip in addrs {
                     ips.push(match ip {
                         std::net::IpAddr::V4(v4) => Address::Ipv4(v4, *port),
                         std::net::IpAddr::V6(v6) => Address::Ipv6(v6, *port),
@@ -363,7 +441,11 @@ impl DefaultDispatcher {
             }
         }
         if ips.is_empty() {
-            if let Ok(addrs) = tokio::net::lookup_host((name.as_str(), *port)).await {
+            let lookup = tokio::time::timeout(
+                ROUTING_DNS_TIMEOUT,
+                tokio::net::lookup_host((name.as_str(), *port)),
+            );
+            if let Ok(Ok(addrs)) = lookup.await {
                 for addr in addrs {
                     ips.push(match addr {
                         std::net::SocketAddr::V4(v4) => Address::Ipv4(*v4.ip(), *port),

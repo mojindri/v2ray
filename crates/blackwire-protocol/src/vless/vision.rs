@@ -36,9 +36,10 @@ impl UnpaddingState {
         }
     }
 
-    /// Feed bytes; returns plaintext to deliver upstream.
-    fn feed(&mut self, uuid: &[u8; 16], input: &[u8]) -> (Vec<u8>, bool) {
-        let mut out = Vec::new();
+    /// Feed bytes into `out`; returns `true` when the stream should switch to direct copy.
+    ///
+    /// Writing into a caller-provided Vec avoids a heap allocation per call.
+    fn feed(&mut self, uuid: &[u8; 16], input: &[u8], out: &mut Vec<u8>) -> bool {
         let mut switch_to_direct = false;
         let mut pos = 0usize;
         while pos < input.len() {
@@ -51,7 +52,7 @@ impl UnpaddingState {
                     self.remaining_command = 5;
                 } else {
                     out.extend_from_slice(&input[pos..]);
-                    return (out, switch_to_direct);
+                    return switch_to_direct;
                 }
             }
 
@@ -96,7 +97,7 @@ impl UnpaddingState {
                 }
             }
         }
-        (out, switch_to_direct)
+        switch_to_direct
     }
 }
 
@@ -106,7 +107,10 @@ pub struct VisionStream<S> {
     inner: S,
     uuid: [u8; 16],
     read_state: UnpaddingState,
+    /// Overflow buffer: plaintext that didn't fit in the caller's ReadBuf last poll.
     read_buf: Vec<u8>,
+    /// Reusable scratch buffer for `feed()` — avoids one heap alloc per read poll.
+    feed_scratch: Vec<u8>,
     read_direct_copy: bool,
     /// First downlink write includes the 16-byte UUID prefix (Xray `XtlsPadding`).
     write_uuid_once: bool,
@@ -121,6 +125,7 @@ impl<S> VisionStream<S> {
             uuid,
             read_state: UnpaddingState::new(),
             read_buf: Vec::new(),
+            feed_scratch: Vec::new(),
             read_direct_copy: false,
             write_uuid_once: true,
             write_direct_copy: false,
@@ -159,17 +164,22 @@ impl<S: AsyncRead + Unpin> AsyncRead for VisionStream<S> {
                         return Poll::Ready(Ok(()));
                     }
                     let uuid = self.uuid;
-                    let (plain, switch_to_direct) = self.read_state.feed(&uuid, rb.filled());
+                    // Take feed_scratch out so we can borrow read_state mutably at the same time.
+                    let mut scratch = std::mem::take(&mut self.feed_scratch);
+                    scratch.clear();
+                    let switch_to_direct = self.read_state.feed(&uuid, rb.filled(), &mut scratch);
+                    self.feed_scratch = scratch;
                     if switch_to_direct {
                         self.read_direct_copy = true;
                     }
-                    if plain.is_empty() {
+                    if self.feed_scratch.is_empty() {
                         continue;
                     }
-                    let n = buf.remaining().min(plain.len());
-                    buf.put_slice(&plain[..n]);
-                    if n < plain.len() {
-                        self.read_buf.extend_from_slice(&plain[n..]);
+                    let n = buf.remaining().min(self.feed_scratch.len());
+                    buf.put_slice(&self.feed_scratch[..n]);
+                    if n < self.feed_scratch.len() {
+                        let extra = self.feed_scratch[n..].to_vec();
+                        self.read_buf.extend_from_slice(&extra);
                     }
                     return Poll::Ready(Ok(()));
                 }
@@ -270,7 +280,8 @@ mod tests {
     fn passthrough_without_vision_header() {
         let mut st = UnpaddingState::new();
         let uuid = [0u8; 16];
-        let (out, direct) = st.feed(&uuid, b"hello world");
+        let mut out = Vec::new();
+        let direct = st.feed(&uuid, b"hello world", &mut out);
         assert_eq!(out, b"hello world");
         assert!(!direct);
     }
@@ -283,7 +294,8 @@ mod tests {
         frame.extend_from_slice(b"tail");
 
         let mut st = UnpaddingState::new();
-        let (out, direct) = st.feed(&uuid, &frame);
+        let mut out = Vec::new();
+        let direct = st.feed(&uuid, &frame, &mut out);
         assert_eq!(out, b"abctail");
         assert!(direct);
     }

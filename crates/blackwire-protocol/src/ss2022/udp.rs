@@ -18,6 +18,7 @@ use aes_gcm::{
     Aes256Gcm, KeyInit,
 };
 use cipher::{BlockDecrypt, BlockEncrypt};
+use parking_lot::Mutex;
 use rand::RngExt;
 use tokio::net::UdpSocket;
 use tracing::{debug, warn};
@@ -27,10 +28,15 @@ use blackwire_common::{decode_socks5_address, write_socks5_address, Address, Pro
 const TYPE_CLIENT: u8 = 0x00;
 const TYPE_SERVER: u8 = 0x01;
 const MAX_TIME_DIFF: u64 = 30;
-const UDP_RECV_TIMEOUT: Duration = Duration::from_secs(5);
+/// Idle lifetime for a per-session upstream socket before it is torn down.
+const UDP_SESSION_IDLE: Duration = Duration::from_secs(30);
 const MAX_SESSIONS: usize = 4096;
 const AEAD_TAG_LEN: usize = 16;
 const SEPARATE_HEADER_LEN: usize = 16;
+
+/// Number of packets to receive in one `recvmmsg(2)` call (Linux only).
+#[cfg(target_os = "linux")]
+const RECV_BATCH: usize = 32;
 
 /// Derive a 32-byte session AEAD key (8-byte session id salt — SIP022 UDP).
 fn derive_session_key(psk: &[u8; 32], session_id: &[u8; 8]) -> [u8; 32] {
@@ -78,7 +84,6 @@ fn session_cipher(key: &[u8; 32]) -> Aes256Gcm {
 struct ServerUdpSession {
     server_session_id: u64,
     client_session_id: u64,
-    server_packet_id: u64,
     session_key: [u8; 32],
 }
 
@@ -92,7 +97,6 @@ impl ServerUdpSession {
         Self {
             server_session_id,
             client_session_id,
-            server_packet_id: 0,
             session_key,
         }
     }
@@ -100,12 +104,19 @@ impl ServerUdpSession {
     fn cipher(&self) -> Aes256Gcm {
         session_cipher(&self.session_key)
     }
+}
 
-    fn next_packet_id(&mut self) -> u64 {
-        let id = self.server_packet_id;
-        self.server_packet_id += 1;
-        id
-    }
+/// Per-session state held in the relay's session table.
+///
+/// One `SessionEntry` is created the first time a packet from a given
+/// `client_session_id` arrives. A single upstream `UdpSocket` is bound once
+/// and reused for all subsequent packets in the same session, eliminating the
+/// previous pattern of creating a new socket per packet.
+struct SessionEntry {
+    /// Persistent upstream socket — reused for every packet in this session.
+    upstream_sock: Arc<UdpSocket>,
+    /// Current client address, updated on every received packet (handles roaming).
+    client_addr: Arc<Mutex<SocketAddr>>,
 }
 
 /// Decode one SS2022 UDP client packet (SIP022 / sing-box compatible).
@@ -271,10 +282,36 @@ pub fn encode_client_packet(
 }
 
 /// Relay SS2022 UDP sessions on the given bound UDP socket.
+///
+/// Each unique `client_session_id` gets a single persistent upstream
+/// `UdpSocket` (created once, not per packet). A long-running reply task
+/// per session loops over `recv_from` on that socket and routes replies back
+/// to the client, eliminating the previous one-socket-per-packet pattern.
+///
+/// On Linux the inbound socket uses `recvmmsg(2)` to receive up to
+/// `RECV_BATCH` packets in a single syscall, reducing per-packet syscall
+/// overhead at high UDP PPS.
 pub async fn relay_ss2022_udp(socket: Arc<UdpSocket>, psk: [u8; 32]) {
-    let mut sessions: HashMap<u64, ServerUdpSession> = HashMap::new();
-    let mut buf = vec![0u8; 65535];
+    let mut sessions: HashMap<u64, SessionEntry> = HashMap::new();
 
+    #[cfg(target_os = "linux")]
+    {
+        relay_ss2022_udp_batch(socket, psk, &mut sessions).await;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        relay_ss2022_udp_simple(socket, psk, &mut sessions).await;
+    }
+}
+
+/// Fallback single-recv path (non-Linux).
+#[cfg(not(target_os = "linux"))]
+async fn relay_ss2022_udp_simple(
+    socket: Arc<UdpSocket>,
+    psk: [u8; 32],
+    sessions: &mut HashMap<u64, SessionEntry>,
+) {
+    let mut buf = vec![0u8; 65535];
     loop {
         let (n, client_addr) = match socket.recv_from(&mut buf).await {
             Ok(v) => v,
@@ -283,88 +320,253 @@ pub async fn relay_ss2022_udp(socket: Arc<UdpSocket>, psk: [u8; 32]) {
                 continue;
             }
         };
+        process_ss2022_packet(&socket, &psk, sessions, &buf[..n], client_addr).await;
+    }
+}
 
-        let pkt = buf[..n].to_vec();
-        let (client_session_id, _packet_id, dest, payload) = match decode_client_packet(&pkt, &psk)
-        {
-            Ok(v) => v,
-            Err(e) => {
-                debug!(source = %client_addr, error = %e, "SS2022 UDP decode failed");
-                continue;
-            }
-        };
+/// Linux fast path: drain up to `RECV_BATCH` datagrams per `recvmmsg(2)` call.
+#[cfg(target_os = "linux")]
+async fn relay_ss2022_udp_batch(
+    socket: Arc<UdpSocket>,
+    psk: [u8; 32],
+    sessions: &mut HashMap<u64, SessionEntry>,
+) {
+    use std::os::unix::io::AsRawFd;
 
-        debug!(
-            source = %client_addr,
-            dest = %dest,
-            session = %client_session_id,
-            "SS2022 UDP relay"
-        );
+    // Pre-allocate RECV_BATCH × 65535 byte buffers once; reuse every iteration.
+    let mut data: Vec<Vec<u8>> = (0..RECV_BATCH).map(|_| vec![0u8; 65535]).collect();
+    let mut addrs: Vec<libc::sockaddr_storage> = vec![unsafe { std::mem::zeroed() }; RECV_BATCH];
+    let mut addr_lens: Vec<libc::socklen_t> =
+        vec![std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t; RECV_BATCH];
 
-        if payload.is_empty() {
-            continue;
+    loop {
+        // Wait until the socket is readable (Tokio wakes us on I/O readiness).
+        if socket.readable().await.is_err() {
+            break;
         }
 
-        if sessions.len() >= MAX_SESSIONS {
-            sessions.clear();
-        }
-        let session = sessions
-            .entry(client_session_id)
-            .or_insert_with(|| ServerUdpSession::new(&psk, client_session_id));
-        let server_pkt_id = session.next_packet_id();
-        let session_snapshot = ServerUdpSession {
-            server_session_id: session.server_session_id,
-            client_session_id: session.client_session_id,
-            server_packet_id: session.server_packet_id,
-            session_key: session.session_key,
-        };
+        // Attempt to drain as many packets as the kernel has queued.
+        let received = socket
+            .try_io(tokio::io::Interest::READABLE, || {
+                // Build iovec + mmsghdr arrays pointing into our pre-allocated buffers.
+                let mut iovecs: Vec<libc::iovec> = data
+                    .iter_mut()
+                    .map(|b| libc::iovec {
+                        iov_base: b.as_mut_ptr() as *mut libc::c_void,
+                        iov_len: b.len(),
+                    })
+                    .collect();
+                let mut msgs: Vec<libc::mmsghdr> = (0..RECV_BATCH)
+                    .map(|i| libc::mmsghdr {
+                        msg_hdr: libc::msghdr {
+                            msg_name: &mut addrs[i] as *mut _ as *mut libc::c_void,
+                            msg_namelen: addr_lens[i],
+                            msg_iov: &mut iovecs[i],
+                            msg_iovlen: 1,
+                            msg_control: std::ptr::null_mut(),
+                            msg_controllen: 0,
+                            msg_flags: 0,
+                        },
+                        msg_len: 0,
+                    })
+                    .collect();
 
-        let upstream = match resolve_udp_dest(&dest).await {
-            Ok(a) => a,
-            Err(e) => {
-                warn!(dest = %dest, error = %e, "SS2022 UDP DNS failed");
+                let ret = unsafe {
+                    libc::recvmmsg(
+                        socket.as_raw_fd(),
+                        msgs.as_mut_ptr(),
+                        RECV_BATCH as libc::c_uint,
+                        libc::MSG_DONTWAIT,
+                        std::ptr::null_mut(),
+                    )
+                };
+
+                if ret < 0 {
+                    let e = std::io::Error::last_os_error();
+                    if e.kind() == std::io::ErrorKind::WouldBlock {
+                        return Err(e);
+                    }
+                    return Err(e);
+                }
+
+                // Collect (length, peer SocketAddr) for each received message.
+                let count = ret as usize;
+                let mut results: Vec<(usize, SocketAddr)> = Vec::with_capacity(count);
+                for i in 0..count {
+                    let n = msgs[i].msg_len as usize;
+                    let addr = sockaddr_to_socketaddr(&addrs[i], addr_lens[i]);
+                    results.push((n, addr));
+                }
+                Ok(results)
+            })
+            .unwrap_or_default();
+
+        // Reset addr_lens for next batch (recvmmsg may have shrunk them).
+        addr_lens.fill(std::mem::size_of::<libc::sockaddr_storage>() as libc::socklen_t);
+
+        for (i, (n, client_addr)) in received.into_iter().enumerate() {
+            if n == 0 {
                 continue;
             }
-        };
+            process_ss2022_packet(&socket, &psk, sessions, &data[i][..n], client_addr).await;
+        }
+    }
+}
 
-        let up_sock = match UdpSocket::bind("0.0.0.0:0").await {
+/// Convert a raw `sockaddr_storage` to `SocketAddr`.
+#[cfg(target_os = "linux")]
+fn sockaddr_to_socketaddr(storage: &libc::sockaddr_storage, _len: libc::socklen_t) -> SocketAddr {
+    match storage.ss_family as libc::c_int {
+        libc::AF_INET => {
+            let sin = unsafe { &*(storage as *const _ as *const libc::sockaddr_in) };
+            let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
+            let port = u16::from_be(sin.sin_port);
+            SocketAddr::new(ip.into(), port)
+        }
+        libc::AF_INET6 => {
+            let sin6 = unsafe { &*(storage as *const _ as *const libc::sockaddr_in6) };
+            let ip = std::net::Ipv6Addr::from(sin6.sin6_addr.s6_addr);
+            let port = u16::from_be(sin6.sin6_port);
+            SocketAddr::new(ip.into(), port)
+        }
+        _ => "0.0.0.0:0".parse().unwrap(),
+    }
+}
+
+/// Process one decoded SS2022 client datagram: update/create session, forward to upstream.
+async fn process_ss2022_packet(
+    socket: &Arc<UdpSocket>,
+    psk: &[u8; 32],
+    sessions: &mut HashMap<u64, SessionEntry>,
+    buf: &[u8],
+    client_addr: SocketAddr,
+) {
+    let (client_session_id, _packet_id, dest, payload) = match decode_client_packet(buf, psk) {
+        Ok(v) => v,
+        Err(e) => {
+            debug!(source = %client_addr, error = %e, "SS2022 UDP decode failed");
+            return;
+        }
+    };
+
+    debug!(
+        source = %client_addr,
+        dest = %dest,
+        session = %client_session_id,
+        "SS2022 UDP relay"
+    );
+
+    if payload.is_empty() {
+        return;
+    }
+
+    if sessions.len() >= MAX_SESSIONS {
+        sessions.clear();
+    }
+
+    let entry = if let Some(e) = sessions.get_mut(&client_session_id) {
+        *e.client_addr.lock() = client_addr;
+        e
+    } else {
+        let upstream_sock = match UdpSocket::bind("0.0.0.0:0").await {
             Ok(s) => Arc::new(s),
             Err(e) => {
                 warn!(error = %e, "SS2022 UDP upstream bind failed");
-                continue;
+                return;
             }
         };
-        if let Err(e) = up_sock.send_to(&payload, upstream).await {
-            warn!(error = %e, "SS2022 UDP upstream send failed");
-            continue;
-        }
+        let client_addr_shared = Arc::new(Mutex::new(client_addr));
+        let session = ServerUdpSession::new(psk, client_session_id);
 
-        let socket2 = Arc::clone(&socket);
-        let psk2 = psk;
-        let dest2 = dest.clone();
-        tokio::spawn(async move {
-            let mut rbuf = vec![0u8; 65535];
-            match tokio::time::timeout(UDP_RECV_TIMEOUT, up_sock.recv(&mut rbuf)).await {
-                Ok(Ok(rn)) if rn > 0 => {
-                    match encode_server_packet(
-                        &psk2,
-                        &session_snapshot,
-                        server_pkt_id,
-                        &dest2,
-                        &rbuf[..rn],
-                    ) {
-                        Ok(reply) => {
-                            let _ = socket2.send_to(&reply, client_addr).await;
-                        }
-                        Err(e) => {
-                            warn!(error = %e, "SS2022 UDP encode reply failed");
-                        }
-                    }
-                }
-                _ => {}
-            }
-        });
+        spawn_reply_task(
+            Arc::clone(&upstream_sock),
+            Arc::clone(socket),
+            *psk,
+            session.server_session_id,
+            session.client_session_id,
+            session.session_key,
+            Arc::clone(&client_addr_shared),
+        );
+
+        sessions.insert(
+            client_session_id,
+            SessionEntry {
+                upstream_sock,
+                client_addr: client_addr_shared,
+            },
+        );
+        sessions.get_mut(&client_session_id).unwrap()
+    };
+
+    let upstream = match resolve_udp_dest(&dest).await {
+        Ok(a) => a,
+        Err(e) => {
+            warn!(dest = %dest, error = %e, "SS2022 UDP DNS failed");
+            return;
+        }
+    };
+
+    if let Err(e) = entry.upstream_sock.send_to(&payload, upstream).await {
+        warn!(error = %e, "SS2022 UDP upstream send failed");
     }
+}
+
+/// Spawn the per-session upstream reply loop.
+///
+/// Loops over `recv_from` on the upstream socket. For each reply the source
+/// address is used as the SS2022 destination field (the address the client
+/// originally targeted). Exits after `UDP_SESSION_IDLE` seconds of silence.
+fn spawn_reply_task(
+    upstream: Arc<UdpSocket>,
+    client_sock: Arc<UdpSocket>,
+    psk: [u8; 32],
+    server_session_id: u64,
+    client_session_id: u64,
+    session_key: [u8; 32],
+    client_addr: Arc<Mutex<SocketAddr>>,
+) {
+    tokio::spawn(async move {
+        let mut rbuf = vec![0u8; 65535];
+        let proxy_session = ServerUdpSession {
+            server_session_id,
+            client_session_id,
+            session_key,
+        };
+        let mut server_packet_id: u64 = 0;
+        loop {
+            let (rn, upstream_src) =
+                match tokio::time::timeout(UDP_SESSION_IDLE, upstream.recv_from(&mut rbuf)).await {
+                    Ok(Ok(v)) => v,
+                    _ => break, // idle timeout or error — session expired
+                };
+
+            if rn == 0 {
+                continue;
+            }
+
+            // The source address of the upstream reply IS the destination the
+            // client originally targeted; use it in the SS2022 reply header.
+            let reply_dest = match upstream_src {
+                SocketAddr::V4(a) => Address::Ipv4(*a.ip(), upstream_src.port()),
+                SocketAddr::V6(a) => match a.ip().to_ipv4_mapped() {
+                    Some(v4) => Address::Ipv4(v4, upstream_src.port()),
+                    None => Address::Ipv6(*a.ip(), upstream_src.port()),
+                },
+            };
+
+            let pkt_id = server_packet_id;
+            server_packet_id += 1;
+            let addr = *client_addr.lock();
+            match encode_server_packet(&psk, &proxy_session, pkt_id, &reply_dest, &rbuf[..rn]) {
+                Ok(reply) => {
+                    let _ = client_sock.send_to(&reply, addr).await;
+                }
+                Err(e) => {
+                    warn!(error = %e, "SS2022 UDP encode reply failed");
+                }
+            }
+        }
+    });
 }
 
 async fn resolve_udp_dest(dest: &Address) -> Result<SocketAddr, ProxyError> {
