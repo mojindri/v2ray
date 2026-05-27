@@ -23,9 +23,9 @@ use blackwire_app::features::{ConnectionHandler, InboundHandler};
 use blackwire_common::{with_handshake_timeout, BoxedStream, ProxyError};
 use blackwire_config::schema::{NetworkType, SecurityType, StreamSettingsConfig};
 use blackwire_transport::{
-    accept_httpupgrade, grpc_accept, httpupgrade_listen_path, normalize_splithttp_mode,
-    shadowtls_accept, splithttp_accept, splithttp_listen_params, tls_accept, ws_accept,
-    SplitHttpAcceptResult,
+    accept_httpupgrade, build_tls_acceptor, grpc_accept, httpupgrade_listen_path,
+    normalize_splithttp_mode, shadowtls_accept, splithttp_accept, splithttp_listen_params,
+    tls_accept_with_acceptor, ws_accept, SplitHttpAcceptResult,
 };
 
 // ── Query helpers ─────────────────────────────────────────────────────────────
@@ -75,11 +75,14 @@ pub(crate) fn uses_shadowtls(stream_settings: &Option<StreamSettingsConfig>) -> 
 
 /// A `ConnectionHandler` that performs a TLS server handshake, then delegates
 /// to the wrapped inner handler.
+///
+/// The `TlsAcceptor` (and the `ServerConfig` inside it) is built once in
+/// `new()` and shared across all accepted connections. This keeps session
+/// ticket keys stable, allowing TLS 1.3 clients to resume sessions without a
+/// full handshake on reconnect (~1 RTT saved per reconnecting client).
 pub(crate) struct TlsConnectionHandler {
-    cert_pem: String,
-    key_pem: String,
-    /// ALPN protocols to advertise during the TLS handshake (e.g. `["h2"]` for gRPC).
-    alpn: Vec<String>,
+    /// Pre-built acceptor shared across all connections to this inbound.
+    acceptor: std::sync::Arc<tokio_rustls::TlsAcceptor>,
     handshake_timeout: Option<Duration>,
     inner: Arc<dyn ConnectionHandler>,
 }
@@ -95,10 +98,14 @@ impl TlsConnectionHandler {
         handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
+        let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
+        // Pre-build the TlsAcceptor so the ServerConfig (and its session ticket
+        // keys) is shared across all connections. TLS 1.3 clients can then
+        // resume sessions without a full handshake on reconnect.
+        let acceptor = build_tls_acceptor(&cert_pem, &key_pem, &alpn_refs)
+            .expect("pre-validated TLS config should build successfully");
         Arc::new(Self {
-            cert_pem,
-            key_pem,
-            alpn,
+            acceptor,
             handshake_timeout,
             inner,
         })
@@ -112,10 +119,9 @@ impl ConnectionHandler for TlsConnectionHandler {
         stream: BoxedStream,
         source: SocketAddr,
     ) -> Result<(), ProxyError> {
-        let alpn: Vec<&str> = self.alpn.iter().map(|s| s.as_str()).collect();
         let tls_stream = with_handshake_timeout(
             self.handshake_timeout,
-            tls_accept(stream, &self.cert_pem, &self.key_pem, &alpn),
+            tls_accept_with_acceptor(stream, self.acceptor.clone()),
         )
         .await?;
         self.inner.handle_connection(tls_stream, source).await

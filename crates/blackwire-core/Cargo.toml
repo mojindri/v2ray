@@ -16,6 +16,7 @@ blackwire-api             = { path = "../blackwire-api" }
 
 dashmap.workspace       = true
 parking_lot.workspace   = true
+tokio-rustls.workspace  = true
 tokio.workspace       = true
 async-trait.workspace = true
 arc-swap.workspace    = true

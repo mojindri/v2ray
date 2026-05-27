@@ -21,8 +21,9 @@
 //! `skip_verify = true` disables certificate chain verification. Never use
 //! this in production — it allows man-in-the-middle attacks.
 
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
+use dashmap::DashMap;
 use rustls::pki_types::{CertificateDer, ServerName};
 use rustls::version::TLS13;
 use rustls::{ClientConfig, RootCertStore, ServerConfig};
@@ -280,19 +281,55 @@ pub async fn tls_connect(
     alpn: &[&str],
     skip_verify: bool,
 ) -> Result<BoxedStream, ProxyError> {
-    crate::quic::ensure_crypto_provider();
-    let config = build_client_config(alpn, skip_verify)?;
-    let connector = TlsConnector::from(Arc::new(config));
+    let config = cached_client_config(alpn, skip_verify)?;
+    tls_connect_with_config(stream, sni, config).await
+}
 
+/// Perform a TLS client handshake using a pre-built, shared `ClientConfig`.
+///
+/// Use this variant when the caller caches the config to enable TLS session
+/// resumption across connections: the session ticket cache lives inside
+/// `ClientConfig`, so sharing one instance allows the OS to reuse established
+/// TLS sessions on subsequent connections to the same server.
+pub async fn tls_connect_with_config(
+    stream: BoxedStream,
+    sni: &str,
+    config: Arc<ClientConfig>,
+) -> Result<BoxedStream, ProxyError> {
+    crate::quic::ensure_crypto_provider();
+    let connector = TlsConnector::from(config);
     let server_name = ServerName::try_from(sni.to_owned())
         .map_err(|e| ProxyError::Tls(format!("invalid SNI '{sni}': {e}")))?;
-
     let tls_stream = connector
         .connect(server_name, stream)
         .await
         .map_err(|e| ProxyError::Tls(format!("TLS connect failed: {e}")))?;
-
     Ok(Box::new(tls_stream))
+}
+
+/// Return a cached `Arc<ClientConfig>` for the given (alpn, skip_verify) pair.
+///
+/// The cache stores one `ClientConfig` per unique `(alpn_key, skip_verify)`
+/// combination. The `ClientConfig` contains a session-ticket cache: sharing
+/// one instance across connections to any server enables TLS 1.3 session
+/// resumption, which saves ~1 RTT per reconnect.
+pub fn cached_client_config(
+    alpn: &[&str],
+    skip_verify: bool,
+) -> Result<Arc<ClientConfig>, ProxyError> {
+    static CACHE: OnceLock<DashMap<(Vec<String>, bool), Arc<ClientConfig>>> = OnceLock::new();
+    let cache = CACHE.get_or_init(DashMap::new);
+
+    let key = (
+        alpn.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+        skip_verify,
+    );
+    if let Some(cfg) = cache.get(&key) {
+        return Ok(Arc::clone(&cfg));
+    }
+    let cfg = Arc::new(build_client_config(alpn, skip_verify)?);
+    cache.insert(key, Arc::clone(&cfg));
+    Ok(cfg)
 }
 
 /// Build a rustls `ClientConfig` for outbound TLS.
@@ -320,6 +357,37 @@ fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig,
 
 // ── Server ────────────────────────────────────────────────────────────────────
 
+/// Build a shared `TlsAcceptor` from PEM strings.
+///
+/// The returned `Arc<TlsAcceptor>` should be kept alive and reused across
+/// connections so that the session ticket keys inside the `ServerConfig` remain
+/// stable. TLS 1.3 clients can then resume sessions without a full handshake on
+/// reconnect (~1 RTT saved per reconnecting client).
+pub fn build_tls_acceptor(
+    cert_pem: &str,
+    key_pem: &str,
+    alpn: &[&str],
+) -> Result<Arc<TlsAcceptor>, ProxyError> {
+    let config = build_server_config(cert_pem, key_pem, alpn)?;
+    Ok(Arc::new(TlsAcceptor::from(Arc::new(config))))
+}
+
+/// Perform a TLS server handshake using a pre-built `TlsAcceptor`.
+///
+/// Callers that accept many connections should build one `Arc<TlsAcceptor>` at
+/// startup via [`build_tls_acceptor`] and share it here. This keeps session
+/// ticket keys stable, enabling TLS 1.3 session resumption.
+pub async fn tls_accept_with_acceptor(
+    stream: BoxedStream,
+    acceptor: Arc<TlsAcceptor>,
+) -> Result<BoxedStream, ProxyError> {
+    let tls_stream = acceptor
+        .accept(stream)
+        .await
+        .map_err(|e| ProxyError::Tls(format!("TLS accept failed: {e}")))?;
+    post_accept_upgrade(tls_stream)
+}
+
 /// Perform a TLS server handshake over an existing stream.
 ///
 /// On Linux, when `BLACKWIRE_ENABLE_KTLS=1` and the underlying transport is a
@@ -336,21 +404,24 @@ fn build_client_config(alpn: &[&str], skip_verify: bool) -> Result<ClientConfig,
 /// * `cert_pem` — PEM-encoded certificate chain
 /// * `key_pem`  — PEM-encoded private key
 /// * `alpn`     — ALPN protocols to advertise
+///
+/// For servers accepting many connections, prefer [`build_tls_acceptor`] +
+/// [`tls_accept_with_acceptor`] so the `ServerConfig` (and its session ticket
+/// keys) is shared across all connections, enabling TLS 1.3 resumption.
 pub async fn tls_accept(
     stream: BoxedStream,
     cert_pem: &str,
     key_pem: &str,
     alpn: &[&str],
 ) -> Result<BoxedStream, ProxyError> {
-    crate::quic::ensure_crypto_provider();
-    let config = build_server_config(cert_pem, key_pem, alpn)?;
-    let acceptor = TlsAcceptor::from(Arc::new(config));
+    let acceptor = build_tls_acceptor(cert_pem, key_pem, alpn)?;
+    tls_accept_with_acceptor(stream, acceptor).await
+}
 
-    let tls_stream = acceptor
-        .accept(stream)
-        .await
-        .map_err(|e| ProxyError::Tls(format!("TLS accept failed: {e}")))?;
-
+/// Apply optional kTLS upgrade after the TLS handshake completes.
+fn post_accept_upgrade(
+    tls_stream: tokio_rustls::server::TlsStream<BoxedStream>,
+) -> Result<BoxedStream, ProxyError> {
     // ── Linux kTLS upgrade ────────────────────────────────────────────────────
     //
     // Probe step: borrow the TlsStream to get the inner TcpStream fd and
