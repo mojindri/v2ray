@@ -241,13 +241,13 @@ impl Instance {
         let outbound_tags: Arc<std::sync::RwLock<Vec<String>>> = Arc::new(std::sync::RwLock::new(
             config.outbounds.iter().map(|o| o.tag.clone()).collect(),
         ));
-        let reload = ReloadState {
-            router: Arc::clone(&router),
-            vless_registries: Arc::new(DashMap::new()),
-            sniffing: Arc::clone(&sniffing_shared),
-            inbound_tags: Arc::clone(&inbound_tags),
-            outbound_tags: Arc::clone(&outbound_tags),
-        };
+        let reload = ReloadState::new(
+            Arc::clone(&router),
+            Arc::new(DashMap::new()),
+            Arc::clone(&sniffing_shared),
+            Arc::clone(&inbound_tags),
+            Arc::clone(&outbound_tags),
+        );
         let vless_registries = Arc::clone(&reload.vless_registries);
 
         // ── Step 4: Create dispatcher ────────────────────────────────────────

@@ -28,20 +28,40 @@
 //!    the router snapshot they picked up at dispatch time; new connections see
 //!    the updated rules and UUID lists immediately.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::SystemTime;
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use parking_lot::Mutex;
 use serde_json::Value;
 use tracing::info;
 
+use blackwire_app::geo::{GeoIpMatcher, GeoSiteMatcher};
 use blackwire_app::router::LiveRouter;
 use blackwire_config::schema::{Config, Protocol};
 use blackwire_protocol::vless::VlessUserRegistry;
 
 use crate::instance::{build_rules, build_sniffing_map, load_geo_data, populate_vless_registry};
+
+/// Cached geo data: skip rebuilding matchers when the file hasn't changed.
+#[derive(Default)]
+struct GeoCache {
+    geoip_path: Option<String>,
+    geoip_fingerprint: Option<(u64, SystemTime)>,
+    geoip: HashMap<String, GeoIpMatcher>,
+
+    geosite_path: Option<String>,
+    geosite_fingerprint: Option<(u64, SystemTime)>,
+    geosite: HashMap<String, GeoSiteMatcher>,
+}
+
+fn file_fingerprint(path: &str) -> Option<(u64, SystemTime)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()?))
+}
 
 /// Shared reload handles created at startup and updated on each config reload.
 ///
@@ -58,9 +78,29 @@ pub struct ReloadState {
     pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     /// Outbound tags from the active config (HandlerService ListOutbounds).
     pub outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
+    /// Cached geo matchers; skips file re-read when path and mtime are unchanged.
+    geo_cache: Arc<Mutex<GeoCache>>,
 }
 
 impl ReloadState {
+    /// Create a new `ReloadState` with the given router, registries and sniffing map.
+    pub fn new(
+        router: Arc<LiveRouter>,
+        vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
+        sniffing: Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+        inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
+        outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
+    ) -> Self {
+        Self {
+            router,
+            vless_registries,
+            sniffing,
+            inbound_tags,
+            outbound_tags,
+            geo_cache: Arc::new(Mutex::new(GeoCache::default())),
+        }
+    }
+
     /// Apply routing rules and VLESS client lists from a freshly validated config.
     ///
     /// Inbound listeners and outbound handlers are not recreated here — only data
@@ -79,7 +119,7 @@ impl ReloadState {
             vec![]
         };
 
-        let (geoip, geosite) = load_geo_data(config.routing.as_ref());
+        let (geoip, geosite) = self.load_geo_data_cached(config);
         let domain_strategy = config
             .routing
             .as_ref()
@@ -199,6 +239,62 @@ impl ReloadState {
         self.vless_registries
             .get(inbound_tag)
             .map(|r| Arc::clone(r.value()))
+    }
+
+    /// Load geo data, reusing the cached matchers when the files haven't changed.
+    ///
+    /// Checks file size + mtime before re-reading. The expensive part (protobuf
+    /// decode + AhoCorasick/regex compilation) is only done when a file changes.
+    fn load_geo_data_cached(
+        &self,
+        config: &Config,
+    ) -> (HashMap<String, GeoIpMatcher>, HashMap<String, GeoSiteMatcher>) {
+        let routing = config.routing.as_ref();
+        let geoip_path = routing.and_then(|r| r.geoip_file.as_deref()).map(str::to_owned);
+        let geosite_path = routing.and_then(|r| r.geosite_file.as_deref()).map(str::to_owned);
+
+        let geoip_fp = geoip_path.as_deref().and_then(file_fingerprint);
+        let geosite_fp = geosite_path.as_deref().and_then(file_fingerprint);
+
+        let mut cache = self.geo_cache.lock();
+
+        let geoip_hit = geoip_path == cache.geoip_path
+            && (geoip_fp.is_some() && geoip_fp == cache.geoip_fingerprint
+                || geoip_path.is_none());
+        let geosite_hit = geosite_path == cache.geosite_path
+            && (geosite_fp.is_some() && geosite_fp == cache.geosite_fingerprint
+                || geosite_path.is_none());
+
+        // Load from disk only when at least one file needs rebuilding.
+        let (fresh_ip, fresh_site) = if !geoip_hit || !geosite_hit {
+            load_geo_data(routing)
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
+
+        let geoip = if geoip_hit {
+            info!("geo: geoip.dat unchanged; reusing cached matchers");
+            cache.geoip.clone()
+        } else {
+            cache.geoip_fingerprint = geoip_fp;
+            cache.geoip_path = geoip_path;
+            let cloned = fresh_ip.clone();
+            cache.geoip = fresh_ip;
+            cloned
+        };
+
+        let geosite = if geosite_hit {
+            info!("geo: geosite.dat unchanged; reusing cached matchers");
+            cache.geosite.clone()
+        } else {
+            cache.geosite_fingerprint = geosite_fp;
+            cache.geosite_path = geosite_path;
+            let cloned = fresh_site.clone();
+            cache.geosite = fresh_site;
+            cloned
+        };
+
+        (geoip, geosite)
     }
 }
 

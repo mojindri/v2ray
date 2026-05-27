@@ -14,7 +14,8 @@ blackwire-transport       = { path = "../blackwire-transport" }
 blackwire-protocol        = { path = "../blackwire-protocol" }
 blackwire-api             = { path = "../blackwire-api" }
 
-dashmap.workspace    = true
+dashmap.workspace       = true
+parking_lot.workspace   = true
 tokio.workspace       = true
 async-trait.workspace = true
 arc-swap.workspace    = true

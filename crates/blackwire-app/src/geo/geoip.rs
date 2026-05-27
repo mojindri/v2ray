@@ -19,6 +19,7 @@ use tracing::warn;
 use super::proto::{Cidr, GeoIp};
 
 /// Matches IP addresses against a set of CIDR ranges.
+#[derive(Clone)]
 pub struct GeoIpMatcher {
     /// Sorted list of IP ranges. Sorting enables a future binary-search
     /// optimization; currently we use linear scan for correctness.
