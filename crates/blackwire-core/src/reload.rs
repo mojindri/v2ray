@@ -188,7 +188,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
             .list_users(email)
             .into_iter()
             .map(|u| blackwire_api::management::VlessUserRecord {
-                email: u.email.clone(),
+                email: u.email.to_string(),
                 uuid: uuid::Uuid::from_bytes(u.uuid).to_string(),
                 flow: u.flow.clone(),
                 level: 0,
@@ -208,7 +208,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
             .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;
         let uuid = crate::instance::parse_uuid(uuid_str).map_err(|e| e.to_string())?;
         registry.add_user(blackwire_protocol::vless::VlessUser {
-            email: email.to_string(),
+            email: email.into(),
             uuid,
             flow: flow.to_string(),
         });
