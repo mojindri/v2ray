@@ -12,6 +12,7 @@ blackwire-config          = { path = "../blackwire-config" }
 
 tokio.workspace            = true
 bytes.workspace            = true
+smallvec.workspace         = true
 async-trait.workspace      = true
 dashmap.workspace          = true
 lru.workspace              = true

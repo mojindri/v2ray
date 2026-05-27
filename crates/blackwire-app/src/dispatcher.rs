@@ -50,6 +50,7 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 use std::collections::HashMap;
 
 use blackwire_common::{Address, BoxedStream, ProxyError};
+use smallvec::SmallVec;
 use blackwire_config::schema::{ProfileMode, SniffingConfig};
 
 use crate::context::Context;
@@ -411,7 +412,7 @@ impl DefaultDispatcher {
     fn prefetch_dns(
         &self,
         dest: &Address,
-    ) -> Option<tokio::task::JoinHandle<Option<Vec<Address>>>> {
+    ) -> Option<tokio::task::JoinHandle<Option<SmallVec<[Address; 4]>>>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
@@ -421,7 +422,7 @@ impl DefaultDispatcher {
         Some(tokio::spawn(async move {
             let dest = Address::Domain(name, port);
             // Inline version of resolve_domain_ips without borrowing self.
-            let mut ips: Vec<Address> = Vec::new();
+            let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
             let resolved =
                 tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
                     .await;
@@ -472,12 +473,16 @@ impl DefaultDispatcher {
         }
     }
 
-    async fn resolve_domain_ips(&self, dest: &Address, inbound_tag: &str) -> Option<Vec<Address>> {
+    async fn resolve_domain_ips(
+        &self,
+        dest: &Address,
+        inbound_tag: &str,
+    ) -> Option<SmallVec<[Address; 4]>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
         let t_dns = Instant::now();
-        let mut ips = Vec::new();
+        let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
         if let Some(dns) = &self.dns {
             let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
             if let Ok(Ok(addrs)) = resolved {
