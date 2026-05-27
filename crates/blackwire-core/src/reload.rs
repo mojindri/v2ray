@@ -73,7 +73,8 @@ pub struct ReloadState {
     /// One VLESS user registry per inbound tag (key = inbound `tag`).
     pub vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
     /// Per-inbound sniffing map (hot-swapped on reload via lock-free ArcSwap).
-    pub sniffing: Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+    pub sniffing:
+        Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
     /// Inbound tags from the active config (HandlerService ListInbounds).
     pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     /// Outbound tags from the active config (HandlerService ListOutbounds).
@@ -87,7 +88,9 @@ impl ReloadState {
     pub fn new(
         router: Arc<LiveRouter>,
         vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
-        sniffing: Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+        sniffing: Arc<
+            ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>,
+        >,
         inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
         outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     ) -> Self {
@@ -248,10 +251,17 @@ impl ReloadState {
     fn load_geo_data_cached(
         &self,
         config: &Config,
-    ) -> (HashMap<String, GeoIpMatcher>, HashMap<String, GeoSiteMatcher>) {
+    ) -> (
+        HashMap<String, GeoIpMatcher>,
+        HashMap<String, GeoSiteMatcher>,
+    ) {
         let routing = config.routing.as_ref();
-        let geoip_path = routing.and_then(|r| r.geoip_file.as_deref()).map(str::to_owned);
-        let geosite_path = routing.and_then(|r| r.geosite_file.as_deref()).map(str::to_owned);
+        let geoip_path = routing
+            .and_then(|r| r.geoip_file.as_deref())
+            .map(str::to_owned);
+        let geosite_path = routing
+            .and_then(|r| r.geosite_file.as_deref())
+            .map(str::to_owned);
 
         let geoip_fp = geoip_path.as_deref().and_then(file_fingerprint);
         let geosite_fp = geosite_path.as_deref().and_then(file_fingerprint);
@@ -259,8 +269,7 @@ impl ReloadState {
         let mut cache = self.geo_cache.lock();
 
         let geoip_hit = geoip_path == cache.geoip_path
-            && (geoip_fp.is_some() && geoip_fp == cache.geoip_fingerprint
-                || geoip_path.is_none());
+            && (geoip_fp.is_some() && geoip_fp == cache.geoip_fingerprint || geoip_path.is_none());
         let geosite_hit = geosite_path == cache.geosite_path
             && (geosite_fp.is_some() && geosite_fp == cache.geosite_fingerprint
                 || geosite_path.is_none());

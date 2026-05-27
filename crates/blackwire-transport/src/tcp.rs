@@ -97,8 +97,8 @@ impl TcpServerTransport {
         } else {
             Domain::IPV4
         };
-        let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))
-            .map_err(ProxyError::Io)?;
+        let socket =
+            Socket::new(domain, Type::STREAM, Some(Protocol::TCP)).map_err(ProxyError::Io)?;
 
         socket.set_reuse_address(true).map_err(ProxyError::Io)?;
         #[cfg(unix)]
