@@ -118,16 +118,14 @@ pub async fn tls_accept(
 
     #[cfg(target_os = "linux")]
     {
-        return match crate::ktls::try_upgrade_server_stream(
-            tls_stream,
-            crate::ktls::KtlsMode::from_env(),
-        )? {
+        match crate::ktls::try_upgrade_server_stream(tls_stream, crate::ktls::KtlsMode::from_env())?
+        {
             crate::ktls::KtlsDecision::Skipped { stream, reason } => {
                 tracing::debug!(?reason, "kTLS skipped");
                 Ok(stream)
             }
             crate::ktls::KtlsDecision::Upgraded(stream) => Ok(stream),
-        };
+        }
     }
 
     #[cfg(not(target_os = "linux"))]
