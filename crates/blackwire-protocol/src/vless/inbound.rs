@@ -103,16 +103,22 @@ impl InboundHandler for VlessInbound {
         // is to decode the header, then if auth fails, reconstruct the
         // bytes and prepend them to the stream.
 
-        // Read the raw header bytes into a buffer so we can replay them
-        // if authentication fails.
-        let mut header_buf = Vec::with_capacity(64);
-
-        // We decode the header using a "recording" reader that saves bytes
-        // as they are read.
+        // When a fallback backend is configured we must replay the header bytes
+        // to the fallback on auth failure, so we wrap the stream in a recording
+        // reader.  In the common case (no fallback) we skip the allocation and
+        // the per-byte copy overhead entirely.
         let t_parse = std::time::Instant::now();
-        let request = {
-            let mut recorder = RecordingReader::new(&mut stream, &mut header_buf);
-            with_handshake_timeout(self.handshake_timeout, decode_request(&mut recorder)).await
+        let (request, header_buf) = if self.fallback.is_some() {
+            let mut buf = Vec::with_capacity(64);
+            let req = {
+                let mut recorder = RecordingReader::new(&mut stream, &mut buf);
+                with_handshake_timeout(self.handshake_timeout, decode_request(&mut recorder)).await
+            };
+            (req, buf)
+        } else {
+            let req =
+                with_handshake_timeout(self.handshake_timeout, decode_request(&mut stream)).await;
+            (req, Vec::new())
         };
         metrics::histogram!("proxy_inbound_parse_seconds", "inbound" => self.tag.clone())
             .record(t_parse.elapsed().as_secs_f64());
