@@ -27,6 +27,7 @@ fn minimal_config(port: u16) -> Config {
             protocol: Protocol::Freedom,
             settings: serde_json::json!({}),
             stream_settings: None,
+            mux: None,
         }],
         stats: None,
         api: None,
@@ -70,6 +71,7 @@ fn requires_instance_restart_for_outbound_changes() {
         protocol: Protocol::Freedom,
         settings: serde_json::json!({}),
         stream_settings: None,
+        mux: None,
     });
 
     assert!(requires_instance_restart(&old, &new));
