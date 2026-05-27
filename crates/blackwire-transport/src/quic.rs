@@ -83,11 +83,18 @@ pub fn build_server_endpoint_with_alpn(
 
 /// Build a QUIC server endpoint for Hysteria2 inbounds.
 ///
-/// Same as [`build_server_endpoint`] but enables QUIC datagrams for future UDP relay.
+/// Same as [`build_server_endpoint`] but enables QUIC datagrams and tunes
+/// flow-control windows to match the configured bandwidth.
+///
+/// # Arguments
+/// * `up_mbps`   — max client→server throughput in Mbit/s (used to size receive window)
+/// * `down_mbps` — max server→client throughput in Mbit/s (used to size send window)
 pub fn build_hysteria2_server_endpoint(
     addr: SocketAddr,
     cert_pem: &str,
     key_pem: &str,
+    up_mbps: u64,
+    down_mbps: u64,
 ) -> Result<Endpoint> {
     ensure_crypto_provider();
 
@@ -112,9 +119,45 @@ pub fn build_hysteria2_server_endpoint(
     transport.max_idle_timeout(Some(idle_timeout));
     transport.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
     transport.datagram_send_buffer_size(2 * 1024 * 1024);
+
+    // Size QUIC flow-control windows to the configured bandwidth × 500 ms RTT
+    // (BDP for a satellite/high-latency link). This prevents BrutalCC from being
+    // stalled by the flow-control window before the congestion window fills.
+    let (stream_rx, conn_rx, conn_tx) = bdp_windows(up_mbps, down_mbps);
+    transport.stream_receive_window(stream_rx);
+    transport.receive_window(conn_rx);
+    transport.send_window(conn_tx);
+
     server_config.transport_config(Arc::new(transport));
 
     Endpoint::server(server_config, addr).context("failed to open Hysteria2 QUIC endpoint")
+}
+
+/// Compute (stream_receive_window, connection_receive_window, connection_send_window)
+/// from configured bandwidth limits.
+///
+/// Uses a 500 ms target RTT (satellite/intercontinental worst-case) to size the
+/// bandwidth-delay product. Windows are clamped to a [8 MB, 128 MB] range.
+pub(crate) fn bdp_windows(rx_mbps: u64, tx_mbps: u64) -> (quinn::VarInt, quinn::VarInt, u64) {
+    const RTT_MS: u64 = 500;
+    const MIN_BYTES: u64 = 8 * 1024 * 1024;   // 8 MB floor
+    const MAX_BYTES: u64 = 128 * 1024 * 1024;  // 128 MB ceiling
+
+    let rx_bps = rx_mbps.saturating_mul(1_000_000 / 8);
+    let tx_bps = tx_mbps.saturating_mul(1_000_000 / 8);
+
+    let stream_rx = (rx_bps.saturating_mul(RTT_MS) / 1000)
+        .clamp(MIN_BYTES, MAX_BYTES);
+    // Connection receive window covers multiple concurrent streams.
+    let conn_rx = stream_rx.saturating_mul(3).min(MAX_BYTES);
+    let conn_tx = (tx_bps.saturating_mul(RTT_MS) / 1000)
+        .clamp(MIN_BYTES, MAX_BYTES);
+
+    (
+        quinn::VarInt::from_u64(stream_rx).unwrap_or(quinn::VarInt::MAX),
+        quinn::VarInt::from_u64(conn_rx).unwrap_or(quinn::VarInt::MAX),
+        conn_tx,
+    )
 }
 
 /// Build a QUIC client endpoint.

@@ -90,6 +90,8 @@ impl Hysteria2Server {
             self.config.addr,
             &self.config.cert_pem,
             &self.config.key_pem,
+            self.config.up_mbps,
+            self.config.down_mbps,
         )?;
 
         info!(addr = %self.config.addr, "Hysteria2 server listening (HTTP/3)");
@@ -153,6 +155,16 @@ impl Hysteria2Client {
         let target_bps = self.config.up_mbps.saturating_mul(1_000_000 / 8);
         let mut transport_config = quinn::TransportConfig::default();
         transport_config.congestion_controller_factory(Arc::new(BrutalCCFactory::new(target_bps)));
+
+        // Size QUIC flow-control windows to the configured bandwidth × 500 ms RTT.
+        // Without this, BrutalCC can be stalled waiting for STREAM_DATA_BLOCKED
+        // acknowledgement before the CC window fills on high-bandwidth links.
+        let (stream_rx, conn_rx, conn_tx) =
+            crate::quic::bdp_windows(self.config.down_mbps, self.config.up_mbps);
+        transport_config.stream_receive_window(stream_rx);
+        transport_config.receive_window(conn_rx);
+        transport_config.send_window(conn_tx);
+
         let transport_arc = Arc::new(transport_config);
 
         let client_config =
