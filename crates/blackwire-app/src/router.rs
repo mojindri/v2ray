@@ -110,6 +110,9 @@ impl LiveRouter {
         geosite: HashMap<String, GeoSiteMatcher>,
         domain_strategy: Option<String>,
     ) -> Arc<Self> {
+        let has_ip_rules = rules
+            .iter()
+            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty());
         Arc::new(Self {
             inner: ArcSwap::from_pointee(RouterInner {
                 rules,
@@ -117,6 +120,7 @@ impl LiveRouter {
                 geoip,
                 geosite,
                 domain_strategy,
+                has_ip_rules,
             }),
         })
     }
@@ -133,12 +137,16 @@ impl LiveRouter {
         geosite: HashMap<String, GeoSiteMatcher>,
         domain_strategy: Option<String>,
     ) {
+        let has_ip_rules = rules
+            .iter()
+            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty());
         self.inner.store(Arc::new(RouterInner {
             rules,
             default_tag: default_tag.into(),
             geoip,
             geosite,
             domain_strategy,
+            has_ip_rules,
         }));
     }
 }
@@ -149,11 +157,7 @@ impl Router for LiveRouter {
     }
 
     fn has_ip_rules(&self) -> bool {
-        let inner = self.inner.load();
-        inner
-            .rules
-            .iter()
-            .any(|r| r.ip_matcher.is_some() || !r.geoip_codes.is_empty())
+        self.inner.load().has_ip_rules
     }
 
     fn pick_route_match(&self, ctx: &RoutingContext<'_>) -> (Route, bool) {
@@ -213,6 +217,9 @@ struct RouterInner {
     geosite: HashMap<String, GeoSiteMatcher>,
     /// Xray `domainStrategy` for pre-routing DNS resolution.
     domain_strategy: Option<String>,
+    /// Precomputed: true if any rule matches by IP (ip_matcher or geoip codes).
+    /// Avoids an O(n) rules scan on every connection in IPOnDemand mode.
+    has_ip_rules: bool,
 }
 
 /// A single compiled routing rule, ready for fast matching.
