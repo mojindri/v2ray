@@ -18,6 +18,7 @@ use tracing::warn;
 use super::proto::{DomainType, GeoSite};
 
 /// Matches domain names against a GeoSite entry.
+#[derive(Clone)]
 pub struct GeoSiteMatcher {
     /// Full (exact) matches.
     full: HashSet<String>,

@@ -28,7 +28,7 @@ use std::time::Instant;
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
-use tracing::{debug, info, instrument, warn};
+use tracing::{debug, info, warn};
 
 use std::collections::HashMap;
 
@@ -145,7 +145,6 @@ impl DefaultDispatcher {
 
 #[async_trait]
 impl Dispatcher for DefaultDispatcher {
-    #[instrument(skip(self, inbound_stream), fields(dest = %dest, inbound = %ctx.inbound_tag))]
     async fn dispatch(
         &self,
         mut ctx: Context,

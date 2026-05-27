@@ -560,6 +560,7 @@ dependencies = [
  "dashmap",
  "hex",
  "metrics",
+ "parking_lot",
  "rand 0.10.1",
  "serde_json",
  "thiserror 2.0.18",
