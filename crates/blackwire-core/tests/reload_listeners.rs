@@ -1,12 +1,14 @@
 use std::net::IpAddr;
 
 use blackwire_config::schema::{
-    Config, InboundConfig, LimitsConfig, LogConfig, OutboundConfig, Protocol,
+    Config, InboundConfig, LimitsConfig, LogConfig, OutboundConfig, ProfileMode, Protocol,
 };
 use blackwire_core::{inbound_listener_changes, requires_instance_restart};
 
 fn minimal_config(port: u16) -> Config {
     Config {
+        profile: ProfileMode::default(),
+        fast: None,
         log: LogConfig::default(),
         dns: None,
         routing: None,
