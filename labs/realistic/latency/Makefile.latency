@@ -176,9 +176,10 @@ latency-profile: ## perf flamegraph of blackwire-fast-lab under hey (Linux only;
 
 BENCH_IMAGE ?= blackwire-bench
 
-bench-build: ## Build the blackwire-bench Docker image (all tools inside: blackwire + xray + sing-box + hey)
-	@echo "==> bench-build: building $(BENCH_IMAGE) from $(_BENCH_ROOT)"
+bench-build: ## Build the blackwire-bench Docker image for linux/amd64 (cross-compiles Blackwire)
+	@echo "==> bench-build: building $(BENCH_IMAGE) for linux/amd64 from $(_BENCH_ROOT)"
 	docker build \
+	    --platform linux/amd64 \
 	    -f "$(_BENCH_ROOT)/labs/realistic/latency/Dockerfile.bench" \
 	    -t "$(BENCH_IMAGE)" \
 	    "$(_BENCH_ROOT)"

@@ -1,67 +1,60 @@
 #!/usr/bin/env bash
-# bench-remote.sh — run make bench on a remote VPS over SSH
+# bench-remote.sh — build Docker bench image locally (linux/amd64), push to VPS, run there
 #
 # Usage:
 #   bench-remote.sh <ssh-host>
 #   bench-remote.sh root@1.2.3.4
 #
 # Environment:
-#   SSH_KEY       SSH key file (default: ssh-agent)
-#   SSH_PORT      SSH port (default: 22)
-#   REPO_URL      Git repo to clone (default: https://github.com/mojindri/Blackwire)
-#   REPO_PATH     Remote path to clone into (default: ~/Blackwire)
+#   SSH_KEY         SSH key file (default: ssh-agent)
+#   SSH_PORT        SSH port (default: 22)
+#   BENCH_IMAGE     Docker image name (default: blackwire-bench)
 #   BENCH_DURATION  Seconds per variant (default: 30)
 #   BENCH_CONC      Concurrency (default: 32)
+#   REPORT_DIR      Local dir to write pulled results (default: ./reports)
 set -euo pipefail
 
 HOST="${1:?Usage: bench-remote.sh <user@host>}"
 SSH_PORT="${SSH_PORT:-22}"
 SSH_KEY="${SSH_KEY:-}"
-REPO_URL="${REPO_URL:-https://github.com/mojindri/Blackwire}"
-REPO_PATH="${REPO_PATH:-~/Blackwire}"
+BENCH_IMAGE="${BENCH_IMAGE:-blackwire-bench}"
 BENCH_DURATION="${BENCH_DURATION:-30}"
 BENCH_CONC="${BENCH_CONC:-32}"
+
+SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPTS_DIR/../../.." && pwd)"
+REPORT_DIR="${REPORT_DIR:-$SCRIPTS_DIR/../reports}"
 
 SSH_OPTS=(-p "$SSH_PORT" -o StrictHostKeyChecking=accept-new -o ConnectTimeout=15)
 [ -n "$SSH_KEY" ] && SSH_OPTS+=(-i "$SSH_KEY")
 
 log() { echo "==> [bench-remote] $*"; }
 
-log "connecting to $HOST"
+# ── 1. Build image locally for linux/amd64 ────────────────────────────────────
 
-ssh "${SSH_OPTS[@]}" "$HOST" bash -s -- \
-    "$REPO_URL" "$REPO_PATH" "$BENCH_DURATION" "$BENCH_CONC" <<'REMOTE'
-set -euo pipefail
-REPO_URL="$1"
-REPO_PATH="$2"
-BENCH_DURATION="$3"
-BENCH_CONC="$4"
+log "building $BENCH_IMAGE for linux/amd64 (this compiles Blackwire — ~5 min first time)"
+docker build \
+    --platform linux/amd64 \
+    -f "$REPO_ROOT/labs/realistic/latency/Dockerfile.bench" \
+    -t "$BENCH_IMAGE" \
+    "$REPO_ROOT"
+log "build done"
 
-log() { echo "==> [vps] $*"; }
+# ── 2. Push image to VPS via docker save | docker load ────────────────────────
 
-# ── Docker ────────────────────────────────────────────────────────────────────
-if ! command -v docker >/dev/null 2>&1; then
-    log "installing Docker..."
-    curl -fsSL https://get.docker.com | sh
-    log "Docker installed"
-fi
-docker info >/dev/null 2>&1 || { log "ERROR: Docker not running"; exit 1; }
-log "Docker: $(docker --version)"
+log "pushing $BENCH_IMAGE to $HOST (streaming via docker save | docker load)"
+docker save "$BENCH_IMAGE" | gzip | \
+    ssh "${SSH_OPTS[@]}" "$HOST" "gunzip | docker load"
+log "image loaded on $HOST"
 
-# ── Repo ──────────────────────────────────────────────────────────────────────
-REPO_PATH="${REPO_PATH/#\~/$HOME}"
-if [ -d "$REPO_PATH/.git" ]; then
-    log "pulling latest: $REPO_PATH"
-    git -C "$REPO_PATH" pull --ff-only
-else
-    log "cloning $REPO_URL → $REPO_PATH"
-    git clone "$REPO_URL" "$REPO_PATH"
-fi
+# ── 3. Run bench on VPS ───────────────────────────────────────────────────────
 
-# ── Run bench ─────────────────────────────────────────────────────────────────
-log "running make bench (${BENCH_DURATION}s × ${BENCH_CONC} conc)"
-cd "$REPO_PATH"
-make bench BENCH_DURATION="$BENCH_DURATION" BENCH_CONC="$BENCH_CONC"
-REMOTE
+log "running benchmark on $HOST (${BENCH_DURATION}s × ${BENCH_CONC} conc)"
+ssh "${SSH_OPTS[@]}" "$HOST" \
+    docker run --rm \
+        -e BENCH_DURATION="$BENCH_DURATION" \
+        -e BENCH_CONC="$BENCH_CONC" \
+        "$BENCH_IMAGE" compare-all
 
-log "done"
+log "done — results printed above"
+log "run 'make latency-report' locally if you pull the JSON files"

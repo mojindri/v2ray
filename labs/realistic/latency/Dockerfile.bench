@@ -7,18 +7,21 @@
 #   docker run --rm ... blackwire-bench xray-compare
 #   docker run --rm ... blackwire-bench singbox-compare
 
+# Build with: docker build --platform linux/amd64 -f labs/realistic/latency/Dockerfile.bench -t blackwire-bench .
+# For remote VPS use: make bench-remote VPS=root@your-vps
+
 # ── Stage 1: Build blackwire ──────────────────────────────────────────────────
-FROM rust:slim AS rust-builder
+FROM --platform=linux/amd64 rust:slim AS rust-builder
 WORKDIR /src
 COPY . .
 RUN cargo build --release -p blackwire
 
 # ── Stage 2: Build hey (load generator) ───────────────────────────────────────
-FROM golang:1.24-bookworm AS go-builder
+FROM --platform=linux/amd64 golang:1.24-bookworm AS go-builder
 RUN go install github.com/rakyll/hey@latest
 
 # ── Stage 3: Final bench image ────────────────────────────────────────────────
-FROM ubuntu:24.04
+FROM --platform=linux/amd64 ubuntu:24.04
 ARG XRAY_VERSION=v26.3.27
 ARG SINGBOX_VERSION=1.13.12
 ARG TARGETARCH=amd64
