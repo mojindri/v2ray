@@ -262,12 +262,6 @@ impl TcpServerTransport {
         // For proxy traffic this adds latency — we want each write sent immediately.
         sock.set_tcp_nodelay(true)?;
 
-        // SO_REUSEPORT: allow multiple sockets to bind to the same port.
-        // On Linux this lets the kernel spread incoming connections across
-        // several listener sockets. For now we still create one listener, but
-        // setting it here keeps the transport ready for multi-listener scaling.
-        sock.set_reuse_port(true)?;
-
         // 4 MiB socket buffers improve throughput on high-RTT, high-bandwidth
         // links. The OS may silently cap these at the kernel's rmem_max/wmem_max.
         let _ = sock.set_recv_buffer_size(4 * 1024 * 1024);
