@@ -521,6 +521,7 @@ version = "0.1.0"
 dependencies = [
  "bytes",
  "crossbeam-queue",
+ "io-uring",
  "libc",
  "parking_lot",
  "thiserror 2.0.18",
@@ -2290,6 +2291,17 @@ dependencies = [
  "tracing-subscriber",
  "uuid",
  "x25519-dalek",
+]
+
+[[package]]
+name = "io-uring"
+version = "0.7.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4d09b98f7eace8982db770e4408e7470b028ce513ac28fecdc6bf4c30fe92b62"
+dependencies = [
+ "bitflags",
+ "cfg-if",
+ "libc",
 ]
 
 [[package]]

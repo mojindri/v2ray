@@ -139,6 +139,7 @@ anyhow      = "1"
 socket2     = { version = "0.6", features = ["all"] }
 nix         = { version = "0.31", features = ["socket", "net", "sched", "user"] }
 libc        = "0.2"
+io-uring    = "0.7"
 
 # ── Security ───────────────────────────────────────────────────────────────────
 seccompiler = "0.5"
