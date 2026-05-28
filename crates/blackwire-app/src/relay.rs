@@ -26,6 +26,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// Minimum bytes transferred before the adaptive splice policy kicks in (Linux).
 #[cfg(target_os = "linux")]
 pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 256 * 1024;
+/// Elapsed time after which a stream is considered long-lived and splice is preferred (Linux).
 #[cfg(target_os = "linux")]
 pub const ADAPTIVE_SPLICE_LONG_STREAM_AFTER: Duration = Duration::from_millis(30);
 #[cfg(target_os = "linux")]
@@ -38,6 +39,7 @@ const ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES: u64 = 64 * 1024;
 /// Minimum bytes transferred before the adaptive splice policy kicks in (non-Linux stub).
 #[cfg(not(target_os = "linux"))]
 pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 0;
+/// Elapsed time after which a stream is considered long-lived and splice is preferred (non-Linux stub).
 #[cfg(not(target_os = "linux"))]
 pub const ADAPTIVE_SPLICE_LONG_STREAM_AFTER: Duration = Duration::from_millis(0);
 
