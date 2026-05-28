@@ -143,8 +143,14 @@ fn tier_from_count(count: u64, max: usize) -> usize {
 /// (peer dead, no FIN/RST received yet). `TCP_INFO.tcpi_state` reflects the
 /// kernel TCP state machine and catches the half-open case.
 ///
-/// Falls back to `true` (assume alive) on non-Linux or if `getsockopt` fails,
-/// so we never incorrectly discard a socket we cannot inspect.
+/// Return semantics:
+/// - `true`  — socket is confirmed ESTABLISHED, or probe was inconclusive
+///             (getsockopt failed: platform/kernel oddity). We never discard
+///             a socket we cannot inspect.
+/// - `false` — socket is confirmed NOT in ESTABLISHED state. Discard.
+///
+/// Only a successful getsockopt with a non-ESTABLISHED state causes a discard.
+/// A failed probe is treated as inconclusive, not as stale.
 fn tcp_is_established(stream: &TcpStream) -> bool {
     #[cfg(target_os = "linux")]
     {
@@ -159,8 +165,9 @@ fn tcp_is_established(stream: &TcpStream) -> bool {
                 &mut info as *mut libc::tcp_info as *mut libc::c_void,
                 &mut len,
             );
-            // tcpi_state == 1 is TCP_ESTABLISHED in the Linux kernel tcp_states enum.
-            rc == 0 && info.tcpi_state == 1
+            // rc != 0: getsockopt failed (inconclusive) → pass through.
+            // rc == 0: we have a confirmed state; accept only TCP_ESTABLISHED (1).
+            rc != 0 || info.tcpi_state == 1
         }
     }
     #[cfg(not(target_os = "linux"))]

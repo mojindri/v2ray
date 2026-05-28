@@ -704,11 +704,14 @@ mod linux {
         a: &mut TcpStream,
         b: &mut TcpStream,
     ) -> io::Result<(u64, u64)> {
-        // Fast path: skip io_uring entirely once known unavailable.
-        if URING_AVAILABLE.get() == Some(&false) {
-            return splice_bidirectional_epoll(a, b).await;
+        // Steady-state fast paths: no lock contention, no closure allocation.
+        match URING_AVAILABLE.get() {
+            Some(&true)  => return uring::splice_bidirectional_uring(a, b).await,
+            Some(&false) => return splice_bidirectional_epoll(a, b).await,
+            None         => {} // First call: probe and cache below.
         }
 
+        // First call only: try io_uring, cache the outcome, log once.
         match uring::splice_bidirectional_uring(a, b).await {
             Ok(counts) => {
                 URING_AVAILABLE.get_or_init(|| {
