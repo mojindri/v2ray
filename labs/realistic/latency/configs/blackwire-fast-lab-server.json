@@ -17,7 +17,8 @@
   "outbounds": [
     {
       "tag": "freedom",
-      "protocol": "freedom"
+      "protocol": "freedom",
+      "settings": { "poolSize": 8 }
     }
   ]
 }
