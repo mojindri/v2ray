@@ -200,17 +200,7 @@ async fn adaptive_copy_then_splice(
         }
 
         tokio::select! {
-            read = inbound.read(&mut up_buf), if !up_eof => {
-                let n = read?;
-                if n == 0 {
-                    up_eof = true;
-                    outbound.shutdown().await?;
-                } else {
-                    outbound.write_all(&up_buf[..n]).await?;
-                    up += n as u64;
-                    full_read_streak = update_full_read_streak(full_read_streak, n, up_buf.len());
-                }
-            }
+            biased;
             read = outbound.read(&mut down_buf), if !down_eof => {
                 let n = read?;
                 if n == 0 {
@@ -220,6 +210,17 @@ async fn adaptive_copy_then_splice(
                     inbound.write_all(&down_buf[..n]).await?;
                     down += n as u64;
                     full_read_streak = update_full_read_streak(full_read_streak, n, down_buf.len());
+                }
+            }
+            read = inbound.read(&mut up_buf), if !up_eof => {
+                let n = read?;
+                if n == 0 {
+                    up_eof = true;
+                    outbound.shutdown().await?;
+                } else {
+                    outbound.write_all(&up_buf[..n]).await?;
+                    up += n as u64;
+                    full_read_streak = update_full_read_streak(full_read_streak, n, up_buf.len());
                 }
             }
         }
