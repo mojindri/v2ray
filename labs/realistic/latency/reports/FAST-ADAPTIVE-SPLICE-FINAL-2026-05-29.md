@@ -54,6 +54,15 @@ Follow-up VPS result folders:
 | `64k-ka` | 2.90ms | 4.70ms | 5.90ms | 10,694 | 2.90ms | 4.50ms | 5.50ms | 10,866 | 0 |
 | `1m-ka` | 20.00ms | 31.80ms | 39.50ms | 1,554 | 19.90ms | 29.50ms | 35.50ms | 1,571 | 0 |
 
+The splice readiness detector was then tightened to track full-buffer streaks per direction. This prevents small upstream request reads from resetting downstream bulk evidence, and prevents combined upload+download byte totals from selecting splice unless one direction independently looks bulk-shaped.
+
+Follow-up folder: `micro-directional-splice-4k1m-20260528T231401Z`
+
+| Payload | sing-box p50 | sing-box p95 | sing-box p99 | sing-box req/s | Blackwire Fast p50 | Blackwire Fast p95 | Blackwire Fast p99 | Blackwire Fast req/s | Errors |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `4k-ka` | 1.80ms | 2.90ms | 3.70ms | 17,285 | 1.80ms | 2.90ms | 3.60ms | 17,392 | 0 |
+| `1m-ka` | 20.60ms | 32.70ms | 39.90ms | 1,503 | 19.90ms | 28.20ms | 34.10ms | 1,590 | 0 |
+
 ## Verdict
 
 The final adaptive splice policy passes the focused sing-box keepalive comparison for `4k`, `16k`, `64k`, and `1m` on this VPS lab. Blackwire Fast had zero request errors and matched or beat sing-box on p50, p95, p99, and req/s in these focused rows.
