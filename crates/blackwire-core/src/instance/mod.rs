@@ -44,7 +44,7 @@ use blackwire_app::health::HealthChecker;
 use blackwire_app::router::LiveRouter;
 use blackwire_app::Balancer;
 use blackwire_config::schema::{Config, Protocol};
-use blackwire_protocol::freedom::FreedomOutbound;
+use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
 use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
 use tokio::net::UdpSocket as TokioUdpSocket;
@@ -159,15 +159,28 @@ impl Instance {
             )?;
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
                 Protocol::Freedom => {
-                    let pool_capacity =
-                        out_cfg.settings["poolSize"].as_u64().unwrap_or(32) as usize;
-                    match &dns {
-                        Some(module) => FreedomOutbound::new_with_dns(
-                            &out_cfg.tag,
-                            Arc::clone(module),
-                            pool_capacity,
-                        ),
-                        None => FreedomOutbound::new(&out_cfg.tag, pool_capacity),
+                    // poolSize = 0 (default) disables pooling (Compat mode).
+                    // poolSize > 0 enables adaptive pooling with that value as
+                    // the per-destination ceiling (Fast Profile).
+                    let max_per_dest =
+                        out_cfg.settings["poolSize"].as_u64().unwrap_or(0) as usize;
+                    if max_per_dest > 0 {
+                        let cfg = PoolConfig { max_per_dest, ..PoolConfig::default() };
+                        match &dns {
+                            Some(module) => FreedomOutbound::new_with_dns_pooled(
+                                &out_cfg.tag,
+                                Arc::clone(module),
+                                cfg,
+                            ),
+                            None => FreedomOutbound::new_pooled(&out_cfg.tag, cfg),
+                        }
+                    } else {
+                        match &dns {
+                            Some(module) => {
+                                FreedomOutbound::new_with_dns(&out_cfg.tag, Arc::clone(module))
+                            }
+                            None => FreedomOutbound::new(&out_cfg.tag),
+                        }
                     }
                 }
                 Protocol::Vless => build_vless_outbound(out_cfg)
