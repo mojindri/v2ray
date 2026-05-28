@@ -42,7 +42,7 @@ use blackwire_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
 use blackwire_app::health::HealthChecker;
 use blackwire_app::router::LiveRouter;
-use blackwire_app::{Balancer, ADAPTIVE_SPLICE_MIN_BYTES};
+use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE_MIN_BYTES};
 use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
@@ -318,6 +318,7 @@ impl Instance {
                 adaptive_pool_idle_ttl_ms = adaptive_pool.idle_ttl.as_millis(),
                 splice_policy = ?fast.splice,
                 adaptive_splice_min_bytes = ADAPTIVE_SPLICE_MIN_BYTES,
+                adaptive_splice_long_stream_ms = ADAPTIVE_SPLICE_LONG_STREAM_AFTER.as_millis(),
                 strict_production = fast.strict_production,
                 "fast profile policy active"
             );
