@@ -190,6 +190,7 @@ impl DefaultDispatcher {
         self.with_profile_and_fast(profile, None)
     }
 
+    /// Set profile and Fast Profile config together, returning the same `Arc`.
     pub fn with_profile_and_fast(
         self: Arc<Self>,
         profile: ProfileMode,

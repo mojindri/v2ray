@@ -462,7 +462,7 @@ mod linux {
                             TAG_BA_OUT => {
                                 state.ba_pending -= 1;
                                 let n = result;
-                                if n == -(libc::EAGAIN as i32) {
+                                if n == -libc::EAGAIN {
                                     self.push_out_guarded(
                                         ba_rfd,
                                         a_fd,

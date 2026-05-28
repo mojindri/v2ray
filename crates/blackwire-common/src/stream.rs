@@ -96,6 +96,7 @@ pub struct PooledStream<S> {
 }
 
 impl<S> PooledStream<S> {
+    /// Wrap a stream with no pool metadata.
     pub fn new(inner: S) -> Self {
         Self {
             inner,
@@ -104,6 +105,7 @@ impl<S> PooledStream<S> {
         }
     }
 
+    /// Wrap a stream with a pool tag for first-use tracking.
     pub fn with_pool_tag(inner: S, pool_tag: impl Into<String>) -> Self {
         Self {
             inner,
@@ -112,10 +114,12 @@ impl<S> PooledStream<S> {
         }
     }
 
+    /// Return the pool tag if this stream came from a pool.
     pub fn pool_tag(&self) -> Option<&str> {
         self.pool_tag.as_deref()
     }
 
+    /// Wrap a stream with both a pool tag and the peer address.
     pub fn with_pool_metadata(
         inner: S,
         pool_tag: impl Into<String>,
@@ -128,18 +132,22 @@ impl<S> PooledStream<S> {
         }
     }
 
+    /// Return the peer address if known.
     pub fn peer_addr(&self) -> Option<SocketAddr> {
         self.peer_addr
     }
 
+    /// Unwrap to the inner stream, discarding metadata.
     pub fn into_inner(self) -> S {
         self.inner
     }
 
+    /// Unwrap to `(inner, pool_tag)`.
     pub fn into_parts(self) -> (S, Option<String>) {
         (self.inner, self.pool_tag)
     }
 
+    /// Unwrap to `(inner, pool_tag, peer_addr)`.
     pub fn into_metadata_parts(self) -> (S, Option<String>, Option<SocketAddr>) {
         (self.inner, self.pool_tag, self.peer_addr)
     }

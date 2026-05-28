@@ -78,21 +78,29 @@ impl Default for FastConfig {
     }
 }
 
+/// TCP connection pool strategy for the Fast Profile outbound.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FastPoolPolicy {
+    /// Ramp pool size based on destination hotness (default).
     #[default]
     Adaptive,
+    /// Disable pooling entirely.
     Disabled,
+    /// Use a fixed pool size set by `poolSize`.
     Fixed,
 }
 
+/// Splice relay strategy for the Fast Profile dispatcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FastSplicePolicy {
+    /// Use splice only after `ADAPTIVE_SPLICE_MIN_BYTES` have been relayed (default).
     #[default]
     Adaptive,
+    /// Never use splice; always use `copy_bidirectional`.
     Disabled,
+    /// Always use splice for eligible (raw TCP) streams.
     Always,
 }
 

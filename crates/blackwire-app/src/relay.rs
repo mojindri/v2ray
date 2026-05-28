@@ -22,9 +22,11 @@ use blackwire_config::schema::FastSplicePolicy;
 #[cfg(target_os = "linux")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+/// Minimum bytes transferred before the adaptive splice policy kicks in (Linux).
 #[cfg(target_os = "linux")]
 pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 64 * 1024;
 
+/// Minimum bytes transferred before the adaptive splice policy kicks in (non-Linux stub).
 #[cfg(not(target_os = "linux"))]
 pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 0;
 
