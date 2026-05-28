@@ -80,7 +80,7 @@ jobs:
           export BENCH_CONC=16
           export BENCH_PAYLOADS="4k 1m"
           export BENCH_KEEPALIVE_MODES="on"
-          bash labs/realistic/latency/scripts/compare.sh local-smoke-matrix
+          timeout 15m bash labs/realistic/latency/scripts/compare.sh local-smoke-matrix
 
       - name: Check latency smoke results
         run: |
