@@ -189,7 +189,11 @@ mod linux {
                     }
                     Ok(n) => break n,
                     Err(e) if is_would_block(&e) => {
-                        tokio::task::yield_now().await;
+                        // try_io cleared the readiness flag; readable().await parks
+                        // on epoll until the kernel signals data available.
+                        // yield_now() here would busy-spin through the ready queue
+                        // instead of sleeping, adding ~0.5–2 ms per idle cycle.
+                        let _ = src.as_ref().readable().await;
                     }
                     Err(e) => return Err(e),
                 }
@@ -204,7 +208,7 @@ mod linux {
                     Ok(0) => {
                         // Peer closed or pipe temporarily empty; retry briefly before giving up.
                         if remaining > 0 {
-                            tokio::task::yield_now().await;
+                            let _ = dst.as_ref().writable().await;
                             continue;
                         }
                         return Ok(total);
@@ -214,14 +218,13 @@ mod linux {
                         total += n as u64;
                     }
                     Err(e) if is_would_block(&e) => {
-                        tokio::task::yield_now().await;
+                        let _ = dst.as_ref().writable().await;
                     }
                     Err(e) => return Err(e),
                 }
             }
-            // Yield after each chunk so the scheduler can service new-connection
-            // tasks that are waiting in the ready queue. Without this, a relay
-            // task processing a burst of data never yields, starving other tasks.
+            // Yield after each fully-drained chunk so relay tasks don't starve
+            // new-connection tasks waiting in the ready queue.
             tokio::task::yield_now().await;
         }
     }
