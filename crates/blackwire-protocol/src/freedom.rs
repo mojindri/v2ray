@@ -135,6 +135,41 @@ fn tier_from_count(count: u64, max: usize) -> usize {
 
 // ── Per-destination pool ───────────────────────────────────────────────────────
 
+/// Check whether a `TcpStream` is in the `TCP_ESTABLISHED` state via
+/// `getsockopt(TCP_INFO)`.
+///
+/// `try_read` returning `WouldBlock` only proves the receive buffer is empty;
+/// it cannot distinguish an idle-but-alive socket from a half-open connection
+/// (peer dead, no FIN/RST received yet). `TCP_INFO.tcpi_state` reflects the
+/// kernel TCP state machine and catches the half-open case.
+///
+/// Falls back to `true` (assume alive) on non-Linux or if `getsockopt` fails,
+/// so we never incorrectly discard a socket we cannot inspect.
+fn tcp_is_established(stream: &TcpStream) -> bool {
+    #[cfg(target_os = "linux")]
+    {
+        use std::os::unix::io::AsRawFd;
+        unsafe {
+            let mut info: libc::tcp_info = std::mem::zeroed();
+            let mut len = std::mem::size_of::<libc::tcp_info>() as libc::socklen_t;
+            let rc = libc::getsockopt(
+                stream.as_raw_fd(),
+                libc::IPPROTO_TCP,
+                libc::TCP_INFO,
+                &mut info as *mut libc::tcp_info as *mut libc::c_void,
+                &mut len,
+            );
+            // tcpi_state == 1 is TCP_ESTABLISHED in the Linux kernel tcp_states enum.
+            rc == 0 && info.tcpi_state == 1
+        }
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let _ = stream;
+        true
+    }
+}
+
 /// Epoch for `last_used_ms` — set once on first pool creation.
 static POOL_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 fn pool_epoch() -> Instant {
@@ -196,16 +231,28 @@ impl DestPool {
                 stale += 1;
                 continue;
             }
-            // Non-blocking liveness probe: WouldBlock = alive and idle.
+            // Two-stage liveness probe:
+            //
+            // Stage 1 — try_read: catches closed connections (peer sent FIN/RST)
+            // by reading any buffered data. WouldBlock means the socket is idle
+            // and alive from the kernel's receive-buffer perspective.
+            //
+            // Stage 2 — TCP_INFO (Linux): checks the kernel TCP state machine.
+            // Catches half-open connections where the peer is dead but no FIN/RST
+            // has arrived yet (e.g. network partition, OS crash). try_read returns
+            // WouldBlock in those cases because the receive buffer is empty, but
+            // the TCP state will not be ESTABLISHED.
             let mut probe = [0u8; 1];
-            match stream.try_read(&mut probe) {
+            let alive = match stream.try_read(&mut probe) {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    return (Some(stream), stale);
+                    tcp_is_established(&stream)
                 }
-                _ => {
-                    stale += 1; // Stale: EOF or error from peer.
-                }
+                _ => false, // EOF or error: definitely stale.
+            };
+            if alive {
+                return (Some(stream), stale);
             }
+            stale += 1;
         }
         (None, stale)
     }

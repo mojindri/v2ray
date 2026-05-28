@@ -57,6 +57,7 @@
 mod linux {
     use std::io;
     use std::os::unix::io::{AsRawFd, RawFd};
+    use std::sync::OnceLock;
     use std::time::Duration;
 
     use tokio::io::{AsyncWriteExt, Interest};
@@ -64,6 +65,7 @@ mod linux {
         tcp::{ReadHalf, WriteHalf},
         TcpStream,
     };
+    use tracing;
 
     // The pipe capacity we request from the kernel.
     // Linux defaults to 65536 bytes (16 × 4096 page size).
@@ -675,20 +677,65 @@ mod linux {
         }
     }
 
+    /// Cached result of the first io_uring availability probe.
+    ///
+    /// `None` = not yet probed.  `Some(true)` = available and active.
+    /// `Some(false)` = unavailable; all subsequent calls use epoll splice.
+    static URING_AVAILABLE: OnceLock<bool> = OnceLock::new();
+
     /// Bidirectional zero-copy relay between two TCP streams.
     ///
     /// Tries `io_uring` SPLICE first (lower wakeup latency, ~15 µs vs ~28 µs
-    /// for epoll). Falls back to the epoll-based splice path if io_uring is
-    /// unavailable (ENOSYS, kernel too old, fd limit reached).
+    /// for epoll splice). On the first call, probes availability and caches the
+    /// result so subsequent calls skip the `try_new()` overhead when io_uring
+    /// is unavailable.
+    ///
+    /// Fallback triggers on:
+    /// - `ENOSYS` — kernel < 5.7 or io_uring not compiled in
+    /// - `ENOMEM` / `EMFILE` — resource limits
+    /// - `EPERM`  — seccomp/capability policy (logs an actionable warning)
+    ///
+    /// Note: if the seccomp policy uses `SCMP_ACT_KILL` rather than
+    /// `SCMP_ACT_ERRNO(EPERM)`, the offending syscall terminates the process
+    /// before we can catch it. Use `SCMP_ACT_ERRNO` in container profiles.
     ///
     /// Returns `(a_to_b_bytes, b_to_a_bytes)` when relay ends.
     pub async fn splice_bidirectional(
         a: &mut TcpStream,
         b: &mut TcpStream,
     ) -> io::Result<(u64, u64)> {
+        // Fast path: skip io_uring entirely once known unavailable.
+        if URING_AVAILABLE.get() == Some(&false) {
+            return splice_bidirectional_epoll(a, b).await;
+        }
+
         match uring::splice_bidirectional_uring(a, b).await {
-            Ok(counts) => Ok(counts),
-            Err(_) => splice_bidirectional_epoll(a, b).await,
+            Ok(counts) => {
+                URING_AVAILABLE.get_or_init(|| {
+                    tracing::info!("splice: io_uring SPLICE active (wakeup ~15 µs)");
+                    true
+                });
+                Ok(counts)
+            }
+            Err(e) => {
+                URING_AVAILABLE.get_or_init(|| {
+                    if e.raw_os_error() == Some(libc::EPERM) {
+                        tracing::warn!(
+                            "splice: io_uring blocked by seccomp/capability (EPERM); \
+                             falling back to epoll splice. \
+                             Set SCMP_ACT_ERRNO (not SCMP_ACT_KILL) for io_uring \
+                             syscalls in your container seccomp profile to allow it."
+                        );
+                    } else {
+                        tracing::info!(
+                            error = %e,
+                            "splice: io_uring unavailable; using epoll splice (wakeup ~28 µs)"
+                        );
+                    }
+                    false
+                });
+                splice_bidirectional_epoll(a, b).await
+            }
         }
     }
 
