@@ -16,6 +16,7 @@
 //! REALITY, etc.) or splice fails, we fall back to `tokio::io::copy_bidirectional`.
 
 use std::io;
+use std::time::Duration;
 
 use blackwire_common::BoxedStream;
 use blackwire_config::schema::FastSplicePolicy;
@@ -24,11 +25,21 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 /// Minimum bytes transferred before the adaptive splice policy kicks in (Linux).
 #[cfg(target_os = "linux")]
-pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 64 * 1024;
+pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 256 * 1024;
+#[cfg(target_os = "linux")]
+pub const ADAPTIVE_SPLICE_LONG_STREAM_AFTER: Duration = Duration::from_millis(30);
+#[cfg(target_os = "linux")]
+const ADAPTIVE_COPY_BUFFER_BYTES: usize = 64 * 1024;
+#[cfg(target_os = "linux")]
+const ADAPTIVE_SPLICE_FULL_READ_STREAK: u8 = 4;
+#[cfg(target_os = "linux")]
+const ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES: u64 = 64 * 1024;
 
 /// Minimum bytes transferred before the adaptive splice policy kicks in (non-Linux stub).
 #[cfg(not(target_os = "linux"))]
 pub const ADAPTIVE_SPLICE_MIN_BYTES: u64 = 0;
+#[cfg(not(target_os = "linux"))]
+pub const ADAPTIVE_SPLICE_LONG_STREAM_AFTER: Duration = Duration::from_millis(0);
 
 /// Relay bytes between two streams until either side closes.
 ///
@@ -143,11 +154,16 @@ async fn adaptive_copy_then_splice(
     let mut down = 0u64;
     let mut up_eof = false;
     let mut down_eof = false;
-    let mut up_buf = vec![0u8; 16 * 1024];
-    let mut down_buf = vec![0u8; 16 * 1024];
+    let mut up_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
+    let mut down_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
+    let started_at = tokio::time::Instant::now();
+    let mut full_read_streak = 0u8;
 
     loop {
-        if !up_eof && !down_eof && prefix_up + prefix_down + up + down >= ADAPTIVE_SPLICE_MIN_BYTES
+        let copied_total = prefix_up + prefix_down + up + down;
+        if !up_eof
+            && !down_eof
+            && adaptive_splice_ready(copied_total, started_at.elapsed(), full_read_streak)
         {
             metrics::counter!("proxy_relay_splice_selected_total", "policy" => "adaptive")
                 .increment(1);
@@ -190,6 +206,7 @@ async fn adaptive_copy_then_splice(
                 } else {
                     outbound.write_all(&up_buf[..n]).await?;
                     up += n as u64;
+                    full_read_streak = update_full_read_streak(full_read_streak, n, up_buf.len());
                 }
             }
             read = outbound.read(&mut down_buf), if !down_eof => {
@@ -200,9 +217,28 @@ async fn adaptive_copy_then_splice(
                 } else {
                     inbound.write_all(&down_buf[..n]).await?;
                     down += n as u64;
+                    full_read_streak = update_full_read_streak(full_read_streak, n, down_buf.len());
                 }
             }
         }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn adaptive_splice_ready(copied_total: u64, elapsed: Duration, full_read_streak: u8) -> bool {
+    let bulk_reads = full_read_streak >= ADAPTIVE_SPLICE_FULL_READ_STREAK;
+    bulk_reads
+        && (copied_total >= ADAPTIVE_SPLICE_MIN_BYTES
+            || (copied_total >= ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES
+                && elapsed >= ADAPTIVE_SPLICE_LONG_STREAM_AFTER))
+}
+
+#[cfg(target_os = "linux")]
+fn update_full_read_streak(current: u8, read_len: usize, buf_len: usize) -> u8 {
+    if read_len == buf_len {
+        current.saturating_add(1)
+    } else {
+        0
     }
 }
 
@@ -280,5 +316,44 @@ mod tests {
         assert_eq!(got_b, b"pre-a-from-a");
         assert_eq!(up, b"pre-a-from-a".len() as u64);
         assert_eq!(down, b"pre-b-from-b".len() as u64);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn adaptive_splice_waits_for_bulk_evidence() {
+        assert!(!adaptive_splice_ready(
+            64 * 1024,
+            ADAPTIVE_SPLICE_LONG_STREAM_AFTER,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK - 1
+        ));
+        assert!(!adaptive_splice_ready(
+            ADAPTIVE_SPLICE_MIN_BYTES - 1,
+            Duration::ZERO,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK
+        ));
+        assert!(!adaptive_splice_ready(
+            ADAPTIVE_SPLICE_MIN_BYTES,
+            Duration::ZERO,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK - 1
+        ));
+        assert!(adaptive_splice_ready(
+            ADAPTIVE_SPLICE_MIN_BYTES,
+            Duration::ZERO,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK
+        ));
+        assert!(adaptive_splice_ready(
+            64 * 1024,
+            ADAPTIVE_SPLICE_LONG_STREAM_AFTER,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK
+        ));
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn adaptive_splice_full_read_streak_resets_on_short_read() {
+        let streak = update_full_read_streak(0, 16 * 1024, 16 * 1024);
+        let streak = update_full_read_streak(streak, 16 * 1024, 16 * 1024);
+        assert_eq!(streak, 2);
+        assert_eq!(update_full_read_streak(streak, 1024, 16 * 1024), 0);
     }
 }

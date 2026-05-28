@@ -1,0 +1,12 @@
+[2m2026-05-28T22:35:38.444028Z[0m [32m INFO[0m [2mblackwire[0m[2m:[0m blackwire starting [3mversion[0m[2m=[0m"0.1.0" [3mconfig[0m[2m=[0m/tmp/bw-cfg-lWv3AC.json
+Fast Profile warning: inbound 'vless-in': no streamSettings (security=none); use reality or tls in Fast Profile
+[2m2026-05-28T22:35:38.445266Z[0m [32m INFO[0m [2mblackwire_core::instance[0m[2m:[0m registered outbound [3mtag[0m[2m=[0mfreedom
+[2m2026-05-28T22:35:38.445296Z[0m [32m INFO[0m [2mblackwire_core::instance[0m[2m:[0m fast profile policy active [3mpool_policy[0m[2m=[0mAdaptive [3madaptive_pool_max_per_dest[0m[2m=[0m4 [3madaptive_pool_min_hotness[0m[2m=[0m32 [3madaptive_pool_idle_ttl_ms[0m[2m=[0m5000 [3msplice_policy[0m[2m=[0mAdaptive [3madaptive_splice_min_bytes[0m[2m=[0m262144 [3madaptive_splice_long_stream_ms[0m[2m=[0m30 [3mstrict_production[0m[2m=[0mfalse
+[2m2026-05-28T22:35:38.445358Z[0m [32m INFO[0m [2mblackwire_core::instance[0m[2m:[0m starting inbound listener [3mtag[0m[2m=[0mvless-in [3maddr[0m[2m=[0m127.0.0.1:10080
+[2m2026-05-28T22:35:38.445475Z[0m [32m INFO[0m [2mblackwire_transport::tcp[0m[2m:[0m TCP listener started [3maddr[0m[2m=[0m127.0.0.1:10080 [3mmax_connections[0m[2m=[0mNone
+[2m2026-05-28T22:35:38.445527Z[0m [32m INFO[0m [2mblackwire_transport::tcp[0m[2m:[0m TCP listener started [3maddr[0m[2m=[0m127.0.0.1:10080 [3mmax_connections[0m[2m=[0mNone
+[2m2026-05-28T22:35:38.445535Z[0m [32m INFO[0m [2mblackwire_transport::tcp[0m[2m:[0m TCP multi-shard listener started [3maddr[0m[2m=[0m127.0.0.1:10080 [3mshards[0m[2m=[0m2
+[2m2026-05-28T22:35:38.445697Z[0m [32m INFO[0m [2mblackwire_app::metrics[0m[2m:[0m metrics server starting [3maddr[0m[2m=[0m127.0.0.1:9091
+[2m2026-05-28T22:35:38.445710Z[0m [32m INFO[0m [2mblackwire_core::instance[0m[2m:[0m metrics server started [3maddr[0m[2m=[0m127.0.0.1:9091
+[2m2026-05-28T22:35:38.445728Z[0m [32m INFO[0m [2mblackwire[0m[2m:[0m blackwire started — waiting for connections
+[2m2026-05-28T22:35:38.445819Z[0m [32m INFO[0m [2mblackwire_config::manager[0m[2m:[0m watching config file for changes [3mpath[0m[2m=[0m/tmp/bw-cfg-lWv3AC.json
