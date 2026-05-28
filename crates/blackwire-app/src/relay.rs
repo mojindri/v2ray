@@ -159,13 +159,19 @@ async fn adaptive_copy_then_splice(
     let mut up_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
     let mut down_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
     let started_at = tokio::time::Instant::now();
-    let mut full_read_streak = 0u8;
+    let mut up_full_read_streak = 0u8;
+    let mut down_full_read_streak = 0u8;
 
     loop {
-        let copied_total = prefix_up + prefix_down + up + down;
         if !up_eof
             && !down_eof
-            && adaptive_splice_ready(copied_total, started_at.elapsed(), full_read_streak)
+            && adaptive_splice_ready_for_directions(
+                prefix_up + up,
+                prefix_down + down,
+                started_at.elapsed(),
+                up_full_read_streak,
+                down_full_read_streak,
+            )
         {
             metrics::counter!("proxy_relay_splice_selected_total", "policy" => "adaptive")
                 .increment(1);
@@ -209,7 +215,8 @@ async fn adaptive_copy_then_splice(
                 } else {
                     inbound.write_all(&down_buf[..n]).await?;
                     down += n as u64;
-                    full_read_streak = update_full_read_streak(full_read_streak, n, down_buf.len());
+                    down_full_read_streak =
+                        update_full_read_streak(down_full_read_streak, n, down_buf.len());
                 }
             }
             read = inbound.read(&mut up_buf), if !up_eof => {
@@ -220,7 +227,8 @@ async fn adaptive_copy_then_splice(
                 } else {
                     outbound.write_all(&up_buf[..n]).await?;
                     up += n as u64;
-                    full_read_streak = update_full_read_streak(full_read_streak, n, up_buf.len());
+                    up_full_read_streak =
+                        update_full_read_streak(up_full_read_streak, n, up_buf.len());
                 }
             }
         }
@@ -234,6 +242,18 @@ fn adaptive_splice_ready(copied_total: u64, elapsed: Duration, full_read_streak:
         && (copied_total >= ADAPTIVE_SPLICE_MIN_BYTES
             || (copied_total >= ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES
                 && elapsed >= ADAPTIVE_SPLICE_LONG_STREAM_AFTER))
+}
+
+#[cfg(target_os = "linux")]
+fn adaptive_splice_ready_for_directions(
+    up_copied: u64,
+    down_copied: u64,
+    elapsed: Duration,
+    up_full_read_streak: u8,
+    down_full_read_streak: u8,
+) -> bool {
+    adaptive_splice_ready(up_copied, elapsed, up_full_read_streak)
+        || adaptive_splice_ready(down_copied, elapsed, down_full_read_streak)
 }
 
 #[cfg(target_os = "linux")]
@@ -358,5 +378,26 @@ mod tests {
         let streak = update_full_read_streak(streak, 16 * 1024, 16 * 1024);
         assert_eq!(streak, 2);
         assert_eq!(update_full_read_streak(streak, 1024, 16 * 1024), 0);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn adaptive_splice_requires_one_direction_to_look_bulk() {
+        let elapsed = ADAPTIVE_SPLICE_LONG_STREAM_AFTER;
+        assert!(!adaptive_splice_ready_for_directions(
+            ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES - 1,
+            ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES - 1,
+            elapsed,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK,
+        ));
+
+        assert!(adaptive_splice_ready_for_directions(
+            ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES,
+            ADAPTIVE_SPLICE_FULL_READ_MIN_BYTES - 1,
+            elapsed,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK,
+            ADAPTIVE_SPLICE_FULL_READ_STREAK,
+        ));
     }
 }
