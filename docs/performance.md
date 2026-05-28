@@ -93,3 +93,24 @@ This documents workflow for:
 - `tokio-console`
 - `perf record/report`
 - `cargo flamegraph`
+
+## Per-Connection Optimisation History
+
+Changes implemented to reduce per-connection cost on the VLESS→Freedom hot path:
+
+| # | Change | File | Effect |
+|---|--------|------|--------|
+| 1 | `Arc<SniffingConfig>` — clone costs one atomic refcount | `dispatcher.rs` | −100–500 B heap/conn |
+| 2 | Lazy tracing strings — no clone until log level active | `dispatcher.rs` | −35–170 B heap/conn |
+| 3 | Domain case normalised at config load, not per-request | `router.rs` | −1 heap alloc/match |
+| 4 | Skip `RecordingReader` when no fallback configured | `vless/inbound.rs` | −Vec alloc + per-byte copy |
+| 5 | `Arc<str>` for `VlessUser.email` | `registry.rs`, `context.rs` | −String alloc/conn |
+| 6 | `SmallVec<[Address;4]>` for DNS IP results | `dispatcher.rs` | stack alloc ≤4 IPs |
+| 7 | Reuse 8 KiB Vision read buffer across polls | `vision.rs` | −8–128 KB/REALITY+Vision conn |
+| 8 | TCP connection pool in `FreedomOutbound` | `freedom.rs` | ~0 µs connect (was 86 ms avg) |
+| 9 | 2× Tokio worker threads | `main.rs` | fewer relay tasks per worker |
+| 10 | `yield_now()` after each splice chunk | `splice.rs` | fair scheduling under burst |
+
+**Decisions not taken** (measurement-gated):
+- `async_trait` boxing removal — confirmed 2 µs (0.1% of request time); gate not met.
+- Specialised VLESS→Freedom dispatch path — deferred until histogram evidence justifies it.

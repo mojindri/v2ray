@@ -131,10 +131,11 @@ fn main() {
     match cli.command {
         Command::Run(args) => {
             // Build the async runtime first, then hand control to `run_proxy`.
-            // We use `new_multi_thread` so we get one OS thread per CPU core.
-            // All proxy I/O is async, so more threads = more parallelism.
+            // We use 2× CPU cores: relay tasks are I/O-bound and yield frequently,
+            // but at high PPS spare threads let new-connection tasks run without
+            // waiting behind an active relay task's local queue.
             let rt = match tokio::runtime::Builder::new_multi_thread()
-                .worker_threads(num_cpus::get())
+                .worker_threads(num_cpus::get() * 2)
                 .enable_all()
                 .build()
             {

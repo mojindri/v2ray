@@ -219,6 +219,10 @@ mod linux {
                     Err(e) => return Err(e),
                 }
             }
+            // Yield after each chunk so the scheduler can service new-connection
+            // tasks that are waiting in the ready queue. Without this, a relay
+            // task processing a burst of data never yields, starving other tasks.
+            tokio::task::yield_now().await;
         }
     }
 
