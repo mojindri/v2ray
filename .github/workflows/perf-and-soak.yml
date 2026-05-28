@@ -126,6 +126,7 @@ jobs:
           name: latency-smoke-reports
           path: reports/latency-smoke
           if-no-files-found: warn
+          retention-days: 14
 
   soak:
     name: Soak

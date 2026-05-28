@@ -33,6 +33,7 @@ jobs:
             labs/realistic/reports/advanced-features-smoke.log
             labs/realistic/reports/negative-auth.log
           if-no-files-found: ignore
+          retention-days: 14
 
   interop-docker:
     name: External clients (Docker)
@@ -60,3 +61,4 @@ jobs:
           name: interop-logs
           path: labs/realistic/reports/
           if-no-files-found: ignore
+          retention-days: 21
