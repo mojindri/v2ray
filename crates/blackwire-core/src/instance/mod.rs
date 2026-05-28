@@ -158,10 +158,18 @@ impl Instance {
                 &out_cfg.stream_settings,
             )?;
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
-                Protocol::Freedom => match &dns {
-                    Some(module) => FreedomOutbound::new_with_dns(&out_cfg.tag, Arc::clone(module)),
-                    None => FreedomOutbound::new(&out_cfg.tag),
-                },
+                Protocol::Freedom => {
+                    let pool_capacity =
+                        out_cfg.settings["poolSize"].as_u64().unwrap_or(32) as usize;
+                    match &dns {
+                        Some(module) => FreedomOutbound::new_with_dns(
+                            &out_cfg.tag,
+                            Arc::clone(module),
+                            pool_capacity,
+                        ),
+                        None => FreedomOutbound::new(&out_cfg.tag, pool_capacity),
+                    }
+                }
                 Protocol::Vless => build_vless_outbound(out_cfg)
                     .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?,
                 Protocol::Hysteria2 => build_hysteria2_outbound(out_cfg)
