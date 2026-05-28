@@ -6,6 +6,7 @@
 #
 # Scenarios:
 #   local-smoke       (default) direct + blackwire-socks-direct + blackwire-vless-loopback
+#   local-smoke-matrix local-smoke over BENCH_PAYLOADS and BENCH_KEEPALIVE_MODES
 #   local-full        all local variants, longer duration
 #   xray-compare      Xray client vs Xray server, BW Compat, BW Fast (requires xray in PATH)
 #   singbox-compare   sing-box client vs sing-box server, BW Compat, BW Fast (requires sing-box in PATH)
@@ -124,6 +125,25 @@ case "$SCENARIO" in
     CLIENT_PORT="1081" \
     PROXY_ADDR="127.0.0.1:1081" \
     bench "blackwire-fast-lab"
+    ;;
+
+  local-smoke-matrix)
+    log "scenario: local-smoke-matrix (${BENCH_DURATION}s measure, ${BENCH_WARMUP}s warmup, ${BENCH_CONC} conc)"
+    log "payloads: $BENCH_PAYLOADS; keepalive: $BENCH_KEEPALIVE_MODES"
+
+    bench_matrix "direct"
+
+    PROXY_ADDR="127.0.0.1:1080" \
+    CLIENT_CONFIG="$CONFIGS_DIR/blackwire-socks-direct.json" \
+    CLIENT_PORT="1080" \
+    bench_matrix "blackwire-socks-direct"
+
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" \
+    SERVER_PORT="10080" \
+    CLIENT_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-client.json" \
+    CLIENT_PORT="1081" \
+    PROXY_ADDR="127.0.0.1:1081" \
+    bench_matrix "blackwire-fast-lab"
     ;;
 
   local-full)
@@ -267,7 +287,7 @@ case "$SCENARIO" in
 
   *)
     echo "Unknown scenario: $SCENARIO"
-    echo "Known: local-smoke, local-full, xray-compare, singbox-compare, compare-all, gate-matrix"
+    echo "Known: local-smoke, local-smoke-matrix, local-full, xray-compare, singbox-compare, compare-all, gate-matrix"
     exit 1
     ;;
 esac
