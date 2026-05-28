@@ -16,10 +16,16 @@
 //! REALITY, etc.) or splice fails, we fall back to `tokio::io::copy_bidirectional`.
 
 use std::io;
+#[cfg(target_os = "linux")]
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 
 use blackwire_common::BoxedStream;
+#[cfg(target_os = "linux")]
+use blackwire_common::BufferPool;
 use blackwire_config::schema::FastSplicePolicy;
+#[cfg(target_os = "linux")]
+use bytes::BytesMut;
 #[cfg(target_os = "linux")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -156,8 +162,8 @@ async fn adaptive_copy_then_splice(
     let mut down = 0u64;
     let mut up_eof = false;
     let mut down_eof = false;
-    let mut up_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
-    let mut down_buf = vec![0u8; ADAPTIVE_COPY_BUFFER_BYTES];
+    let mut up_buf = PooledRelayBuffer::new(ADAPTIVE_COPY_BUFFER_BYTES);
+    let mut down_buf = PooledRelayBuffer::new(ADAPTIVE_COPY_BUFFER_BYTES);
     let started_at = tokio::time::Instant::now();
     let mut up_full_read_streak = 0u8;
     let mut down_full_read_streak = 0u8;
@@ -207,30 +213,85 @@ async fn adaptive_copy_then_splice(
 
         tokio::select! {
             biased;
-            read = outbound.read(&mut down_buf), if !down_eof => {
+            read = outbound.read(down_buf.as_mut_slice()), if !down_eof => {
                 let n = read?;
                 if n == 0 {
                     down_eof = true;
                     inbound.shutdown().await?;
                 } else {
-                    inbound.write_all(&down_buf[..n]).await?;
+                    inbound.write_all(&down_buf.as_slice()[..n]).await?;
                     down += n as u64;
                     down_full_read_streak =
                         update_full_read_streak(down_full_read_streak, n, down_buf.len());
                 }
             }
-            read = inbound.read(&mut up_buf), if !up_eof => {
+            read = inbound.read(up_buf.as_mut_slice()), if !up_eof => {
                 let n = read?;
                 if n == 0 {
                     up_eof = true;
                     outbound.shutdown().await?;
                 } else {
-                    outbound.write_all(&up_buf[..n]).await?;
+                    outbound.write_all(&up_buf.as_slice()[..n]).await?;
                     up += n as u64;
                     up_full_read_streak =
                         update_full_read_streak(up_full_read_streak, n, up_buf.len());
                 }
             }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn adaptive_relay_pool() -> &'static Arc<BufferPool> {
+    static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
+    POOL.get_or_init(BufferPool::new)
+}
+
+#[cfg(target_os = "linux")]
+struct PooledRelayBuffer {
+    pool: Arc<BufferPool>,
+    buf: Option<BytesMut>,
+}
+
+#[cfg(target_os = "linux")]
+impl PooledRelayBuffer {
+    fn new(size: usize) -> Self {
+        let pool = Arc::clone(adaptive_relay_pool());
+        let mut buf = pool.acquire(size);
+        buf.resize(size, 0);
+        Self {
+            pool,
+            buf: Some(buf),
+        }
+    }
+
+    fn as_mut_slice(&mut self) -> &mut [u8] {
+        self.buf
+            .as_mut()
+            .expect("pooled relay buffer must exist while borrowed")
+            .as_mut()
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        self.buf
+            .as_ref()
+            .expect("pooled relay buffer must exist while borrowed")
+            .as_ref()
+    }
+
+    fn len(&self) -> usize {
+        self.buf
+            .as_ref()
+            .expect("pooled relay buffer must exist while borrowed")
+            .len()
+    }
+}
+
+#[cfg(target_os = "linux")]
+impl Drop for PooledRelayBuffer {
+    fn drop(&mut self) {
+        if let Some(buf) = self.buf.take() {
+            self.pool.release(buf);
         }
     }
 }
