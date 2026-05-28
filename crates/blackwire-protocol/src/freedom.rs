@@ -28,18 +28,23 @@ use blackwire_common::{tcp_connect, Address, BoxedStream, ProxyError};
 
 /// Configuration for the adaptive TCP connection pool.
 ///
-/// Pass to `FreedomOutbound::new_pooled` or `new_with_dns_pooled` to enable
-/// pooling in Fast Profile. In Compat mode use `new` or `new_with_dns` (no pool).
+/// Pass to `FreedomOutbound::new_pooled` / `new_with_dns_pooled` to enable
+/// pooling in Fast Profile. In Compat mode use `new` / `new_with_dns` instead.
 pub struct PoolConfig {
-    /// Ceiling per destination. Effective capacity starts at 0 and ramps
-    /// geometrically with observed traffic; this value is never pre-allocated.
+    /// Per-destination ceiling. Effective capacity starts at 0 and ramps
+    /// geometrically with recent traffic; this is never pre-allocated.
     pub max_per_dest: usize,
-    /// Maximum total idle sockets across all destinations (soft global cap).
+    /// Maximum combined idle + in-flight-refill sockets across all destinations.
     pub max_global_idle: usize,
     /// Maximum number of distinct destination pools to maintain.
+    /// When full, the least-recently-used pool is evicted.
     pub max_dests: usize,
     /// Discard idle connections older than this (prevents stale-socket reuse).
     pub idle_ttl: Duration,
+    /// Length of the sliding window used to measure destination hotness.
+    /// Traffic older than this fully decays; a destination with no traffic in
+    /// 2× this window resets to cold (capacity 0).
+    pub hotness_window: Duration,
 }
 
 impl Default for PoolConfig {
@@ -49,59 +54,136 @@ impl Default for PoolConfig {
             max_global_idle: 512,
             max_dests: 256,
             idle_ttl: Duration::from_secs(30),
+            hotness_window: Duration::from_secs(60),
         }
     }
 }
 
-/// Per-destination pool state.
+// ── Hotness meter ─────────────────────────────────────────────────────────────
+
+/// Two-bucket sliding-window hit counter.
+///
+/// Divides time into windows of `window_duration`. On each `record_and_get`
+/// call the current hit count is incremented; after one window elapses the
+/// previous window's count contributes fully, after two windows the
+/// destination is considered cold (count = 0). This lets hot destinations
+/// cool naturally when traffic stops.
+struct HotnessMeter {
+    current: u64,
+    previous: u64,
+    window_start: Instant,
+    window_duration: Duration,
+}
+
+impl HotnessMeter {
+    fn new(window_duration: Duration) -> Self {
+        Self {
+            current: 0,
+            previous: 0,
+            window_start: Instant::now(),
+            window_duration,
+        }
+    }
+
+    /// Record one connection and return the current sliding-window hit count.
+    fn record_and_get(&mut self) -> u64 {
+        let now = Instant::now();
+        let elapsed = now.duration_since(self.window_start);
+        if elapsed >= self.window_duration * 2 {
+            // More than 2 windows with no calls: fully cold.
+            self.previous = 0;
+            self.current = 1;
+            self.window_start = now;
+        } else if elapsed >= self.window_duration {
+            // One window elapsed: rotate.
+            self.previous = self.current;
+            self.current = 1;
+            self.window_start = now;
+        } else {
+            self.current += 1;
+        }
+        // Sliding estimate: previous + current covers the last full window.
+        self.previous.saturating_add(self.current)
+    }
+
+    /// Return the sliding-window estimate without recording a hit.
+    /// Used by `replenish` to read capacity without mutating state.
+    fn estimate(&self) -> u64 {
+        let elapsed = self.window_start.elapsed();
+        if elapsed >= self.window_duration * 2 {
+            0
+        } else if elapsed >= self.window_duration {
+            self.current
+        } else {
+            self.previous.saturating_add(self.current)
+        }
+    }
+}
+
+fn tier_from_count(count: u64, max: usize) -> usize {
+    let tier = match count {
+        0 => 0,
+        1..=3 => 1,
+        4..=7 => 2,
+        8..=15 => 4,
+        16..=31 => 8,
+        32..=63 => 16,
+        _ => max,
+    };
+    tier.min(max)
+}
+
+// ── Per-destination pool ───────────────────────────────────────────────────────
+
+/// Epoch for `last_used_ms` — set once on first pool creation.
+static POOL_EPOCH: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+fn pool_epoch() -> Instant {
+    *POOL_EPOCH.get_or_init(Instant::now)
+}
+fn now_ms() -> u64 {
+    pool_epoch().elapsed().as_millis() as u64
+}
+
 struct DestPool {
     addr: SocketAddr,
-    /// Lifetime connections served; determines adaptive capacity tier.
-    conn_count: AtomicU64,
-    /// Background refill tasks currently in flight.
-    /// Included in the refill budget: needed = cap - (idle.len + in_flight).
+    /// Sliding-window hit count; drives adaptive capacity tier.
+    hotness: Mutex<HotnessMeter>,
+    /// Background refill tasks currently in flight (per-destination).
     in_flight: AtomicUsize,
     /// Idle pre-established connections with their last-use timestamps.
     idle: Mutex<VecDeque<(TcpStream, Instant)>>,
-    /// Last time this pool was accessed; used for future LRU eviction.
-    last_used: Mutex<Instant>,
+    /// Milliseconds since POOL_EPOCH of the last `try_take` call.
+    /// Used for LRU eviction without locking.
+    last_used_ms: AtomicU64,
 }
 
 impl DestPool {
-    fn new(addr: SocketAddr) -> Arc<Self> {
+    fn new(addr: SocketAddr, window_duration: Duration) -> Arc<Self> {
         Arc::new(Self {
             addr,
-            conn_count: AtomicU64::new(0),
+            hotness: Mutex::new(HotnessMeter::new(window_duration)),
             in_flight: AtomicUsize::new(0),
             idle: Mutex::new(VecDeque::new()),
-            last_used: Mutex::new(Instant::now()),
+            last_used_ms: AtomicU64::new(now_ms()),
         })
     }
 
-    /// Effective pool capacity for this destination given the configured ceiling.
-    ///
-    /// Ramps geometrically with observed traffic so one-off destinations never
-    /// hold pre-allocated sockets, while hot destinations fill up over time.
-    fn effective_cap(&self, max: usize) -> usize {
-        let seen = self.conn_count.load(Ordering::Relaxed);
-        let tier = match seen {
-            0 => 0,
-            1..=3 => 1,
-            4..=7 => 2,
-            8..=15 => 4,
-            16..=31 => 8,
-            32..=63 => 16,
-            _ => max,
-        };
-        tier.min(max)
+    /// Record one connection and return the current effective pool capacity.
+    fn record_and_cap(&self, max: usize) -> usize {
+        let count = self.hotness.lock().record_and_get();
+        tier_from_count(count, max)
+    }
+
+    /// Return the current effective capacity without recording a hit.
+    fn current_cap(&self, max: usize) -> usize {
+        let count = self.hotness.lock().estimate();
+        tier_from_count(count, max)
     }
 
     /// Pop the next live, non-expired idle connection.
     ///
-    /// Returns `(stream, stale_count)`:
-    /// - `stream`: a usable pre-established connection, or `None` on miss.
-    /// - `stale_count`: connections discarded (TTL-expired or dead peer).
-    ///   The caller must subtract this from `AdaptivePool::global_idle`.
+    /// Returns `(stream, stale_count)` where `stale_count` is the number of
+    /// slots discarded; caller must subtract that from `AdaptivePool::global_idle`.
     fn try_take(&self, idle_ttl: Duration) -> (Option<TcpStream>, usize) {
         let mut guard = self.idle.lock();
         let now = Instant::now();
@@ -115,33 +197,52 @@ impl DestPool {
             let mut probe = [0u8; 1];
             match stream.try_read(&mut probe) {
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    *self.last_used.lock() = now;
+                    self.last_used_ms.store(now_ms(), Ordering::Relaxed);
                     return (Some(stream), stale);
                 }
                 _ => {
-                    stale += 1; // Stale (EOF or error from peer).
+                    stale += 1; // Stale: EOF or error from peer.
                 }
             }
         }
         (None, stale)
     }
 
-    /// Spawn background tasks to refill this pool toward its effective capacity.
+    /// Spawn background tasks to refill toward effective capacity.
     ///
-    /// Refill budget: `needed = effective_cap - (idle.len + in_flight)`.
-    /// Including `in_flight` prevents duplicate spawning when earlier tasks are
-    /// still connecting (the main fix over a naive `capacity - idle.len` formula).
+    /// **Pre-reservation**: each slot to spawn is claimed in `global_idle`
+    /// before the task is launched. This prevents two concurrent `replenish`
+    /// calls from both passing the budget check and over-filling the pool.
+    /// The task releases the reservation if it fails or the per-dest queue
+    /// is already full.
+    ///
+    /// **Refill formula**: `needed = effective_cap − (idle.len + in_flight)`.
+    /// Including `in_flight` prevents duplicate spawning when earlier tasks
+    /// are still connecting.
     fn replenish(self: Arc<Self>, pool: Arc<AdaptivePool>) {
-        let effective_cap = self.effective_cap(pool.max_per_dest);
+        let cap = self.current_cap(pool.max_per_dest);
         let (idle_len, in_flight) = {
             let guard = self.idle.lock();
             (guard.len(), self.in_flight.load(Ordering::Relaxed))
         };
-        let global_idle = pool.global_idle.load(Ordering::Relaxed);
-        let global_budget = (pool.max_global_idle as i64).saturating_sub(global_idle) as usize;
-        let needed = effective_cap
+
+        // global_idle counts both actual idle sockets AND reserved slots
+        // (in-flight refills). This is the total "committed" count.
+        let committed = pool.global_idle.load(Ordering::Relaxed);
+        let global_budget = (pool.max_global_idle as i64)
+            .saturating_sub(committed)
+            .max(0) as usize;
+
+        let needed = cap
             .saturating_sub(idle_len + in_flight)
             .min(global_budget);
+
+        if needed == 0 {
+            return;
+        }
+
+        // Pre-reserve all `needed` slots atomically.
+        pool.global_idle.fetch_add(needed as i64, Ordering::Relaxed);
 
         for _ in 0..needed {
             let dp = Arc::clone(&self);
@@ -153,20 +254,25 @@ impl DestPool {
                         let _ = stream.set_nodelay(true);
                         {
                             let mut guard = dp.idle.lock();
-                            // Re-check per-dest and global budgets under lock.
-                            if guard.len() < p.max_per_dest
-                                && p.global_idle.load(Ordering::Relaxed)
-                                    < p.max_global_idle as i64
-                            {
+                            if guard.len() < p.max_per_dest {
                                 guard.push_back((stream, Instant::now()));
-                                p.global_idle.fetch_add(1, Ordering::Relaxed);
+                                // Reservation held — no extra global_idle increment.
+                            } else {
+                                // Per-dest queue is full; release the reservation.
+                                p.global_idle.fetch_sub(1, Ordering::Relaxed);
+                                // Stream drops here, closing the connection.
                             }
-                            // Over budget: stream drops here, closing the connection.
                         }
                         dp.in_flight.fetch_sub(1, Ordering::Relaxed);
                     }
                     Err(_) => {
-                        p.errors.fetch_add(1, Ordering::Relaxed);
+                        // Release reservation for this failed slot.
+                        p.global_idle.fetch_sub(1, Ordering::Relaxed);
+                        metrics::counter!(
+                            "freedom_pool_errors_total",
+                            "outbound" => p.tag.clone()
+                        )
+                        .increment(1);
                         dp.in_flight.fetch_sub(1, Ordering::Relaxed);
                     }
                 }
@@ -175,63 +281,87 @@ impl DestPool {
     }
 }
 
+// ── Global pool manager ───────────────────────────────────────────────────────
+
 /// Global adaptive pool shared across all outbound requests in Fast Profile.
 ///
-/// Capacity per destination starts at 0 and ramps with observed traffic.
-/// Hard limits prevent runaway memory use; all metrics are lock-free counters.
+/// Per-destination capacity ramps with recent traffic and decays when traffic
+/// stops. Hard limits bound memory use. All metrics are exported via the
+/// `metrics` crate (Prometheus-compatible).
+///
+/// Metrics emitted (tagged `outbound = <tag>`):
+/// - `freedom_pool_hits_total`   — pre-established connection reused
+/// - `freedom_pool_misses_total` — pool empty; fell through to cold connect
+/// - `freedom_pool_stales_total` — idle connections discarded (TTL / dead peer)
+/// - `freedom_pool_errors_total` — background refill connect failures
 struct AdaptivePool {
+    tag: String,
     dests: DashMap<SocketAddr, Arc<DestPool>>,
     max_per_dest: usize,
     max_global_idle: usize,
     max_dests: usize,
     idle_ttl: Duration,
-    /// Net idle-socket count (incremented on push, decremented on pop/stale).
-    /// Signed to tolerate transient races; treated as 0 if negative.
+    hotness_window: Duration,
+    /// Committed slots: actual idle sockets + in-flight refill reservations.
+    /// Signed to absorb transient races without wrapping.
     global_idle: AtomicI64,
-    hits: AtomicU64,
-    misses: AtomicU64,
-    stales: AtomicU64,
-    errors: AtomicU64,
 }
 
 impl AdaptivePool {
-    fn new(cfg: PoolConfig) -> Arc<Self> {
+    fn new(tag: String, cfg: PoolConfig) -> Arc<Self> {
         Arc::new(Self {
+            tag,
             dests: DashMap::new(),
             max_per_dest: cfg.max_per_dest,
             max_global_idle: cfg.max_global_idle,
             max_dests: cfg.max_dests,
             idle_ttl: cfg.idle_ttl,
+            hotness_window: cfg.hotness_window,
             global_idle: AtomicI64::new(0),
-            hits: AtomicU64::new(0),
-            misses: AtomicU64::new(0),
-            stales: AtomicU64::new(0),
-            errors: AtomicU64::new(0),
         })
     }
 
-    /// Look up or lazily create the pool for `addr`.
+    /// Return the pool for `addr`, creating it if needed.
     ///
-    /// Returns `None` if the per-pool destination limit has been reached;
-    /// callers should take the cold path (fresh connect) in that case.
-    fn get_or_create(&self, addr: SocketAddr) -> Option<Arc<DestPool>> {
+    /// When `max_dests` is reached the least-recently-used pool is evicted
+    /// to make room, freeing its idle sockets and global budget.
+    fn get_or_create(&self, addr: SocketAddr) -> Arc<DestPool> {
         if let Some(entry) = self.dests.get(&addr) {
-            return Some(Arc::clone(&*entry));
+            return Arc::clone(&*entry);
         }
-        // Don't create new pools if at the destination ceiling.
         if self.dests.len() >= self.max_dests {
-            return None;
+            self.evict_lru();
         }
-        Some(Arc::clone(
+        Arc::clone(
             &*self
                 .dests
                 .entry(addr)
-                .or_insert_with(|| DestPool::new(addr)),
-        ))
+                .or_insert_with(|| DestPool::new(addr, self.hotness_window)),
+        )
+    }
+
+    /// Remove the least-recently-used destination pool and return its idle
+    /// sockets to the global budget.
+    fn evict_lru(&self) {
+        let lru_key = self
+            .dests
+            .iter()
+            .min_by_key(|e| e.value().last_used_ms.load(Ordering::Relaxed))
+            .map(|e| *e.key());
+
+        if let Some(key) = lru_key {
+            if let Some((_, evicted)) = self.dests.remove(&key) {
+                // Slots in the idle queue were counted in global_idle; return them.
+                let idle_count = evicted.idle.lock().len() as i64;
+                if idle_count > 0 {
+                    self.global_idle.fetch_sub(idle_count, Ordering::Relaxed);
+                }
+            }
+        }
     }
 }
 
-// ── FreedomOutbound ──────────────────────────────────────────────────────────
+// ── FreedomOutbound ───────────────────────────────────────────────────────────
 
 /// The freedom outbound: connects directly to the destination.
 pub struct FreedomOutbound {
@@ -249,7 +379,9 @@ impl FreedomOutbound {
 
     /// Fast Profile: adaptive connection pooling.
     pub fn new_pooled(tag: impl Into<String>, cfg: PoolConfig) -> Arc<Self> {
-        Arc::new(Self { tag: tag.into(), dns: None, pool: Some(AdaptivePool::new(cfg)) })
+        let tag = tag.into();
+        let pool = AdaptivePool::new(tag.clone(), cfg);
+        Arc::new(Self { tag, dns: None, pool: Some(pool) })
     }
 
     /// Compat mode with custom DNS: no connection pooling.
@@ -263,11 +395,9 @@ impl FreedomOutbound {
         dns: Arc<DnsModule>,
         cfg: PoolConfig,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            tag: tag.into(),
-            dns: Some(dns),
-            pool: Some(AdaptivePool::new(cfg)),
-        })
+        let tag = tag.into();
+        let pool = AdaptivePool::new(tag.clone(), cfg);
+        Arc::new(Self { tag, dns: Some(dns), pool: Some(pool) })
     }
 
     async fn resolve(&self, dest: &Address) -> Result<SocketAddr, ProxyError> {
@@ -309,33 +439,45 @@ impl OutboundHandler for FreedomOutbound {
         debug!(dest = %dest, resolved = %addr, "freedom: connecting");
 
         if let Some(pool) = &self.pool {
-            if let Some(dest_pool) = pool.get_or_create(addr) {
-                // Count this request toward adaptive capacity.
-                dest_pool.conn_count.fetch_add(1, Ordering::Relaxed);
+            let dest_pool = pool.get_or_create(addr);
 
-                let (taken, stale) = dest_pool.try_take(pool.idle_ttl);
+            // Record this connection, get current adaptive capacity tier.
+            let _cap = dest_pool.record_and_cap(pool.max_per_dest);
 
-                // Update the global idle counter for every popped slot.
-                let total_popped = stale + if taken.is_some() { 1 } else { 0 };
-                if total_popped > 0 {
-                    pool.global_idle.fetch_sub(total_popped as i64, Ordering::Relaxed);
-                }
-                if stale > 0 {
-                    pool.stales.fetch_add(stale as u64, Ordering::Relaxed);
-                }
+            let (taken, stale) = dest_pool.try_take(pool.idle_ttl);
 
-                // Trigger background refill (accounts for new conn_count tier).
-                Arc::clone(&dest_pool).replenish(Arc::clone(pool));
-
-                if let Some(stream) = taken {
-                    pool.hits.fetch_add(1, Ordering::Relaxed);
-                    return Ok(Box::new(stream));
-                }
-                pool.misses.fetch_add(1, Ordering::Relaxed);
+            // Stale pops held a reservation in global_idle; release them.
+            if stale > 0 {
+                pool.global_idle.fetch_sub(stale as i64, Ordering::Relaxed);
+                metrics::counter!(
+                    "freedom_pool_stales_total",
+                    "outbound" => pool.tag.clone()
+                )
+                .increment(stale as u64);
             }
+
+            // Trigger background refill regardless of hit/miss.
+            Arc::clone(&dest_pool).replenish(Arc::clone(pool));
+
+            if let Some(stream) = taken {
+                // taken also held one reservation; it's now "in use" (released by caller).
+                // Decrement global_idle since the socket left the pool.
+                pool.global_idle.fetch_sub(1, Ordering::Relaxed);
+                metrics::counter!(
+                    "freedom_pool_hits_total",
+                    "outbound" => pool.tag.clone()
+                )
+                .increment(1);
+                return Ok(Box::new(stream));
+            }
+            metrics::counter!(
+                "freedom_pool_misses_total",
+                "outbound" => pool.tag.clone()
+            )
+            .increment(1);
         }
 
-        // Cold path: dial a fresh connection (pool disabled, at dest limit, or miss).
+        // Cold path: dial a fresh connection (pool disabled or miss).
         let stream = tcp_connect(addr).await?;
         stream.set_nodelay(true)?;
         Ok(Box::new(stream))
