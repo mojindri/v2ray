@@ -144,8 +144,8 @@ mod linux {
         const TAG_AB_OUT: u64 = 1; // SPLICE pipe_ab → b_fd
         const TAG_BA_IN: u64 = 2; // SPLICE b_fd → pipe_ba
         const TAG_BA_OUT: u64 = 3; // SPLICE pipe_ba → a_fd
-        // POLL_ADD completions are suppressed via SKIP_SUCCESS; this tag is
-        // used only on error-cancellation CQEs from a failed link.
+                                   // POLL_ADD completions are suppressed via SKIP_SUCCESS; this tag is
+                                   // used only on error-cancellation CQEs from a failed link.
         const TAG_POLL: u64 = u64::MAX;
 
         /// Per-relay io_uring context: ring + eventfd wakeup + two kernel pipe pairs.
@@ -182,10 +182,7 @@ mod linux {
 
         impl State {
             fn is_done(&self) -> bool {
-                self.ab_eof
-                    && self.ba_eof
-                    && self.ab_pending == 0
-                    && self.ba_pending == 0
+                self.ab_eof && self.ba_eof && self.ab_pending == 0 && self.ba_pending == 0
             }
         }
 
@@ -194,9 +191,7 @@ mod linux {
                 let ring = IoUring::new(RING_ENTRIES)?;
 
                 // Create a non-blocking eventfd for CQE wakeup notification.
-                let raw_efd = unsafe {
-                    libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK)
-                };
+                let raw_efd = unsafe { libc::eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK) };
                 if raw_efd < 0 {
                     return Err(io::Error::last_os_error());
                 }
@@ -251,17 +246,18 @@ mod linux {
             /// For the write direction: the pipe always has data (we just filled it)
             /// and loopback send buffers are large, so SPLICE usually succeeds.
             /// If it returns -EAGAIN (send buffer full), push_out_guarded handles it.
-            fn push_out(&mut self, pipe_read: RawFd, dst: RawFd, len: usize, tag: u64) -> io::Result<()> {
-                let splice = opcode::Splice::new(
-                    types::Fd(pipe_read),
-                    -1,
-                    types::Fd(dst),
-                    -1,
-                    len as u32,
-                )
-                .flags(libc::SPLICE_F_MOVE | libc::SPLICE_F_NONBLOCK)
-                .build()
-                .user_data(tag);
+            fn push_out(
+                &mut self,
+                pipe_read: RawFd,
+                dst: RawFd,
+                len: usize,
+                tag: u64,
+            ) -> io::Result<()> {
+                let splice =
+                    opcode::Splice::new(types::Fd(pipe_read), -1, types::Fd(dst), -1, len as u32)
+                        .flags(libc::SPLICE_F_MOVE | libc::SPLICE_F_NONBLOCK)
+                        .build()
+                        .user_data(tag);
 
                 unsafe {
                     self.ring
@@ -275,21 +271,22 @@ mod linux {
             /// Push POLL_ADD(POLLOUT, IO_LINK | SKIP_SUCCESS) + SPLICE(pipe → dst).
             ///
             /// Used when a plain push_out returned -EAGAIN (send buffer full).
-            fn push_out_guarded(&mut self, pipe_read: RawFd, dst: RawFd, len: usize, tag: u64) -> io::Result<()> {
+            fn push_out_guarded(
+                &mut self,
+                pipe_read: RawFd,
+                dst: RawFd,
+                len: usize,
+                tag: u64,
+            ) -> io::Result<()> {
                 let poll = opcode::PollAdd::new(types::Fd(dst), libc::POLLOUT as u32)
                     .build()
                     .flags(squeue::Flags::IO_LINK | squeue::Flags::SKIP_SUCCESS)
                     .user_data(TAG_POLL);
-                let splice = opcode::Splice::new(
-                    types::Fd(pipe_read),
-                    -1,
-                    types::Fd(dst),
-                    -1,
-                    len as u32,
-                )
-                .flags(libc::SPLICE_F_MOVE | libc::SPLICE_F_NONBLOCK)
-                .build()
-                .user_data(tag);
+                let splice =
+                    opcode::Splice::new(types::Fd(pipe_read), -1, types::Fd(dst), -1, len as u32)
+                        .flags(libc::SPLICE_F_MOVE | libc::SPLICE_F_NONBLOCK)
+                        .build()
+                        .user_data(tag);
 
                 unsafe {
                     let mut sq = self.ring.submission();
@@ -326,7 +323,11 @@ mod linux {
                                 8,
                             )
                         };
-                        if n == 8 { Ok(val) } else { Err(io::Error::last_os_error()) }
+                        if n == 8 {
+                            Ok(val)
+                        } else {
+                            Err(io::Error::last_os_error())
+                        }
                     }) {
                         Ok(Ok(_)) => break,
                         Ok(Err(e)) => return Err(e),
@@ -365,8 +366,8 @@ mod linux {
                 loop {
                     // Wait with optional drain timeout.
                     let wait_result = if let Some(deadline) = drain_until {
-                        let remaining = deadline
-                            .saturating_duration_since(tokio::time::Instant::now());
+                        let remaining =
+                            deadline.saturating_duration_since(tokio::time::Instant::now());
                         if remaining.is_zero() {
                             break; // Drain window expired.
                         }
@@ -404,7 +405,7 @@ mod linux {
                             TAG_AB_IN => {
                                 state.ab_pending -= 1;
                                 let n = result;
-                                if n == 0 || n == -(libc::ECANCELED as i32) {
+                                if n == 0 || n == -libc::ECANCELED {
                                     // EOF or fd closed while polling.
                                     state.ab_eof = true;
                                     shutdown_b = true;
@@ -419,9 +420,14 @@ mod linux {
                             TAG_AB_OUT => {
                                 state.ab_pending -= 1;
                                 let n = result;
-                                if n == -(libc::EAGAIN as i32) {
+                                if n == -libc::EAGAIN {
                                     // Send buffer full — guard with POLLOUT before retry.
-                                    self.push_out_guarded(ab_rfd, b_fd, state.ab_in_pipe, TAG_AB_OUT)?;
+                                    self.push_out_guarded(
+                                        ab_rfd,
+                                        b_fd,
+                                        state.ab_in_pipe,
+                                        TAG_AB_OUT,
+                                    )?;
                                     state.ab_pending += 1;
                                 } else if n > 0 {
                                     let w = n as usize;
@@ -442,7 +448,7 @@ mod linux {
                             TAG_BA_IN => {
                                 state.ba_pending -= 1;
                                 let n = result;
-                                if n == 0 || n == -(libc::ECANCELED as i32) {
+                                if n == 0 || n == -libc::ECANCELED {
                                     state.ba_eof = true;
                                     shutdown_a = true;
                                 } else if n < 0 {
@@ -456,8 +462,13 @@ mod linux {
                             TAG_BA_OUT => {
                                 state.ba_pending -= 1;
                                 let n = result;
-                                if n == -(libc::EAGAIN as i32) {
-                                    self.push_out_guarded(ba_rfd, a_fd, state.ba_in_pipe, TAG_BA_OUT)?;
+                                if n == -libc::EAGAIN {
+                                    self.push_out_guarded(
+                                        ba_rfd,
+                                        a_fd,
+                                        state.ba_in_pipe,
+                                        TAG_BA_OUT,
+                                    )?;
                                     state.ba_pending += 1;
                                 } else if n > 0 {
                                     let w = n as usize;
@@ -494,8 +505,7 @@ mod linux {
 
                     // Once one direction is done, start the drain timer.
                     if drain_until.is_none() && (state.ab_eof || state.ba_eof) {
-                        drain_until =
-                            Some(tokio::time::Instant::now() + PEER_DRAIN);
+                        drain_until = Some(tokio::time::Instant::now() + PEER_DRAIN);
                     }
 
                     self.ring.submitter().submit()?;
@@ -645,7 +655,9 @@ mod linux {
         }
     }
 
-    async fn drain_peer(peer: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<u64>>>) -> io::Result<u64> {
+    async fn drain_peer(
+        peer: std::pin::Pin<&mut impl std::future::Future<Output = io::Result<u64>>>,
+    ) -> io::Result<u64> {
         match tokio::time::timeout(PEER_DRAIN, peer).await {
             Ok(res) => res,
             Err(_) => Ok(0),
@@ -706,9 +718,9 @@ mod linux {
     ) -> io::Result<(u64, u64)> {
         // Steady-state fast paths: no lock contention, no closure allocation.
         match URING_AVAILABLE.get() {
-            Some(&true)  => return uring::splice_bidirectional_uring(a, b).await,
+            Some(&true) => return uring::splice_bidirectional_uring(a, b).await,
             Some(&false) => return splice_bidirectional_epoll(a, b).await,
-            None         => {} // First call: probe and cache below.
+            None => {} // First call: probe and cache below.
         }
 
         // First call only: try io_uring, cache the outcome, log once.
@@ -790,13 +802,10 @@ mod linux {
             .expect("client read");
             assert_eq!(got, payload);
 
-            let (up, down) = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                relay,
-            )
-            .await
-            .expect("relay timed out")
-            .expect("relay join");
+            let (up, down) = tokio::time::timeout(std::time::Duration::from_secs(5), relay)
+                .await
+                .expect("relay timed out")
+                .expect("relay join");
             assert_eq!(up, 0);
             assert_eq!(down, payload.len() as u64);
         }
@@ -868,13 +877,10 @@ mod linux {
             .expect("uring client read");
             assert_eq!(got, payload);
 
-            let (up, down) = tokio::time::timeout(
-                std::time::Duration::from_secs(5),
-                relay,
-            )
-            .await
-            .expect("relay timed out")
-            .expect("relay join");
+            let (up, down) = tokio::time::timeout(std::time::Duration::from_secs(5), relay)
+                .await
+                .expect("relay timed out")
+                .expect("relay join");
             assert_eq!(up, 0);
             assert_eq!(down, payload.len() as u64);
         }

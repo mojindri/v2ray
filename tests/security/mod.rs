@@ -34,8 +34,8 @@ impl Dispatcher for CountingDispatcher {
 
     async fn connect_outbound(
         &self,
-        _ctx: Context,
-        _dest: Address,
+        _ctx: &Context,
+        _dest: &Address,
     ) -> Result<BoxedStream, ProxyError> {
         self.calls.fetch_add(1, Ordering::Relaxed);
         Err(ProxyError::Protocol("connect_outbound stub".into()))

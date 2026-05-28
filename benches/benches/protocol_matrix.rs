@@ -152,7 +152,12 @@ pub fn register_protocol_benches(c: &mut Criterion, path: ProtocolPath) {
     }
 }
 
-fn register_handshake(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_harness::ProxyPair, name: &str) {
+fn register_handshake(
+    c: &mut Criterion,
+    rt: &tokio::runtime::Runtime,
+    pair: &bench_harness::ProxyPair,
+    name: &str,
+) {
     let mut group = c.benchmark_group(format!("{name}/handshake"));
     group.sample_size(20);
     group.warm_up_time(Duration::from_millis(250));
@@ -160,7 +165,7 @@ fn register_handshake(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &be
     group.bench_function("connect", |b| {
         // Criterion can request very high iteration counts for tiny operations.
         // Cap real connects per sample to avoid exhausting local ephemeral ports.
-        b.iter_custom(|iters| capped_connect_sample_time(&rt, &pair, iters));
+        b.iter_custom(|iters| capped_connect_sample_time(rt, pair, iters));
     });
     group.finish();
 }
@@ -176,12 +181,17 @@ fn register_handshake_sniff(
     group.warm_up_time(Duration::from_millis(250));
     group.measurement_time(Duration::from_secs(3));
     group.bench_function("connect_with_sniffing", |b| {
-        b.iter_custom(|iters| capped_connect_sample_time(&rt, &pair, iters));
+        b.iter_custom(|iters| capped_connect_sample_time(rt, pair, iters));
     });
     group.finish();
 }
 
-fn register_bulk(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_harness::ProxyPair, name: &str) {
+fn register_bulk(
+    c: &mut Criterion,
+    rt: &tokio::runtime::Runtime,
+    pair: &bench_harness::ProxyPair,
+    name: &str,
+) {
     let timeout = iter_timeout();
     let mut group = c.benchmark_group(format!("{name}/bulk_relay"));
     group.sample_size(10);
@@ -230,7 +240,12 @@ fn register_bulk(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_h
     group.finish();
 }
 
-fn register_short_lived(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_harness::ProxyPair, name: &str) {
+fn register_short_lived(
+    c: &mut Criterion,
+    rt: &tokio::runtime::Runtime,
+    pair: &bench_harness::ProxyPair,
+    name: &str,
+) {
     let mut group = c.benchmark_group(format!("{name}/short_lived"));
     group.sample_size(20);
     group.warm_up_time(Duration::from_millis(250));
@@ -242,14 +257,19 @@ fn register_short_lived(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &
             BenchmarkId::from_parameter(payload),
             &payload,
             |b, &payload| {
-                b.iter_custom(|iters| capped_short_lived_sample_time(&rt, &pair, payload, iters));
+                b.iter_custom(|iters| capped_short_lived_sample_time(rt, pair, payload, iters));
             },
         );
     }
     group.finish();
 }
 
-fn register_mixed_writes(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_harness::ProxyPair, name: &str) {
+fn register_mixed_writes(
+    c: &mut Criterion,
+    rt: &tokio::runtime::Runtime,
+    pair: &bench_harness::ProxyPair,
+    name: &str,
+) {
     let timeout = iter_timeout();
     let mut group = c.benchmark_group(format!("{name}/mixed_small_writes"));
     group.sample_size(10);
@@ -294,7 +314,12 @@ fn register_mixed_writes(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: 
     group.finish();
 }
 
-fn register_concurrency(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &bench_harness::ProxyPair, name: &str) {
+fn register_concurrency(
+    c: &mut Criterion,
+    rt: &tokio::runtime::Runtime,
+    pair: &bench_harness::ProxyPair,
+    name: &str,
+) {
     let mut group = c.benchmark_group(format!("{name}/concurrency"));
     group.sample_size(10);
     group.warm_up_time(Duration::from_millis(250));
@@ -308,7 +333,7 @@ fn register_concurrency(c: &mut Criterion, rt: &tokio::runtime::Runtime, pair: &
             &sessions,
             |b, &sessions| {
                 b.iter_custom(|iters| {
-                    capped_concurrency_sample_time(&rt, &pair, sessions, payload, iters)
+                    capped_concurrency_sample_time(rt, pair, sessions, payload, iters)
                 });
             },
         );

@@ -51,7 +51,11 @@ where
     Ok((r_up?, r_down?))
 }
 
-async fn copy_one_pooled<R, W>(mut reader: R, mut writer: W, pool: Arc<BufferPool>) -> io::Result<u64>
+async fn copy_one_pooled<R, W>(
+    mut reader: R,
+    mut writer: W,
+    pool: Arc<BufferPool>,
+) -> io::Result<u64>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
@@ -66,8 +70,11 @@ where
             break;
         }
         writer.write_all(&buf[..n]).await?;
+        writer.flush().await?;
         total += n as u64;
     }
+    // Propagate EOF: shut down the write half so the peer sees a clean close.
+    let _ = writer.shutdown().await;
     pool.release(buf);
     Ok(total)
 }
@@ -139,6 +146,9 @@ async fn copy_one_way_with_idle<R, W>(
         };
 
         if writer.write_all(&buf[..n]).await.is_err() {
+            break;
+        }
+        if writer.flush().await.is_err() {
             break;
         }
         last_activity.store(now_ms(), Ordering::Relaxed);

@@ -144,9 +144,9 @@ fn tier_from_count(count: u64, max: usize) -> usize {
 /// kernel TCP state machine and catches the half-open case.
 ///
 /// Return semantics:
-/// - `true`  — socket is confirmed ESTABLISHED, or probe was inconclusive
-///             (getsockopt failed: platform/kernel oddity). We never discard
-///             a socket we cannot inspect.
+/// - `true` — socket is confirmed ESTABLISHED, or probe was inconclusive
+///   (getsockopt failed: platform/kernel oddity). We never discard
+///   a socket we cannot inspect.
 /// - `false` — socket is confirmed NOT in ESTABLISHED state. Discard.
 ///
 /// Only a successful getsockopt with a non-ESTABLISHED state causes a discard.
@@ -251,9 +251,7 @@ impl DestPool {
             // the TCP state will not be ESTABLISHED.
             let mut probe = [0u8; 1];
             let alive = match stream.try_read(&mut probe) {
-                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                    tcp_is_established(&stream)
-                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => tcp_is_established(&stream),
                 _ => false, // EOF or error: definitely stale.
             };
             if alive {
@@ -289,9 +287,7 @@ impl DestPool {
             .saturating_sub(committed)
             .max(0) as usize;
 
-        let needed = cap
-            .saturating_sub(idle_len + in_flight)
-            .min(global_budget);
+        let needed = cap.saturating_sub(idle_len + in_flight).min(global_budget);
 
         if needed == 0 {
             return;
@@ -445,19 +441,31 @@ pub struct FreedomOutbound {
 impl FreedomOutbound {
     /// Compat mode: no connection pooling.
     pub fn new(tag: impl Into<String>) -> Arc<Self> {
-        Arc::new(Self { tag: tag.into(), dns: None, pool: None })
+        Arc::new(Self {
+            tag: tag.into(),
+            dns: None,
+            pool: None,
+        })
     }
 
     /// Fast Profile: adaptive connection pooling.
     pub fn new_pooled(tag: impl Into<String>, cfg: PoolConfig) -> Arc<Self> {
         let tag = tag.into();
         let pool = AdaptivePool::new(tag.clone(), cfg);
-        Arc::new(Self { tag, dns: None, pool: Some(pool) })
+        Arc::new(Self {
+            tag,
+            dns: None,
+            pool: Some(pool),
+        })
     }
 
     /// Compat mode with custom DNS: no connection pooling.
     pub fn new_with_dns(tag: impl Into<String>, dns: Arc<DnsModule>) -> Arc<Self> {
-        Arc::new(Self { tag: tag.into(), dns: Some(dns), pool: None })
+        Arc::new(Self {
+            tag: tag.into(),
+            dns: Some(dns),
+            pool: None,
+        })
     }
 
     /// Fast Profile with custom DNS: adaptive connection pooling.
@@ -468,7 +476,11 @@ impl FreedomOutbound {
     ) -> Arc<Self> {
         let tag = tag.into();
         let pool = AdaptivePool::new(tag.clone(), cfg);
-        Arc::new(Self { tag, dns: Some(dns), pool: Some(pool) })
+        Arc::new(Self {
+            tag,
+            dns: Some(dns),
+            pool: Some(pool),
+        })
     }
 
     async fn resolve(&self, dest: &Address) -> Result<SocketAddr, ProxyError> {

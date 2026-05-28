@@ -50,8 +50,8 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 use std::collections::HashMap;
 
 use blackwire_common::{Address, BoxedStream, ProxyError};
-use smallvec::SmallVec;
 use blackwire_config::schema::{ProfileMode, SniffingConfig};
+use smallvec::SmallVec;
 
 use crate::context::Context;
 use crate::dns::DnsModule;
@@ -206,9 +206,9 @@ impl Dispatcher for DefaultDispatcher {
         let sniff_cfg = self.sniffing.load().get(&ctx.inbound_tag).cloned();
         if let Some(cfg) = sniff_cfg {
             if cfg.enabled {
-                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &*cfg).await?;
+                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
                 inbound_stream = stream;
-                dest = crate::sniff::apply_dest_override(dest, &sniff, &*cfg);
+                dest = crate::sniff::apply_dest_override(dest, &sniff, &cfg);
                 ctx = ctx.with_sniff(sniff.protocol, sniff.domain);
             }
         }
@@ -572,7 +572,10 @@ mod tests {
 
         let fake_addr = Address::Ipv4(fake, 443);
         let restored = dispatcher.restore_fakeip_destination(&fake_addr);
-        assert_eq!(restored.into_owned(), Address::Domain("example.com".into(), 443));
+        assert_eq!(
+            restored.into_owned(),
+            Address::Domain("example.com".into(), 443)
+        );
     }
 
     #[tokio::test]
