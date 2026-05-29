@@ -37,7 +37,7 @@ This is a pre-1.0 project. The support contract is explicit:
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 - Resource-risk smoke coverage in normal CI
 - External-client failure pcaps in CI artifacts
-- TUN transparent proxy on Linux, including privileged CI coverage
+- TUN transparent proxy on Linux/macOS/Windows, including privileged CI coverage
 - Handler API (gRPC) list/user/structural endpoint operations
 - macOS release artifact build
 

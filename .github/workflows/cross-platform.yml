@@ -77,6 +77,40 @@ jobs:
       - name: Check TUN platform support contract
         run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
 
+  macos-tun-privileged:
+    name: macOS TUN privileged
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run macOS privileged TUN runtime smoke
+        run: |
+          sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv macos_tun_runtime_privileged_smoke -- --include-ignored
+
+  windows-tun-privileged:
+    name: Windows TUN privileged
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Download Wintun
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "$env:RUNNER_TEMP\wintun.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\wintun.zip" -DestinationPath "$env:RUNNER_TEMP\wintun" -Force
+          $dll = Join-Path $env:RUNNER_TEMP "wintun\wintun\bin\amd64\wintun.dll"
+          if (!(Test-Path $dll)) {
+            throw "wintun.dll not found at $dll"
+          }
+          "WINTUN_FILE=$dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run Windows privileged TUN runtime smoke
+        shell: pwsh
+        run: cargo test -p blackwire-transport --features priv-test --test tun_priv windows_tun_runtime_privileged_smoke -- --include-ignored
+
   docker:
     name: Docker
     runs-on: ubuntu-latest

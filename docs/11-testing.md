@@ -407,7 +407,7 @@ blackwire run -c /etc/blackwire/generated/server-vless-reality.json &
 
 ## Tier 10 — TUN privileged tests
 
-Runs the TUN subsystem tests on Linux with root. Requires the Rust toolchain on the server VPS (or run from source if the VPS has the repo checked out).
+Runs the TUN subsystem tests with platform privileges. Linux uses root/CAP_NET_ADMIN, macOS uses `sudo` for utun route/PF setup, and Windows uses an elevated runner plus a Wintun DLL.
 
 ```sh
 SSH_SERVER=1.2.3.4 make -C labs/realistic vps-tun
@@ -425,7 +425,18 @@ Three test groups run in sequence:
 2. **Privileged device tests** — creates a real TUN device, checks `ip link show`, installs and removes iptables rules, verifies symmetry.
 3. **VPS interop** — sends a real UDP DNS query to `8.8.8.8:53` through the TUN NAT table and verifies the response arrives as a synthesized TUN packet.
 
-The third group requires real internet access on the server.
+CI also runs focused privileged runtime smoke tests on macOS and Windows:
+
+```sh
+sudo -E cargo test -p blackwire-transport --features priv-test --test tun_priv macos_tun_runtime_privileged_smoke -- --include-ignored
+```
+
+```powershell
+$env:WINTUN_FILE = "C:\path\to\wintun.dll"
+cargo test -p blackwire-transport --features priv-test --test tun_priv windows_tun_runtime_privileged_smoke -- --include-ignored
+```
+
+The VPS interop group requires real internet access on the server.
 
 ---
 
