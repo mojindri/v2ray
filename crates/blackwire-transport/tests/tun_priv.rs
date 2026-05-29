@@ -126,6 +126,7 @@ async fn tun_device_creates_and_is_up() {
         bypass_mark: 0xabcd,
         redirect_port: 17890,
         dns_port: 15300,
+        wintun_file: None,
     };
     let _dev = create_tun(&cfg).expect("TUN device creation failed — is this running as root?");
 
@@ -162,6 +163,7 @@ async fn tun_runtime_starts_and_shuts_down() {
         bypass_mark: 0xbcde,
         redirect_port: 17891,
         dns_port: 15301,
+        wintun_file: None,
     };
     let device = create_tun(&cfg).expect("TUN device creation failed");
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -216,6 +218,7 @@ async fn route_setup_and_cleanup_are_symmetric() {
         bypass_mark: 0xcdef,
         redirect_port: 17892,
         dns_port: 15302,
+        wintun_file: None,
     };
 
     // Create TUN device so the route can reference the interface.

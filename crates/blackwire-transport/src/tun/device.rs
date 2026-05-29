@@ -31,6 +31,8 @@ pub struct TunConfig {
     pub redirect_port: u16,
     /// Local UDP port where redirected DNS packets are sent.
     pub dns_port: u16,
+    /// Windows-only path to `wintun.dll`.
+    pub wintun_file: Option<String>,
 }
 
 impl Default for TunConfig {
@@ -49,6 +51,7 @@ impl Default for TunConfig {
             bypass_mark: 0x1234,
             redirect_port: 7890,
             dns_port: 5300,
+            wintun_file: None,
         }
     }
 }
@@ -75,6 +78,13 @@ pub fn create_tun(config: &TunConfig) -> Result<TunDevice> {
         p.packet_information(true);
         p.enable_routing(false);
     });
+
+    #[cfg(target_os = "windows")]
+    if let Some(wintun_file) = &config.wintun_file {
+        cfg.platform_config(|p| {
+            p.wintun_file(wintun_file);
+        });
+    }
 
     let dev = tun::create_as_async(&cfg)?;
     info!(name = %config.name, address = %config.address, mtu = config.mtu, "TUN interface created");

@@ -61,7 +61,7 @@ pub fn current_tun_support() -> TunPlatformSupport {
             tcp_redirection: false,
             udp_nat: true,
             requires_privileges: true,
-            note: "Windows Wintun device creation is wired, but full runtime requires wintun.dll packaging plus native routing and TCP redirection before it can be supported",
+            note: "Windows Wintun device creation is wired and can use an explicit wintun.dll path, but full runtime requires native routing and TCP redirection before it can be supported",
         }
     }
 

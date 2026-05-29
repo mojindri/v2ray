@@ -60,9 +60,9 @@ pub struct Config {
     /// TUN interception settings.
     ///
     /// Linux has the active full-device runtime today. macOS utun and Windows
-    /// Wintun device creation compile through the native backend, but full
-    /// runtime startup fails early until native routing, TCP redirection, and
-    /// packaging paths are implemented.
+    /// Wintun device creation compile through the native backend. Windows can
+    /// point at an explicit `wintun.dll`, but full runtime startup fails early
+    /// until native routing and TCP redirection paths are implemented.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 
@@ -169,6 +169,17 @@ pub struct TunConfig {
     /// Local DNS port used by the transparent-proxy DNS path.
     #[serde(default = "default_tun_dns_port")]
     pub dns_port: u16,
+    /// Windows-only path to `wintun.dll`.
+    ///
+    /// When unset, the Windows backend uses the `tun` crate default
+    /// (`wintun.dll` in the process DLL search path).
+    #[serde(
+        default,
+        rename = "wintunFile",
+        alias = "wintun_file",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub wintun_file: Option<String>,
 }
 
 fn default_tun_name() -> String {
@@ -233,6 +244,28 @@ mod tests {
         assert_eq!(cfg.outbounds.len(), 1);
         assert_eq!(cfg.inbounds[0].tag, "socks");
         assert_eq!(cfg.outbounds[0].tag, "direct");
+    }
+
+    #[test]
+    fn tun_wintun_file_accepts_camel_and_snake_case() {
+        let camel: TunConfig = serde_json::from_str(
+            r#"{
+                "wintunFile": "C:\\Program Files\\Blackwire\\wintun.dll"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            camel.wintun_file.as_deref(),
+            Some(r#"C:\Program Files\Blackwire\wintun.dll"#)
+        );
+
+        let snake: TunConfig = serde_json::from_str(
+            r#"{
+                "wintun_file": ".\\wintun.dll"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(snake.wintun_file.as_deref(), Some(r#".\wintun.dll"#));
     }
 
     #[test]

@@ -26,7 +26,7 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 - Resource-risk smoke coverage in normal CI
 - External-client failure pcaps captured and uploaded by CI
-- TUN transparent proxy on Linux, covered by privileged CI tests; macOS utun and Windows Wintun device creation compile through native backends, while full-device runtime startup fails early through an explicit platform support contract until native routing, TCP redirection, and packaging are implemented
+- TUN transparent proxy on Linux, covered by privileged CI tests; macOS utun and Windows Wintun device creation compile through native backends; Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; full-device runtime startup still fails early through an explicit platform support contract until native routing and TCP redirection are implemented
 - Handler API structural endpoint operations with rebuild rollback
 - macOS release artifact build
 
@@ -53,7 +53,7 @@ at config validation (before any traffic is handled) or return an error at runti
 - DNS, dokodemo, tun as inbound `protocol` values — not in the `Protocol` enum; deserialization fails
 - Byte-identical browser TLS fingerprinting — functional interop ≠ identical ClientHello bytes
 - OpenWrt, Android, iOS — not built or tested
-- Windows full-device TUN/Wintun runtime — device backend is wired, but runtime support requires Wintun packaging plus native routing and TCP redirection
+- Windows full-device TUN/Wintun runtime — device backend and explicit `wintun.dll` path wiring are present, but runtime support still requires native routing and TCP redirection
 - Standalone client app (TUN/system proxy UI)
 
 ---

@@ -168,6 +168,7 @@ impl Instance {
                 bypass_mark: tun_cfg.bypass_mark,
                 redirect_port: tun_cfg.redirect_port,
                 dns_port: tun_cfg.dns_port,
+                wintun_file: tun_cfg.wintun_file.clone(),
             };
             let device =
                 create_tun(&tc).context("TUN device creation failed (are we running as root?)")?;
