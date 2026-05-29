@@ -1,6 +1,8 @@
 use anyhow::Result;
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tracing::info;
+#[cfg(target_os = "macos")]
+use tun::AbstractDevice;
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use super::backend::current_tun_support;
@@ -92,6 +94,12 @@ pub fn create_tun(config: &TunConfig) -> Result<TunDevice> {
     let dev = tun::create_as_async(&cfg)?;
     info!(name = %config.name, address = %config.address, mtu = config.mtu, "TUN interface created");
     Ok(dev)
+}
+
+/// Return the OS-assigned name for a TUN device.
+#[cfg(target_os = "macos")]
+pub fn tun_device_name(device: &TunDevice) -> Result<String> {
+    device.tun_name().map_err(Into::into)
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]

@@ -372,16 +372,15 @@ The repo can start a top-level `tun` runtime on Linux and has helpers for device
 creation, route installation, cleanup, IP packet parsing, UDP response packet
 synthesis, and flow/NAT session tracking. Packet parsing, UDP response
 synthesis, flow/NAT session tracking, and the runtime packet loop are shared
-cross-platform APIs. The full-device runtime backend is Linux/root-oriented
-today. Linux outbound sockets use `SO_MARK`; macOS can configure
-`tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets.
-macOS utun and Windows Wintun device creation are wired through the native `tun`
-crate backend, and Windows can use `tun.wintunFile`/`tun.wintun_file` to point
-at a bundled `wintun.dll`. macOS/Windows still fail early through the explicit
-TUN platform support contract when `config.tun` asks for a full-device runtime.
-That contract keeps packet/NAT/session helpers portable while
-preventing macOS/Windows from silently accepting a `tun` config before their
-native routing and TCP redirection paths exist.
+cross-platform APIs. Linux outbound sockets use `SO_MARK`; macOS installs split
+default routes through the OS-assigned utun interface, loads a scoped PF anchor
+for TCP/DNS redirection, and uses
+`tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets
+so proxy egress does not re-enter the utun capture path. Windows Wintun device
+creation is wired through the native `tun` crate backend, and Windows can use
+`tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`. Windows
+still fails early through the explicit TUN platform support contract when
+`config.tun` asks for a full-device runtime.
 
 ## ShadowTLS
 

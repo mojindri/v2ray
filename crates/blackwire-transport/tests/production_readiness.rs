@@ -56,11 +56,21 @@ fn tun_platform_support_contract_matches_current_target() {
         ensure_tun_runtime_supported().expect("Linux TUN runtime should be supported");
     }
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    {
+        assert_eq!(support.backend, "macos-utun");
+        assert!(support.device_backend);
+        assert!(support.full_device_runtime);
+        assert!(support.tcp_redirection);
+        ensure_tun_runtime_supported().expect("macOS TUN runtime should be supported");
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         assert!(!support.full_device_runtime);
         assert!(!support.tcp_redirection);
-        let err = ensure_tun_runtime_supported().expect_err("non-Linux TUN must fail clearly");
+        let err =
+            ensure_tun_runtime_supported().expect_err("unsupported TUN runtime must fail clearly");
         assert!(
             err.to_string().contains("full-device runtime"),
             "unexpected TUN support error: {err}"
