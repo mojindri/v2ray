@@ -32,7 +32,7 @@ pub use tls13::{complete_tls13_server_handshake, Tls13Stream};
 /// Complete TLS 1.3 as server after REALITY auth, wrapping the result in a `BoxedStream`.
 ///
 /// Combines [`complete_tls13_server_handshake`] and [`Tls13Stream::new_server`] so that
-/// callers don't need to name the private [`AppKeys`] type.
+/// callers don't need to name the private handshake-key type.
 pub async fn reality_server_tls_stream(
     mut stream: blackwire_common::BoxedStream,
     auth_key: &[u8; 32],
