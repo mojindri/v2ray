@@ -53,7 +53,7 @@ at config validation (before any traffic is handled) or return an error at runti
 - DNS, dokodemo, tun as inbound `protocol` values — not in the `Protocol` enum; deserialization fails
 - Byte-identical browser TLS fingerprinting — functional interop ≠ identical ClientHello bytes
 - OpenWrt, Android, iOS — not built or tested
-- Windows full-device TUN/Wintun runtime — device backend and explicit `wintun.dll` path wiring are present, but runtime support still requires native routing and TCP redirection
+- Windows full-device TUN/Wintun runtime — device backend, explicit `wintun.dll` path wiring, and split-route setup are present, but runtime support still requires native TCP redirection
 - Standalone client app (TUN/system proxy UI)
 
 ---
