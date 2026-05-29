@@ -2,7 +2,7 @@
 //!
 //! This module contains everything needed to run packet-level proxying through
 //! an OS TUN device: device creation, packet parsing, UDP NAT, runtime loop,
-//! and optional Linux route helpers.
+//! and platform route helpers.
 
 /// Platform support contract for the TUN runtime.
 pub mod backend;
@@ -12,8 +12,7 @@ pub mod device;
 pub mod nat;
 /// Raw IP/TCP/UDP packet parsing and builders.
 pub mod packet;
-#[cfg(target_os = "linux")]
-/// Linux-only route and iptables setup helpers.
+/// Platform route/redirection setup helpers.
 pub mod route;
 /// Main TUN runtime event loop.
 pub mod runtime;

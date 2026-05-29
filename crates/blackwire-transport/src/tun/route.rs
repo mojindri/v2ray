@@ -1,6 +1,73 @@
-use anyhow::{Context as _, Result};
+#[cfg(target_os = "linux")]
+use anyhow::Context as _;
+use anyhow::Result;
+
+#[cfg(target_os = "linux")]
 use tokio::process::Command;
+#[cfg(target_os = "linux")]
 use tracing::{info, warn};
+
+#[cfg(not(target_os = "linux"))]
+use super::backend::ensure_tun_runtime_supported;
+use super::device::TunConfig;
+
+/// Installed platform route/redirection state for one TUN runtime.
+///
+/// The guard stores enough config to clean up platform rules after the packet
+/// loop exits. Cleanup is explicit because it must run async process/OS calls.
+pub struct TunRouteGuard {
+    config: TunConfig,
+}
+
+impl TunRouteGuard {
+    /// Remove route/redirection state installed by [`setup_runtime_routes`].
+    pub async fn cleanup(self) {
+        cleanup_runtime_routes(&self.config).await;
+    }
+}
+
+/// Install route/redirection state for the active platform.
+pub async fn setup_runtime_routes(config: &TunConfig) -> Result<TunRouteGuard> {
+    setup_platform_routes(config).await?;
+    Ok(TunRouteGuard {
+        config: config.clone(),
+    })
+}
+
+/// Remove route/redirection state for the active platform.
+pub async fn cleanup_runtime_routes(config: &TunConfig) {
+    cleanup_platform_routes(config).await;
+}
+
+#[cfg(target_os = "linux")]
+async fn setup_platform_routes(config: &TunConfig) -> Result<()> {
+    setup_routes(
+        &config.name,
+        config.bypass_mark,
+        config.dns_port,
+        config.redirect_port,
+    )
+    .await
+}
+
+#[cfg(target_os = "linux")]
+async fn cleanup_platform_routes(config: &TunConfig) {
+    cleanup_routes(
+        &config.name,
+        config.bypass_mark,
+        config.dns_port,
+        config.redirect_port,
+    )
+    .await;
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn setup_platform_routes(_config: &TunConfig) -> Result<()> {
+    ensure_tun_runtime_supported()
+}
+
+#[cfg(not(target_os = "linux"))]
+async fn cleanup_platform_routes(_config: &TunConfig) {}
 
 /// Applies Linux policy routing and iptables rules that redirect all
 /// non-bypass-marked traffic through the TUN interface.
@@ -10,6 +77,7 @@ use tracing::{info, warn};
 /// as a warning so the proxy still works for IPv4-only environments.
 ///
 /// Call [`cleanup_routes`] to undo every rule this function installed.
+#[cfg(target_os = "linux")]
 pub async fn setup_routes(
     tun_name: &str,
     bypass_mark: u32,
@@ -191,6 +259,7 @@ pub async fn setup_routes(
 ///
 /// Errors are logged as warnings and do not short-circuit; every undo command
 /// is attempted regardless of whether earlier ones fail.
+#[cfg(target_os = "linux")]
 pub async fn cleanup_routes(tun_name: &str, bypass_mark: u32, dns_port: u16, redirect_port: u16) {
     let mark = format!("0x{bypass_mark:x}");
     let dns = dns_port.to_string();
@@ -290,10 +359,12 @@ pub async fn cleanup_routes(tun_name: &str, bypass_mark: u32, dns_port: u16, red
 
 /// Accumulated undo commands for partial-failure rollback.
 #[derive(Default)]
+#[cfg(target_os = "linux")]
 struct RollbackList {
     undos: Vec<Vec<String>>,
 }
 
+#[cfg(target_os = "linux")]
 impl RollbackList {
     async fn rollback(self) {
         for undo in self.undos.into_iter().rev() {
@@ -306,6 +377,7 @@ impl RollbackList {
 }
 
 /// Run a mandatory setup command. On failure, roll back all previous steps.
+#[cfg(target_os = "linux")]
 async fn must(setup: &[&str], undo: &[&str], rb: &mut RollbackList, ctx: &str) -> Result<()> {
     if let Err(e) = run(setup).await.with_context(|| ctx.to_string()) {
         // Take the list so we can call rollback (consumes self).
@@ -318,12 +390,14 @@ async fn must(setup: &[&str], undo: &[&str], rb: &mut RollbackList, ctx: &str) -
 }
 
 /// Run a best-effort command, logging a warning on failure.
+#[cfg(target_os = "linux")]
 async fn try_best_effort(cmd: &[&str], label: &str) {
     if let Err(e) = run(cmd).await {
         warn!(label, error = %e, "best-effort route step failed (IPv6 may not be proxied)");
     }
 }
 
+#[cfg(target_os = "linux")]
 async fn run(args: &[&str]) -> Result<()> {
     let (prog, rest) = args.split_first().expect("non-empty command");
     let status = Command::new(prog)

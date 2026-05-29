@@ -1,8 +1,6 @@
 #[cfg(target_os = "linux")]
 use std::time::Duration;
 
-#[cfg(target_os = "linux")]
-use anyhow::Context as _;
 use anyhow::Result;
 #[cfg(target_os = "linux")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -13,16 +11,13 @@ use tokio::sync::{mpsc, watch};
 #[cfg(target_os = "linux")]
 use tracing::{debug, info, warn};
 
-#[cfg(not(target_os = "linux"))]
-use super::backend::ensure_tun_runtime_supported;
 use super::device::{TunConfig, TunDevice};
 #[cfg(target_os = "linux")]
 use super::nat::{TunTx, UdpNatTable};
 #[cfg(target_os = "linux")]
 use super::packet::{parse_ip_packet, TransportProtocol};
 
-#[cfg(target_os = "linux")]
-use super::route::{cleanup_routes, setup_routes};
+use super::route::setup_runtime_routes;
 
 /// How often to sweep idle NAT entries.
 #[cfg(target_os = "linux")]
@@ -44,8 +39,8 @@ const WRITE_CHAN_CAP: usize = 1024;
 ///      by iptables REDIRECT → the proxy's TCP listener).
 ///   3. Writes synthesized response packets back into the TUN device.
 ///
-/// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries via
-/// `setup_routes` (see `tun/route.rs`) before entering the loop and removes them on exit.
+/// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries through
+/// the platform route backend before entering the loop and removes them on exit.
 pub struct TunRuntime {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TunConfig,
@@ -67,25 +62,11 @@ impl TunRuntime {
 
     #[cfg(target_os = "linux")]
     async fn run_platform(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
-        setup_routes(
-            &self.config.name,
-            self.config.bypass_mark,
-            self.config.dns_port,
-            self.config.redirect_port,
-        )
-        .await
-        .context("TUN: route setup failed")?;
+        let routes = setup_runtime_routes(&self.config).await?;
 
         let result = self.packet_loop(device, shutdown).await;
 
-        #[cfg(target_os = "linux")]
-        cleanup_routes(
-            &self.config.name,
-            self.config.bypass_mark,
-            self.config.dns_port,
-            self.config.redirect_port,
-        )
-        .await;
+        routes.cleanup().await;
 
         result
     }
@@ -96,8 +77,8 @@ impl TunRuntime {
         _device: TunDevice,
         _shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
-        let _ = self;
-        ensure_tun_runtime_supported()
+        setup_runtime_routes(&self.config).await?;
+        Ok(())
     }
 
     #[cfg(target_os = "linux")]
