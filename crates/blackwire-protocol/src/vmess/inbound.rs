@@ -50,7 +50,9 @@ pub struct VmessUser {
     /// Derived VMess command key for auth-id validation.
     pub cmd_key: [u8; 16],
     /// Human-friendly user label used in logs and context.
-    pub email: String,
+    /// `Arc<str>` so cloning the struct (done on every auth lookup) costs one
+    /// atomic refcount increment instead of a heap allocation.
+    pub email: Arc<str>,
 }
 
 /// In-memory VMess user registry keyed by command key.
@@ -67,7 +69,7 @@ impl VmessUserRegistry {
     }
 
     /// Add one user and precompute the corresponding command key.
-    pub fn add_user(&self, uuid: [u8; 16], email: impl Into<String>) {
+    pub fn add_user(&self, uuid: [u8; 16], email: impl Into<Arc<str>>) {
         let key = cmd_key(&uuid);
         self.users.insert(
             key,

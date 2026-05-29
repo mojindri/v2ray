@@ -42,9 +42,9 @@ use blackwire_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
 use blackwire_app::health::HealthChecker;
 use blackwire_app::router::LiveRouter;
-use blackwire_app::Balancer;
-use blackwire_config::schema::{Config, Protocol};
-use blackwire_protocol::freedom::FreedomOutbound;
+use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE_MIN_BYTES};
+use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
+use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
 use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
 use tokio::net::UdpSocket as TokioUdpSocket;
@@ -68,6 +68,37 @@ use helpers::{
     handshake_timeout_for, initial_health_states, reject_unfinished_transport_settings,
     select_balancer_outbounds, InboundConnectionHandler,
 };
+
+fn freedom_pool_config(config: &Config, settings: &serde_json::Value) -> Option<PoolConfig> {
+    if let Some(value) = settings.get("poolSize") {
+        if value.is_null() {
+            return None;
+        }
+        {
+            if let Some(size) = value.as_u64() {
+                return (size > 0).then(|| PoolConfig::fixed(size as usize));
+            }
+            if let Some(policy) = value.as_str() {
+                return match policy.to_ascii_lowercase().as_str() {
+                    "adaptive" => Some(PoolConfig::default()),
+                    "disabled" | "off" | "none" => None,
+                    "fixed" => Some(PoolConfig::fixed(8)),
+                    _ => None,
+                };
+            }
+        }
+    }
+
+    if config.profile != ProfileMode::Fast {
+        return None;
+    }
+
+    match config.fast.as_ref().map(|f| f.pool).unwrap_or_default() {
+        FastPoolPolicy::Adaptive => Some(PoolConfig::default()),
+        FastPoolPolicy::Disabled => None,
+        FastPoolPolicy::Fixed => Some(PoolConfig::fixed(8)),
+    }
+}
 
 use crate::ws_tls::{
     build_conn_handler, uses_grpc, uses_httpupgrade, uses_shadowtls, uses_splithttp, uses_tls,
@@ -158,10 +189,26 @@ impl Instance {
                 &out_cfg.stream_settings,
             )?;
             let handler: Arc<dyn OutboundHandler> = match out_cfg.protocol {
-                Protocol::Freedom => match &dns {
-                    Some(module) => FreedomOutbound::new_with_dns(&out_cfg.tag, Arc::clone(module)),
-                    None => FreedomOutbound::new(&out_cfg.tag),
-                },
+                Protocol::Freedom => {
+                    let pool_cfg = freedom_pool_config(config.as_ref(), &out_cfg.settings);
+                    if let Some(cfg) = pool_cfg {
+                        match &dns {
+                            Some(module) => FreedomOutbound::new_with_dns_pooled(
+                                &out_cfg.tag,
+                                Arc::clone(module),
+                                cfg,
+                            ),
+                            None => FreedomOutbound::new_pooled(&out_cfg.tag, cfg),
+                        }
+                    } else {
+                        match &dns {
+                            Some(module) => {
+                                FreedomOutbound::new_with_dns(&out_cfg.tag, Arc::clone(module))
+                            }
+                            None => FreedomOutbound::new(&out_cfg.tag),
+                        }
+                    }
+                }
                 Protocol::Vless => build_vless_outbound(out_cfg)
                     .with_context(|| format!("building VLESS outbound '{}'", out_cfg.tag))?,
                 Protocol::Hysteria2 => build_hysteria2_outbound(out_cfg)
@@ -259,7 +306,23 @@ impl Instance {
             ),
             None => DefaultDispatcher::new_with_sniffing(router, outbound_map, sniffing_shared),
         }
-        .with_profile(config.profile);
+        .with_profile_and_fast(config.profile, config.fast.as_ref());
+
+        if config.profile == ProfileMode::Fast {
+            let fast = config.fast.as_ref().cloned().unwrap_or_default();
+            let adaptive_pool = PoolConfig::default();
+            info!(
+                pool_policy = ?fast.pool,
+                adaptive_pool_max_per_dest = adaptive_pool.max_per_dest,
+                adaptive_pool_min_hotness = adaptive_pool.min_hotness_for_pool,
+                adaptive_pool_idle_ttl_ms = adaptive_pool.idle_ttl.as_millis(),
+                splice_policy = ?fast.splice,
+                adaptive_splice_min_bytes = ADAPTIVE_SPLICE_MIN_BYTES,
+                adaptive_splice_long_stream_ms = ADAPTIVE_SPLICE_LONG_STREAM_AFTER.as_millis(),
+                strict_production = fast.strict_production,
+                "fast profile policy active"
+            );
+        }
 
         // ── Step 4 & 5: Build inbounds and start listeners ───────────────────
         for in_cfg in &config.inbounds {

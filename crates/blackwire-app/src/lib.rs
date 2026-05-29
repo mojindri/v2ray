@@ -29,6 +29,7 @@ pub use context::Context;
 pub use dispatcher::Dispatcher;
 pub use features::{ConnectionHandler, InboundHandler, OutboundHandler};
 pub use health::{HealthChecker, HealthStates, OutboundState};
+pub use relay::{ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE_MIN_BYTES};
 pub use router::{
     normalize_routing_domain_strategy, Route, Router, RoutingContext, RoutingDomainStrategy,
 };

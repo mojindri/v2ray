@@ -5,9 +5,10 @@
 # Linux/Lima (latency-lima): repeatable with netem — see labs/realistic/latency/scripts/setup-chaos.sh
 # VPS pair (latency-vps): production-like — release evidence only.
 
-LATENCY_DIR   := $(dir $(lastword $(MAKEFILE_LIST)))
+LATENCY_DIR     := $(dir $(lastword $(MAKEFILE_LIST)))
 LATENCY_SCRIPTS := $(LATENCY_DIR)scripts
 LATENCY_REPORTS := $(LATENCY_DIR)reports
+_BENCH_ROOT     := $(abspath $(LATENCY_DIR)../../..)
 
 BENCH_DURATION ?= 30
 BENCH_CONC     ?= 32
@@ -34,7 +35,8 @@ CHAOS_IFACE    ?= lo
 
 .PHONY: latency-local latency-local-dry latency-report latency-report-html latency-check-tools \
         latency-lima latency-lima-build latency-chaos latency-profile \
-        latency-compare latency-vps
+        latency-compare latency-vps \
+        bench bench-build bench-xray bench-singbox bench-smoke bench-remote
 
 latency-check-tools: ## Check that tools required for latency benchmarks are installed
 	@echo "==> checking latency tools"
@@ -169,3 +171,61 @@ latency-profile: ## perf flamegraph of blackwire-fast-lab under hey (Linux only;
 	 FLAMEGRAPH_DIR="$(FLAMEGRAPH_DIR)" \
 	 bash "$(LATENCY_SCRIPTS)/run-flamegraph.sh" blackwire-fast-lab http://127.0.0.1:18080/
 	@echo "==> latency-profile done — open SVG from $(LATENCY_REPORTS)/"
+
+# ── Docker bench targets ───────────────────────────────────────────────────────
+
+BENCH_IMAGE ?= blackwire-bench
+
+bench-build: ## Build the blackwire-bench Docker image for linux/amd64 (cross-compiles Blackwire)
+	@echo "==> bench-build: building $(BENCH_IMAGE) for linux/amd64 from $(_BENCH_ROOT)"
+	docker build \
+	    --platform linux/amd64 \
+	    -f "$(_BENCH_ROOT)/labs/realistic/latency/Dockerfile.bench" \
+	    -t "$(BENCH_IMAGE)" \
+	    "$(_BENCH_ROOT)"
+	@echo "==> bench-build done"
+
+bench: bench-build ## One command: build Docker image + run full comparison (xray + sing-box + Blackwire) + print report
+	@echo "==> bench: xray-compare + singbox-compare + local-smoke"
+	@mkdir -p "$(abspath $(LATENCY_REPORTS))"
+	docker run --rm \
+	    -v "$(abspath $(LATENCY_REPORTS)):/lab/reports" \
+	    -e BENCH_DURATION="$(BENCH_DURATION)" \
+	    -e BENCH_CONC="$(BENCH_CONC)" \
+	    "$(BENCH_IMAGE)" compare-all
+
+bench-xray: bench-build ## Docker benchmark: Xray server vs Blackwire Compat vs Blackwire Fast (same Xray client)
+	@mkdir -p "$(abspath $(LATENCY_REPORTS))"
+	docker run --rm \
+	    -v "$(abspath $(LATENCY_REPORTS)):/lab/reports" \
+	    -e BENCH_DURATION="$(BENCH_DURATION)" \
+	    -e BENCH_CONC="$(BENCH_CONC)" \
+	    "$(BENCH_IMAGE)" xray-compare
+
+bench-singbox: bench-build ## Docker benchmark: sing-box server vs Blackwire Compat vs Blackwire Fast (same sing-box client)
+	@mkdir -p "$(abspath $(LATENCY_REPORTS))"
+	docker run --rm \
+	    -v "$(abspath $(LATENCY_REPORTS)):/lab/reports" \
+	    -e BENCH_DURATION="$(BENCH_DURATION)" \
+	    -e BENCH_CONC="$(BENCH_CONC)" \
+	    "$(BENCH_IMAGE)" singbox-compare
+
+bench-smoke: bench-build ## Docker benchmark: Blackwire only — direct / socks / vless loopback
+	@mkdir -p "$(abspath $(LATENCY_REPORTS))"
+	docker run --rm \
+	    -v "$(abspath $(LATENCY_REPORTS)):/lab/reports" \
+	    -e BENCH_DURATION="$(BENCH_DURATION)" \
+	    -e BENCH_CONC="$(BENCH_CONC)" \
+	    "$(BENCH_IMAGE)" local-smoke
+
+bench-remote: ## Run make bench on a remote VPS over SSH (VPS=user@host required)
+	@test -n "$(VPS)" || { \
+	    echo "ERROR: VPS is not set."; \
+	    echo "  Usage: make bench-remote VPS=root@1.2.3.4"; \
+	    echo "  Optional: SSH_KEY=~/.ssh/id_rsa  SSH_PORT=22  BENCH_DURATION=30  BENCH_CONC=32"; \
+	    exit 1; }
+	SSH_KEY="$(SSH_KEY)" \
+	SSH_PORT="$(SSH_PORT)" \
+	BENCH_DURATION="$(BENCH_DURATION)" \
+	BENCH_CONC="$(BENCH_CONC)" \
+	bash "$(LATENCY_SCRIPTS)/bench-remote.sh" "$(VPS)"

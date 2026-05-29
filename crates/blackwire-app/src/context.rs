@@ -10,6 +10,7 @@
 //!   - Statistics (per-user byte counts, per-inbound connection counts)
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 /// Metadata about a single proxy connection.
 ///
@@ -27,7 +28,7 @@ pub struct Context {
 
     /// The authenticated user's email/name, if any.
     /// Set after the protocol handler verifies the client's credentials.
-    pub user: Option<String>,
+    pub user: Option<Arc<str>>,
 
     /// The detected inner protocol (e.g. "http", "tls"), if sniffing is enabled.
     pub sniffed_protocol: Option<String>,
@@ -59,7 +60,7 @@ impl Context {
     }
 
     /// Set the authenticated user on this context.
-    pub fn with_user(mut self, user: impl Into<String>) -> Self {
+    pub fn with_user(mut self, user: impl Into<Arc<str>>) -> Self {
         self.user = Some(user.into());
         self
     }

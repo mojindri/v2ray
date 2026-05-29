@@ -462,18 +462,19 @@ pub async fn relay_mux_cool(
                             %dest,
                             "mux: new TCP sub-connection"
                         );
-                        let mut upstream = dispatcher
-                            .connect_outbound(ctx.clone(), dest.clone())
-                            .await
-                            .map_err(|e| {
-                                warn!(
-                                    session_id = meta.session_id,
-                                    %dest,
-                                    error = %e,
-                                    "mux: outbound connect failed"
-                                );
-                                e
-                            })?;
+                        let mut upstream =
+                            dispatcher
+                                .connect_outbound(&ctx, &dest)
+                                .await
+                                .map_err(|e| {
+                                    warn!(
+                                        session_id = meta.session_id,
+                                        %dest,
+                                        error = %e,
+                                        "mux: outbound connect failed"
+                                    );
+                                    e
+                                })?;
                         if let Some(ref data) = payload {
                             if !data.is_empty() {
                                 upstream.write_all(data).await?;
@@ -750,11 +751,11 @@ mod tests {
 
         async fn connect_outbound(
             &self,
-            _ctx: Context,
-            dest: Address,
+            _ctx: &Context,
+            dest: &Address,
         ) -> Result<BoxedStream, ProxyError> {
             let socket_addr = match dest {
-                Address::Ipv4(ip, port) => SocketAddr::from((ip, port)),
+                Address::Ipv4(ip, port) => SocketAddr::from((*ip, *port)),
                 _ => return Err(ProxyError::Protocol("mux test: ipv4 only".into())),
             };
             Ok(Box::new(tcp_connect(socket_addr).await?))

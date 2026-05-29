@@ -29,7 +29,7 @@ use std::sync::Arc;
 pub struct VlessUser {
     /// A human-readable name for this user, used in logs and statistics.
     /// Typically an email address like "user@example.com".
-    pub email: String,
+    pub email: Arc<str>,
 
     /// The raw 16-byte UUID for this user.
     pub uuid: [u8; 16],
@@ -97,7 +97,7 @@ impl VlessUserRegistry {
     pub fn list_users(&self, email: &str) -> Vec<Arc<VlessUser>> {
         self.users
             .iter()
-            .filter(|entry| email.is_empty() || entry.value().email == email)
+            .filter(|entry| email.is_empty() || &*entry.value().email == email)
             .map(|entry| Arc::clone(entry.value()))
             .collect()
     }
@@ -107,7 +107,7 @@ impl VlessUserRegistry {
         let keys: Vec<[u8; 16]> = self
             .users
             .iter()
-            .filter(|entry| entry.value().email == email)
+            .filter(|entry| &*entry.value().email == email)
             .map(|entry| *entry.key())
             .collect();
         let removed = !keys.is_empty();
@@ -147,7 +147,7 @@ mod tests {
 
     fn make_user(uuid: [u8; 16]) -> VlessUser {
         VlessUser {
-            email: "test@example.com".into(),
+            email: Arc::from("test@example.com"),
             uuid,
             flow: String::new(),
         }
@@ -164,7 +164,7 @@ mod tests {
         registry.add_user(make_user(uuid));
         let found = registry.validate(&uuid);
         assert!(found.is_some());
-        assert_eq!(found.unwrap().email, "test@example.com");
+        assert_eq!(&*found.unwrap().email, "test@example.com");
     }
 
     // Checks that an unknown UUID returns None, not a panic.
@@ -200,12 +200,12 @@ mod tests {
     fn list_and_remove_by_email() {
         let registry = VlessUserRegistry::new();
         registry.add_user(VlessUser {
-            email: "a@x".into(),
+            email: Arc::from("a@x"),
             uuid: [0x01; 16],
             flow: String::new(),
         });
         registry.add_user(VlessUser {
-            email: "b@x".into(),
+            email: Arc::from("b@x"),
             uuid: [0x02; 16],
             flow: String::new(),
         });

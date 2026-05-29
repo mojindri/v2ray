@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Lima VM browser TLS baseline: minimal first boot, tools via shell, Chromium via snap.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,12 +24,77 @@ LIMA_TARGET_URL="${LIMA_TARGET_URL:-https://www.cloudflare.com}"
 LIMA_EXPECT_SNI="${LIMA_EXPECT_SNI:-www.cloudflare.com}"
 LIMA_CAPTURE_SECONDS="${LIMA_CAPTURE_SECONDS:-15}"
 LIMA_REMOTE_DIR="${LIMA_REMOTE_DIR:-/tmp/blackwire-lima-browser-lab}"
+LIMA_START_TIMEOUT="${LIMA_START_TIMEOUT:-30m}"
 SAFE_SNI="$(echo "$LIMA_EXPECT_SNI" | tr '/:' '__')"
 REMOTE_PCAP="$LIMA_REMOTE_DIR/lima-browser-$SAFE_SNI-$TS.pcap"
 LOCAL_PCAP="$BASELINE_DIR/lima-browser-$SAFE_SNI-$TS.pcap"
 LATEST_PCAP="$BASELINE_DIR/lima-browser-$SAFE_SNI-latest.pcap"
 SUMMARY="$REPORT_DIR/lima-browser-baseline-summary-$TS.txt"
 YAML="$CFG_DIR/lima-$LIMA_INSTANCE.yaml"
+
+# Run a command, tee output to a log, and propagate the command's exit status (not tee's).
+run_tee() {
+  local log="$1"
+  shift
+  "$@" 2>&1 | tee "$log"
+  return "${PIPESTATUS[0]}"
+}
+
+lima_instance_exists() {
+  local names
+  names="$(limactl list --format '{{.Name}}' 2>/dev/null)" || return 1
+  grep -qxF "$LIMA_INSTANCE" <<<"$names"
+}
+
+lima_shell_ready() {
+  limactl shell "$LIMA_INSTANCE" -- true >/dev/null 2>&1
+}
+
+lima_delete_instance() {
+  echo "==> removing Lima VM: $LIMA_INSTANCE" | tee -a "$SUMMARY"
+  limactl stop "$LIMA_INSTANCE" 2>/dev/null || true
+  limactl delete "$LIMA_INSTANCE" 2>/dev/null || true
+}
+
+lima_ensure_tools() {
+  echo "==> ensuring VM browser/capture tools are installed" | tee -a "$SUMMARY"
+  run_tee "$LOG_DIR/lima-apt-install-$TS.log" \
+    limactl shell "$LIMA_INSTANCE" -- sudo DEBIAN_FRONTEND=noninteractive bash -s <<'INSTALL'
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+
+apt-get update
+apt-get install -y curl ca-certificates tcpdump tshark xvfb snapd
+
+# Lima usernet + systemd-resolved often fails snap CDN lookups; use public DNS during bootstrap.
+if [ -e /etc/resolv.conf ]; then
+  cp -a /etc/resolv.conf /etc/resolv.conf.lima-lab-bak
+  printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' >/etc/resolv.conf
+fi
+
+systemctl enable --now snapd.socket
+sleep 2
+
+if ! command -v chromium >/dev/null 2>&1; then
+  snap install chromium
+fi
+
+if [ -f /etc/resolv.conf.lima-lab-bak ]; then
+  mv -f /etc/resolv.conf.lima-lab-bak /etc/resolv.conf
+fi
+
+for candidate in /snap/bin/chromium chromium chromium-browser google-chrome-stable google-chrome; do
+  if command -v "$candidate" >/dev/null 2>&1; then
+    echo "browser: $candidate"
+    "$candidate" --version 2>/dev/null | head -n1 || true
+    exit 0
+  fi
+done
+
+echo "ERROR: no Chrome/Chromium browser found after install"
+exit 1
+INSTALL
+}
 
 {
   echo "lima-browser-baseline timestamp: $TS"
@@ -37,6 +103,7 @@ YAML="$CFG_DIR/lima-$LIMA_INSTANCE.yaml"
   echo "expect SNI: $LIMA_EXPECT_SNI"
   echo "local pcap: $LOCAL_PCAP"
   echo "capture seconds: $LIMA_CAPTURE_SECONDS"
+  echo "lima start timeout: $LIMA_START_TIMEOUT"
 } | tee "$SUMMARY"
 
 if ! command -v limactl >/dev/null 2>&1; then
@@ -50,9 +117,19 @@ if ! command -v limactl >/dev/null 2>&1; then
   fi
 fi
 
-if ! limactl list --format '{{.Name}}' 2>/dev/null | grep -qx "$LIMA_INSTANCE"; then
-  echo "==> creating Lima VM: $LIMA_INSTANCE" | tee -a "$SUMMARY"
-  cat > "$YAML" <<'YAML'
+if lima_instance_exists && [[ "${LIMA_RECREATE:-}" == "1" ]]; then
+  lima_delete_instance
+fi
+
+if lima_instance_exists; then
+  echo "==> Lima VM already exists: $LIMA_INSTANCE" | tee -a "$SUMMARY"
+  if ! lima_shell_ready; then
+    run_tee "$LOG_DIR/lima-start-$TS.log" \
+      limactl start --timeout "$LIMA_START_TIMEOUT" "$LIMA_INSTANCE"
+  fi
+else
+  echo "==> creating Lima VM: $LIMA_INSTANCE (no heavy provision on first boot)" | tee -a "$SUMMARY"
+  cat >"$YAML" <<'YAML'
 images:
 - location: "https://cloud-images.ubuntu.com/releases/24.04/release/ubuntu-24.04-server-cloudimg-arm64.img"
   arch: "aarch64"
@@ -64,55 +141,50 @@ disk: "20GiB"
 mounts:
 - location: "~"
   writable: false
-provision:
-- mode: system
-  script: |
-    #!/bin/sh
-    set -eux
-    export DEBIAN_FRONTEND=noninteractive
-    apt-get update
-    apt-get install -y curl ca-certificates gnupg tcpdump tshark xvfb chromium
 YAML
-  limactl start --name "$LIMA_INSTANCE" --tty=false "$YAML" 2>&1 | tee "$LOG_DIR/lima-create-$TS.log"
-else
-  echo "==> Lima VM already exists: $LIMA_INSTANCE" | tee -a "$SUMMARY"
-  limactl start "$LIMA_INSTANCE" 2>&1 | tee "$LOG_DIR/lima-start-$TS.log" || true
+  if ! run_tee "$LOG_DIR/lima-create-$TS.log" \
+    limactl start --name "$LIMA_INSTANCE" --tty=false --timeout "$LIMA_START_TIMEOUT" "$YAML"; then
+    if lima_instance_exists || [[ -d "${HOME}/.lima/${LIMA_INSTANCE}" ]]; then
+      echo "==> Lima instance directory present; starting existing VM" | tee -a "$SUMMARY"
+      run_tee "$LOG_DIR/lima-start-$TS.log" \
+        limactl start --timeout "$LIMA_START_TIMEOUT" "$LIMA_INSTANCE"
+    else
+      exit 1
+    fi
+  fi
 fi
 
 echo "==> waiting for Lima shell" | tee -a "$SUMMARY"
 for _ in $(seq 1 80); do
-  if limactl shell "$LIMA_INSTANCE" true >/dev/null 2>&1; then
+  if lima_shell_ready; then
     break
   fi
   sleep 3
 done
 
-if ! limactl shell "$LIMA_INSTANCE" true >/dev/null 2>&1; then
+if ! lima_shell_ready; then
   echo "ERROR: Lima VM did not become ready: $LIMA_INSTANCE" | tee -a "$SUMMARY"
+  echo "  If first-boot failed earlier, run: LIMA_RECREATE=1 make -C labs/realistic lima-fingerprint-total" \
+    | tee -a "$SUMMARY"
   exit 1
 fi
 
-echo "==> ensuring VM browser/capture tools are installed" | tee -a "$SUMMARY"
-limactl shell "$LIMA_INSTANCE" sudo DEBIAN_FRONTEND=noninteractive apt-get update \
-  2>&1 | tee "$LOG_DIR/lima-apt-update-$TS.log" >/dev/null
-limactl shell "$LIMA_INSTANCE" sudo DEBIAN_FRONTEND=noninteractive apt-get install -y \
-  curl ca-certificates gnupg tcpdump tshark xvfb chromium \
-  2>&1 | tee "$LOG_DIR/lima-apt-install-$TS.log" >/dev/null
+lima_ensure_tools
 
 echo "==> running browser capture inside Lima VM" | tee -a "$SUMMARY"
-limactl shell "$LIMA_INSTANCE" env \
+limactl shell "$LIMA_INSTANCE" -- env \
   LIMA_REMOTE_DIR="$LIMA_REMOTE_DIR" \
   LIMA_TARGET_URL="$LIMA_TARGET_URL" \
   LIMA_EXPECT_SNI="$LIMA_EXPECT_SNI" \
   LIMA_CAPTURE_SECONDS="$LIMA_CAPTURE_SECONDS" \
   REMOTE_PCAP="$REMOTE_PCAP" \
-  bash -s > "$LOG_DIR/lima-browser-capture-$TS.log" 2>&1 <<'REMOTE'
+  bash -s >"$LOG_DIR/lima-browser-capture-$TS.log" 2>&1 <<'REMOTE'
 set -euo pipefail
 
 mkdir -p "$LIMA_REMOTE_DIR"
 
 BROWSER=""
-for candidate in chromium google-chrome-stable google-chrome chromium-browser; do
+for candidate in /snap/bin/chromium chromium google-chrome-stable google-chrome chromium-browser; do
   if command -v "$candidate" >/dev/null 2>&1; then
     BROWSER="$candidate"
     break
@@ -189,7 +261,8 @@ echo "Lima browser baseline capture verified."
 REMOTE
 
 echo "==> copying pcap back from Lima VM" | tee -a "$SUMMARY"
-limactl copy "$LIMA_INSTANCE:$REMOTE_PCAP" "$LOCAL_PCAP" 2>&1 | tee "$LOG_DIR/lima-copy-$TS.log"
+run_tee "$LOG_DIR/lima-copy-$TS.log" \
+  limactl copy "$LIMA_INSTANCE:$REMOTE_PCAP" "$LOCAL_PCAP"
 
 if [ ! -s "$LOCAL_PCAP" ]; then
   echo "ERROR: copied Lima pcap is empty or missing: $LOCAL_PCAP" | tee -a "$SUMMARY"

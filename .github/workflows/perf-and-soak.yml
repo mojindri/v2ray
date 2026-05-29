@@ -37,6 +37,97 @@ jobs:
       - name: Run criterion benchmarks
         run: cargo bench -p blackwire-benches
 
+  latency-smoke:
+    name: Native latency smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install hey
+        run: go install github.com/rakyll/hey@latest
+
+      - name: Build Blackwire release binary
+        run: cargo build --release --bin blackwire
+
+      - name: Start static upstream
+        run: |
+          python3 labs/realistic/latency/scripts/upstream_static.py \
+            --host 127.0.0.1 \
+            --port 18080 \
+            >/tmp/blackwire-upstream.log 2>&1 &
+          echo "$!" > /tmp/blackwire-upstream.pid
+          for i in $(seq 1 50); do
+            curl -sf http://127.0.0.1:18080/4k >/dev/null && exit 0
+            sleep 0.1
+          done
+          cat /tmp/blackwire-upstream.log
+          exit 1
+
+      - name: Run native latency smoke
+        run: |
+          mkdir -p reports/latency-smoke
+          export PATH="$HOME/go/bin:$PATH"
+          export BW_BIN="$PWD/target/release/blackwire"
+          export REPORT_DIR="$PWD/reports/latency-smoke"
+          export BENCH_DURATION=5
+          export BENCH_WARMUP=1
+          export BENCH_CONC=16
+          export BENCH_PAYLOADS="4k 1m"
+          export BENCH_KEEPALIVE_MODES="on"
+          timeout 15m bash labs/realistic/latency/scripts/compare.sh local-smoke-matrix
+
+      - name: Check latency smoke results
+        run: |
+          python3 - <<'PY'
+          import json
+          import pathlib
+          import sys
+
+          report_dir = pathlib.Path("reports/latency-smoke")
+          reports = sorted(report_dir.glob("*.json"))
+          if not reports:
+              print("no latency smoke reports found", file=sys.stderr)
+              sys.exit(1)
+
+          failed = False
+          for path in reports:
+              row = json.loads(path.read_text())
+              print(
+                  f"{row['variant']}: "
+                  f"p50={row['p50_s'] * 1000:.2f}ms "
+                  f"p95={row['p95_s'] * 1000:.2f}ms "
+                  f"p99={row['p99_s'] * 1000:.2f}ms "
+                  f"rps={row['requests_per_sec']:.0f} "
+                  f"errors={row['errors']} non200={row['non_200_responses']}"
+              )
+              if row.get("benchmark_failed") or row["errors"] or row["non_200_responses"]:
+                  failed = True
+
+          sys.exit(1 if failed else 0)
+          PY
+
+      - name: Stop static upstream
+        if: always()
+        run: |
+          if [ -f /tmp/blackwire-upstream.pid ]; then
+            kill "$(cat /tmp/blackwire-upstream.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload latency smoke reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: latency-smoke-reports
+          path: reports/latency-smoke
+          if-no-files-found: warn
+          retention-days: 14
+
   soak:
     name: Soak
     if: github.event_name == 'schedule'

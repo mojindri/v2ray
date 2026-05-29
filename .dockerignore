@@ -1,0 +1,11 @@
+.git/
+target/
+
+labs/realistic/**/reports/
+labs/realistic/external-clients/generated-*/
+benches/reports/
+
+**/*.pcap
+**/*.pcapng
+**/*.log
+**/.DS_Store

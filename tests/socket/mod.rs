@@ -7,9 +7,11 @@ use tokio::net::{TcpListener, TcpStream};
 #[path = "../common/leak_check.rs"]
 mod leak_check;
 
-async fn spawn_listener_echo(bind: &str) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
-    let listener = TcpListener::bind(bind).await.expect("bind");
-    let addr = listener.local_addr().expect("addr");
+async fn spawn_listener_echo(
+    bind: &str,
+) -> std::io::Result<(std::net::SocketAddr, tokio::task::JoinHandle<()>)> {
+    let listener = TcpListener::bind(bind).await?;
+    let addr = listener.local_addr()?;
     let task = tokio::spawn(async move {
         while let Ok((mut s, _)) = listener.accept().await {
             tokio::spawn(async move {
@@ -26,7 +28,7 @@ async fn spawn_listener_echo(bind: &str) -> (std::net::SocketAddr, tokio::task::
             });
         }
     });
-    (addr, task)
+    Ok((addr, task))
 }
 
 async fn spawn_listener_reset(bind: &str) -> (std::net::SocketAddr, tokio::task::JoinHandle<()>) {
@@ -44,7 +46,7 @@ async fn spawn_listener_reset(bind: &str) -> (std::net::SocketAddr, tokio::task:
 
 #[tokio::test]
 async fn tcp_half_close_behavior_is_clean() {
-    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await;
+    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await.expect("bind v4");
     let mut s = TcpStream::connect(addr).await.expect("connect");
     s.write_all(b"abc").await.expect("write");
     s.shutdown().await.expect("shutdown write");
@@ -55,7 +57,7 @@ async fn tcp_half_close_behavior_is_clean() {
 
 #[tokio::test]
 async fn tcp_client_transport_ipv4_and_ipv6_dial() {
-    let (v4_addr, _v4_task) = spawn_listener_echo("127.0.0.1:0").await;
+    let (v4_addr, _v4_task) = spawn_listener_echo("127.0.0.1:0").await.expect("bind v4");
     let transport = TcpClientTransport::new(TcpConfig::default());
     let mut v4 = transport.dial(v4_addr).await.expect("dial v4");
     v4.write_all(b"v4").await.expect("write");
@@ -63,7 +65,7 @@ async fn tcp_client_transport_ipv4_and_ipv6_dial() {
     v4.read_exact(&mut out).await.expect("read");
     assert_eq!(&out, b"v4");
 
-    if let Ok((v6_addr, _v6_task)) =
+    if let Ok(Ok((v6_addr, _v6_task))) =
         tokio::time::timeout(Duration::from_secs(1), spawn_listener_echo("[::1]:0")).await
     {
         let mut v6 = transport.dial(v6_addr).await.expect("dial v6");
@@ -77,7 +79,7 @@ async fn tcp_client_transport_ipv4_and_ipv6_dial() {
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn so_mark_is_applied_before_connect_or_fails_closed() {
-    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await;
+    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await.expect("bind v4");
     let transport = TcpClientTransport::new(TcpConfig {
         so_mark: Some(0x1234),
         tcp_fast_open: false,
@@ -104,7 +106,7 @@ async fn so_mark_is_applied_before_connect_or_fails_closed() {
 
 #[tokio::test]
 async fn socket_dials_do_not_leak_fds() {
-    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await;
+    let (addr, _task) = spawn_listener_echo("127.0.0.1:0").await.expect("bind v4");
     let transport = TcpClientTransport::new(TcpConfig::default());
 
     // Warm up transport + listener so baseline reflects steady dial/teardown cost.

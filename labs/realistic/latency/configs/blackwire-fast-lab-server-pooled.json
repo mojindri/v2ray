@@ -1,0 +1,24 @@
+{
+  "profile": "fast",
+  "fast": { "strictProduction": false, "pool": "fixed", "splice": "always" },
+  "log": { "level": "warn" },
+  "metricsAddr": "127.0.0.1:9092",
+  "inbounds": [
+    {
+      "tag": "vless-in",
+      "protocol": "vless",
+      "listen": "127.0.0.1",
+      "port": 10084,
+      "settings": {
+        "clients": [{ "id": "00000000-0000-4000-8000-000000000001" }]
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom",
+      "settings": { "poolSize": 8 }
+    }
+  ]
+}

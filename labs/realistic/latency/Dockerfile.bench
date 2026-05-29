@@ -1,0 +1,75 @@
+# Dockerfile.bench — self-contained latency benchmark image
+#
+# Contains: blackwire (built from source) + xray + sing-box + hey + python3
+# Usage:
+#   docker build -f labs/realistic/latency/Dockerfile.bench -t blackwire-bench .
+#   docker run --rm -v "$PWD/labs/realistic/latency/reports:/lab/reports" blackwire-bench
+#   docker run --rm ... blackwire-bench xray-compare
+#   docker run --rm ... blackwire-bench singbox-compare
+
+# Build with: docker build --platform linux/amd64 -f labs/realistic/latency/Dockerfile.bench -t blackwire-bench .
+# For remote VPS use: make bench-remote VPS=root@your-vps
+
+# ── Stage 1: Build blackwire ──────────────────────────────────────────────────
+FROM --platform=linux/amd64 rust:slim AS rust-builder
+WORKDIR /src
+COPY . .
+RUN cargo build --release -p blackwire
+
+# ── Stage 2: Build hey (load generator) ───────────────────────────────────────
+FROM --platform=linux/amd64 golang:1.24-bookworm AS go-builder
+RUN go install github.com/rakyll/hey@latest
+
+# ── Stage 3: Final bench image ────────────────────────────────────────────────
+FROM --platform=linux/amd64 ubuntu:24.04
+ARG XRAY_VERSION=v26.3.27
+ARG SINGBOX_VERSION=1.13.12
+# Set automatically by BuildKit (arm64 on Apple Silicon, amd64 on x86).
+ARG TARGETARCH
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 curl unzip ca-certificates iproute2 netcat-openbsd gettext-base \
+    && rm -rf /var/lib/apt/lists/*
+
+# blackwire
+COPY --from=rust-builder /src/target/release/blackwire /usr/local/bin/blackwire
+
+# hey
+COPY --from=go-builder /go/bin/hey /usr/local/bin/hey
+
+# xray
+RUN set -e; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in \
+        arm64) XRAY_FILE="Xray-linux-arm64-v8a.zip" ;; \
+        *)     XRAY_FILE="Xray-linux-64.zip" ;; \
+    esac; \
+    curl -fsSL "https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_FILE}" \
+        -o /tmp/xray.zip \
+    && unzip -q /tmp/xray.zip xray -d /usr/local/bin \
+    && chmod +x /usr/local/bin/xray \
+    && rm /tmp/xray.zip
+
+# sing-box
+RUN set -e; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in \
+        arm64) SB_ARCH="linux-arm64" ;; \
+        *)     SB_ARCH="linux-amd64" ;; \
+    esac; \
+    SB_FILE="sing-box-${SINGBOX_VERSION}-${SB_ARCH}.tar.gz"; \
+    curl -fsSL "https://github.com/SagerNet/sing-box/releases/download/v${SINGBOX_VERSION}/${SB_FILE}" \
+        -o /tmp/singbox.tar.gz \
+    && tar xzf /tmp/singbox.tar.gz -C /tmp \
+           --wildcards '*/sing-box' --strip-components=1 \
+    && mv /tmp/sing-box /usr/local/bin/sing-box \
+    && chmod +x /usr/local/bin/sing-box \
+    && rm /tmp/singbox.tar.gz
+
+# lab scripts + configs
+COPY labs/realistic/latency /lab
+WORKDIR /lab
+RUN mkdir -p /lab/reports
+
+ENTRYPOINT ["bash", "/lab/scripts/bench-entrypoint.sh"]
+CMD ["compare-all"]

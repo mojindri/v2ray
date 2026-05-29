@@ -23,11 +23,13 @@
 //! kernel pipes without copying them into userspace. Non-Linux builds and
 //! non-raw streams keep using `copy_bidirectional`.
 
+use std::borrow::Cow;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use arc_swap::ArcSwap;
 use async_trait::async_trait;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::{debug, info, warn};
 
 macro_rules! relay_log {
@@ -45,11 +47,19 @@ macro_rules! relay_log {
 /// Slow DNS during routing would stall the entire connection dispatch, so we cap
 /// the budget well below the connection handshake timeout.
 const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
+/// Maximum time Fast Profile waits for client bytes before validating a pooled socket.
+///
+/// The first-use guard needs client bytes so it can retry with a fresh dial if
+/// a pooled socket is stale. Server-first protocols do not send client bytes
+/// immediately, so this guard must be bounded to avoid blocking the relay.
+const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(5);
 
 use std::collections::HashMap;
 
-use blackwire_common::{Address, BoxedStream, ProxyError};
-use blackwire_config::schema::{ProfileMode, SniffingConfig};
+use blackwire_common::{tcp_connect, Address, BoxedStream, PooledStream, ProxyError};
+use blackwire_config::schema::{FastConfig, FastSplicePolicy, ProfileMode, SniffingConfig};
+use smallvec::SmallVec;
+use tokio::net::TcpStream;
 
 use crate::context::Context;
 use crate::dns::DnsModule;
@@ -81,8 +91,8 @@ pub trait Dispatcher: Send + Sync + 'static {
     /// Route and open an outbound stream without relaying (Mux.Cool sub-connections).
     async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError>;
 }
 
@@ -94,10 +104,11 @@ pub struct DefaultDispatcher {
     router: Arc<dyn Router>,
     outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
     dns: Option<Arc<DnsModule>>,
-    sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+    sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     /// Operating profile. Under `Fast`, per-connection relay logs are emitted at
     /// `debug` level rather than `info` to reduce log overhead on hot paths.
     profile: ProfileMode,
+    splice_policy: FastSplicePolicy,
 }
 
 impl DefaultDispatcher {
@@ -116,6 +127,7 @@ impl DefaultDispatcher {
             dns: None,
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             profile: ProfileMode::default(),
+            splice_policy: FastSplicePolicy::Always,
         })
     }
 
@@ -123,7 +135,7 @@ impl DefaultDispatcher {
     pub fn new_with_sniffing(
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
-        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -131,6 +143,7 @@ impl DefaultDispatcher {
             dns: None,
             sniffing,
             profile: ProfileMode::default(),
+            splice_policy: FastSplicePolicy::Always,
         })
     }
 
@@ -149,6 +162,7 @@ impl DefaultDispatcher {
             dns: Some(dns),
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             profile: ProfileMode::default(),
+            splice_policy: FastSplicePolicy::Always,
         })
     }
 
@@ -157,7 +171,7 @@ impl DefaultDispatcher {
         router: Arc<dyn Router>,
         outbounds: std::collections::HashMap<String, Arc<dyn OutboundHandler>>,
         dns: Arc<DnsModule>,
-        sniffing: Arc<ArcSwap<HashMap<String, SniffingConfig>>>,
+        sniffing: Arc<ArcSwap<HashMap<String, Arc<SniffingConfig>>>>,
     ) -> Arc<Self> {
         Arc::new(Self {
             router,
@@ -165,6 +179,7 @@ impl DefaultDispatcher {
             dns: Some(dns),
             sniffing,
             profile: ProfileMode::default(),
+            splice_policy: FastSplicePolicy::Always,
         })
     }
 
@@ -172,7 +187,21 @@ impl DefaultDispatcher {
     ///
     /// Call this after construction to apply a non-default profile from config.
     pub fn with_profile(self: Arc<Self>, profile: ProfileMode) -> Arc<Self> {
-        if self.profile == profile {
+        self.with_profile_and_fast(profile, None)
+    }
+
+    /// Set profile and Fast Profile config together, returning the same `Arc`.
+    pub fn with_profile_and_fast(
+        self: Arc<Self>,
+        profile: ProfileMode,
+        fast: Option<&FastConfig>,
+    ) -> Arc<Self> {
+        let splice_policy = if profile == ProfileMode::Fast {
+            fast.map(|f| f.splice).unwrap_or_default()
+        } else {
+            FastSplicePolicy::Always
+        };
+        if self.profile == profile && self.splice_policy == splice_policy {
             return self;
         }
         // We own the only Arc reference here (just constructed), so unwrap is safe.
@@ -180,6 +209,7 @@ impl DefaultDispatcher {
         match Arc::try_unwrap(self) {
             Ok(mut inner) => {
                 inner.profile = profile;
+                inner.splice_policy = splice_policy;
                 Arc::new(inner)
             }
             Err(arc) => Arc::new(Self {
@@ -188,6 +218,7 @@ impl DefaultDispatcher {
                 dns: arc.dns.clone(),
                 sniffing: Arc::clone(&arc.sniffing),
                 profile,
+                splice_policy,
             }),
         }
     }
@@ -211,14 +242,13 @@ impl Dispatcher for DefaultDispatcher {
             }
         }
 
-        let inbound_tag = ctx.inbound_tag.clone();
-        let user_email = ctx.user.clone();
-        let dest_label = dest.to_string();
-
         let start = Instant::now();
-        let outbound_stream = self.connect_outbound(ctx, dest).await?;
+        let outbound_stream = self.connect_outbound(&ctx, &dest).await?;
+        let (inbound_stream, outbound_stream, prewritten_up) = self
+            .guard_pooled_first_write(&ctx, &dest, inbound_stream, outbound_stream)
+            .await?;
 
-        relay_log!(self.profile, dest = %dest_label, inbound = %inbound_tag, "relay started");
+        relay_log!(self.profile, dest = %dest, inbound = %ctx.inbound_tag, "relay started");
 
         // Relay bytes bidirectionally until either side closes.
         //
@@ -230,7 +260,13 @@ impl Dispatcher for DefaultDispatcher {
         //   outbound → inbound (server sending data back to the client)
         //
         // It returns the total bytes sent in each direction when finished.
-        let result = crate::relay::relay_bidirectional(inbound_stream, outbound_stream).await;
+        let result = crate::relay::relay_bidirectional_with_splice_policy(
+            inbound_stream,
+            outbound_stream,
+            self.splice_policy,
+        )
+        .await
+        .map(|(up, down)| (up + prewritten_up, down));
 
         let elapsed = start.elapsed();
 
@@ -238,8 +274,8 @@ impl Dispatcher for DefaultDispatcher {
             Ok((up, down)) => {
                 relay_log!(
                     self.profile,
-                    dest = %dest_label,
-                    inbound = %inbound_tag,
+                    dest = %dest,
+                    inbound = %ctx.inbound_tag,
                     uplink_bytes = up,
                     downlink_bytes = down,
                     duration_ms = elapsed.as_millis(),
@@ -247,19 +283,24 @@ impl Dispatcher for DefaultDispatcher {
                 );
             }
             Err(e) => {
+                metrics::counter!(
+                    "proxy_relay_first_byte_failures_total",
+                    "inbound" => ctx.inbound_tag.clone()
+                )
+                .increment(1);
                 debug!(
-                    dest = %dest_label,
-                    inbound = %inbound_tag,
+                    dest = %dest,
+                    inbound = %ctx.inbound_tag,
                     error = %e,
                     "relay error"
                 );
-                record_relay_error(&inbound_tag);
+                record_relay_error(&ctx.inbound_tag);
             }
         }
 
         let (rx_bytes, tx_bytes) = result.unwrap_or((0, 0));
-        record_connection_closed(&inbound_tag, rx_bytes, tx_bytes, elapsed);
-        if let Some(user) = user_email.as_deref() {
+        record_connection_closed(&ctx.inbound_tag, rx_bytes, tx_bytes, elapsed);
+        if let Some(user) = ctx.user.as_deref() {
             runtime_stats::record_user_traffic(user, rx_bytes, tx_bytes);
         }
 
@@ -268,19 +309,126 @@ impl Dispatcher for DefaultDispatcher {
 
     async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError> {
         DefaultDispatcher::connect_outbound(self, ctx, dest).await
     }
 }
 
 impl DefaultDispatcher {
+    async fn guard_pooled_first_write(
+        &self,
+        ctx: &Context,
+        dest: &Address,
+        mut inbound_stream: BoxedStream,
+        outbound_stream: BoxedStream,
+    ) -> Result<(BoxedStream, BoxedStream, u64), ProxyError> {
+        if self.profile != ProfileMode::Fast
+            || !(*outbound_stream).as_any().is::<PooledStream<TcpStream>>()
+        {
+            return Ok((inbound_stream, outbound_stream, 0));
+        }
+
+        let any = outbound_stream.into_any();
+        let pooled = any
+            .downcast::<PooledStream<TcpStream>>()
+            .expect("stream type checked as PooledStream<TcpStream> before downcast");
+        let (mut outbound, pool_tag, peer_addr) = pooled.into_metadata_parts();
+        let pool_label = pool_tag.as_deref().unwrap_or("unknown");
+
+        let mut first = vec![0u8; 16 * 1024];
+        let n = match tokio::time::timeout(
+            POOLED_FIRST_WRITE_GUARD_TIMEOUT,
+            inbound_stream.read(&mut first),
+        )
+        .await
+        {
+            Ok(read) => read.map_err(ProxyError::Io)?,
+            Err(_) => {
+                metrics::counter!(
+                    "freedom_pool_first_use_guard_skipped_total",
+                    "inbound" => ctx.inbound_tag.clone(),
+                    "outbound" => pool_label.to_owned(),
+                    "reason" => "client_first_timeout"
+                )
+                .increment(1);
+                return Ok((inbound_stream, Box::new(outbound), 0));
+            }
+        };
+        if n == 0 {
+            return Ok((inbound_stream, Box::new(outbound), 0));
+        }
+
+        if outbound.write_all(&first[..n]).await.is_err() {
+            metrics::counter!(
+                "freedom_pool_first_use_retries_total",
+                "inbound" => ctx.inbound_tag.clone(),
+                "outbound" => pool_label.to_owned()
+            )
+            .increment(1);
+
+            let fresh_result: Result<BoxedStream, ProxyError> = if let Some(addr) = peer_addr {
+                match tcp_connect(addr).await {
+                    Ok(stream) => match stream.set_nodelay(true) {
+                        Ok(()) => Ok(Box::new(stream)),
+                        Err(e) => Err(ProxyError::Io(e)),
+                    },
+                    Err(e) => Err(e),
+                }
+            } else {
+                self.connect_outbound(ctx, dest).await
+            };
+
+            let mut fresh = match fresh_result {
+                Ok(stream) => stream,
+                Err(e) => {
+                    metrics::counter!(
+                        "freedom_pool_fresh_retry_failures_total",
+                        "inbound" => ctx.inbound_tag.clone(),
+                        "outbound" => pool_label.to_owned()
+                    )
+                    .increment(1);
+                    return Err(e);
+                }
+            };
+
+            match fresh.write_all(&first[..n]).await {
+                Ok(()) => {
+                    metrics::counter!(
+                        "freedom_pool_fresh_retry_success_total",
+                        "inbound" => ctx.inbound_tag.clone(),
+                        "outbound" => pool_label.to_owned()
+                    )
+                    .increment(1);
+                    return Ok((inbound_stream, fresh, n as u64));
+                }
+                Err(e) => {
+                    metrics::counter!(
+                        "freedom_pool_fresh_retry_failures_total",
+                        "inbound" => ctx.inbound_tag.clone(),
+                        "outbound" => pool_label.to_owned()
+                    )
+                    .increment(1);
+                    return Err(ProxyError::Io(e));
+                }
+            };
+        }
+
+        metrics::counter!(
+            "freedom_pool_hits_total",
+            "outbound" => pool_label.to_owned()
+        )
+        .increment(1);
+
+        Ok((inbound_stream, Box::new(outbound), n as u64))
+    }
+
     /// Route and dial the destination without starting a relay loop.
     pub async fn connect_outbound(
         &self,
-        ctx: Context,
-        dest: Address,
+        ctx: &Context,
+        dest: &Address,
     ) -> Result<BoxedStream, ProxyError> {
         let dest = self.restore_fakeip_destination(dest);
 
@@ -309,7 +457,7 @@ impl DefaultDispatcher {
             })?;
 
         let t_connect = Instant::now();
-        let result = outbound.connect(&ctx, &dest).await.map_err(|e| {
+        let result = outbound.connect(ctx, &dest).await.map_err(|e| {
             warn!(
                 outbound = %route.outbound_tag,
                 dest = %dest,
@@ -414,7 +562,7 @@ impl DefaultDispatcher {
     fn prefetch_dns(
         &self,
         dest: &Address,
-    ) -> Option<tokio::task::JoinHandle<Option<Vec<Address>>>> {
+    ) -> Option<tokio::task::JoinHandle<Option<SmallVec<[Address; 4]>>>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
@@ -424,7 +572,7 @@ impl DefaultDispatcher {
         Some(tokio::spawn(async move {
             let dest = Address::Domain(name, port);
             // Inline version of resolve_domain_ips without borrowing self.
-            let mut ips: Vec<Address> = Vec::new();
+            let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
             let resolved =
                 tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
                     .await;
@@ -475,12 +623,16 @@ impl DefaultDispatcher {
         }
     }
 
-    async fn resolve_domain_ips(&self, dest: &Address, inbound_tag: &str) -> Option<Vec<Address>> {
+    async fn resolve_domain_ips(
+        &self,
+        dest: &Address,
+        inbound_tag: &str,
+    ) -> Option<SmallVec<[Address; 4]>> {
         let Address::Domain(name, port) = dest else {
             return None;
         };
         let t_dns = Instant::now();
-        let mut ips = Vec::new();
+        let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
         if let Some(dns) = &self.dns {
             let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(name)).await;
             if let Ok(Ok(addrs)) = resolved {
@@ -514,17 +666,20 @@ impl DefaultDispatcher {
         }
     }
 
-    fn restore_fakeip_destination(&self, dest: Address) -> Address {
+    fn restore_fakeip_destination<'a>(&self, dest: &'a Address) -> Cow<'a, Address> {
         let Some(dns) = &self.dns else {
-            return dest;
+            return Cow::Borrowed(dest);
         };
 
         match dest {
-            Address::Ipv4(ip, port) if dns.is_fake_ip(std::net::IpAddr::V4(ip)) => dns
-                .reverse_fake(ip)
-                .map(|domain| Address::Domain(domain, port))
-                .unwrap_or(Address::Ipv4(ip, port)),
-            other => other,
+            Address::Ipv4(ip, port) if dns.is_fake_ip(std::net::IpAddr::V4(*ip)) => {
+                let resolved = dns
+                    .reverse_fake(*ip)
+                    .map(|domain| Address::Domain(domain, *port))
+                    .unwrap_or(Address::Ipv4(*ip, *port));
+                Cow::Owned(resolved)
+            }
+            _ => Cow::Borrowed(dest),
         }
     }
 }
@@ -565,8 +720,12 @@ mod tests {
             dns,
         );
 
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(fake, 443));
-        assert_eq!(restored, Address::Domain("example.com".into(), 443));
+        let fake_addr = Address::Ipv4(fake, 443);
+        let restored = dispatcher.restore_fakeip_destination(&fake_addr);
+        assert_eq!(
+            restored.into_owned(),
+            Address::Domain("example.com".into(), 443)
+        );
     }
 
     #[tokio::test]
@@ -586,7 +745,8 @@ mod tests {
         );
 
         let ip = "198.18.0.100".parse().unwrap();
-        let restored = dispatcher.restore_fakeip_destination(Address::Ipv4(ip, 443));
-        assert_eq!(restored, Address::Ipv4(ip, 443));
+        let addr = Address::Ipv4(ip, 443);
+        let restored = dispatcher.restore_fakeip_destination(&addr);
+        assert_eq!(*restored, Address::Ipv4(ip, 443));
     }
 }

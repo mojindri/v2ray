@@ -1,6 +1,4 @@
 {
-  "profile": "fast",
-  "fast": { "strictProduction": false },
   "log": { "level": "warn" },
   "inbounds": [
     {

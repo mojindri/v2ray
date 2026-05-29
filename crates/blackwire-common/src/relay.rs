@@ -1,5 +1,6 @@
 //! Relay helpers aligned with Xray policy defaults.
 
+use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
@@ -25,6 +26,73 @@ fn now_ms() -> u64 {
 fn relay_pool() -> &'static Arc<BufferPool> {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
     POOL.get_or_init(BufferPool::new)
+}
+
+/// Bidirectional relay using pooled 16 KiB buffers.
+///
+/// Equivalent to `tokio::io::copy_bidirectional` but reuses buffers from the
+/// shared pool instead of allocating fresh per call. This matters when
+/// connections are short-lived (benchmarks, many small requests).
+///
+/// Takes ownership of both streams (uses `tokio::io::split` internally).
+/// Returns `(bytes_a_to_b, bytes_b_to_a)`.
+pub async fn copy_bidirectional_pooled<A, B>(a: A, b: B) -> io::Result<(u64, u64)>
+where
+    A: AsyncRead + AsyncWrite + Unpin,
+    B: AsyncRead + AsyncWrite + Unpin,
+{
+    let (a_rx, a_tx) = tokio::io::split(a);
+    let (b_rx, b_tx) = tokio::io::split(b);
+    let pool = relay_pool();
+    let (r_up, r_down) = tokio::join!(
+        copy_one_pooled(a_rx, b_tx, Arc::clone(pool)),
+        copy_one_pooled(b_rx, a_tx, Arc::clone(pool)),
+    );
+    Ok((r_up?, r_down?))
+}
+
+async fn copy_one_pooled<R, W>(
+    mut reader: R,
+    mut writer: W,
+    pool: Arc<BufferPool>,
+) -> io::Result<u64>
+where
+    R: AsyncRead + Unpin,
+    W: AsyncWrite + Unpin,
+{
+    const BUF_SIZE: usize = 16 * 1024;
+    let mut buf = pool.acquire(BUF_SIZE);
+    buf.resize(BUF_SIZE, 0);
+    let mut total = 0u64;
+    let mut io_err: Option<io::Error> = None;
+    loop {
+        let n = match reader.read(&mut buf[..]).await {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(e) => {
+                io_err = Some(e);
+                break;
+            }
+        };
+        if let Err(e) = writer.write_all(&buf[..n]).await {
+            io_err = Some(e);
+            break;
+        }
+        if let Err(e) = writer.flush().await {
+            io_err = Some(e);
+            break;
+        }
+        total += n as u64;
+    }
+    // Always propagate EOF to the peer, even when the reader side hit an error
+    // (e.g. ECONNRESET from a remote RST). Without this, the write half is left
+    // open and the far end stalls waiting for data that will never arrive.
+    let _ = writer.shutdown().await;
+    pool.release(buf);
+    match io_err {
+        Some(e) => Err(e),
+        None => Ok(total),
+    }
 }
 
 /// Run an async handshake step with an optional wall-clock limit.
@@ -94,6 +162,9 @@ async fn copy_one_way_with_idle<R, W>(
         };
 
         if writer.write_all(&buf[..n]).await.is_err() {
+            break;
+        }
+        if writer.flush().await.is_err() {
             break;
         }
         last_activity.store(now_ms(), Ordering::Relaxed);

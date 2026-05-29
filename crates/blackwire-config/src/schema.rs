@@ -16,7 +16,10 @@ mod transport;
 
 pub use endpoint::{InboundConfig, InboundLimitsConfig, OutboundConfig};
 pub use logging_dns::{DnsConfig, FakeIpConfig, LogConfig};
-pub use profile::{validate_fast_profile, FastConfig, ProfileMode, ProfileViolation};
+pub use profile::{
+    validate_fast_profile, FastConfig, FastPoolPolicy, FastSplicePolicy, ProfileMode,
+    ProfileViolation,
+};
 pub use protocol::{NetworkType, Protocol, SecurityType};
 pub use routing::{BalancerConfig, HealthCheckConfig, RoutingConfig, RoutingRule};
 pub use transport::{

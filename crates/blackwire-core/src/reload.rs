@@ -73,8 +73,9 @@ pub struct ReloadState {
     /// One VLESS user registry per inbound tag (key = inbound `tag`).
     pub vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
     /// Per-inbound sniffing map (hot-swapped on reload via lock-free ArcSwap).
-    pub sniffing:
-        Arc<ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>>,
+    pub sniffing: Arc<
+        ArcSwap<std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>>>,
+    >,
     /// Inbound tags from the active config (HandlerService ListInbounds).
     pub inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
     /// Outbound tags from the active config (HandlerService ListOutbounds).
@@ -89,7 +90,9 @@ impl ReloadState {
         router: Arc<LiveRouter>,
         vless_registries: Arc<DashMap<String, Arc<VlessUserRegistry>>>,
         sniffing: Arc<
-            ArcSwap<std::collections::HashMap<String, blackwire_config::schema::SniffingConfig>>,
+            ArcSwap<
+                std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>>,
+            >,
         >,
         inbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
         outbound_tags: Arc<std::sync::RwLock<Vec<String>>>,
@@ -188,7 +191,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
             .list_users(email)
             .into_iter()
             .map(|u| blackwire_api::management::VlessUserRecord {
-                email: u.email.clone(),
+                email: u.email.to_string(),
                 uuid: uuid::Uuid::from_bytes(u.uuid).to_string(),
                 flow: u.flow.clone(),
                 level: 0,
@@ -208,7 +211,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
             .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;
         let uuid = crate::instance::parse_uuid(uuid_str).map_err(|e| e.to_string())?;
         registry.add_user(blackwire_protocol::vless::VlessUser {
-            email: email.to_string(),
+            email: email.into(),
             uuid,
             flow: flow.to_string(),
         });

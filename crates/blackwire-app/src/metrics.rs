@@ -20,6 +20,11 @@
 //! | `proxy_dns_seconds` | Histogram | `inbound` |
 //! | `proxy_outbound_connect_seconds` | Histogram | `inbound`, `outbound` |
 //! | `proxy_relay_errors_total` | Counter | `inbound` |
+//! | `proxy_relay_first_byte_failures_total` | Counter | `inbound` |
+//! | `proxy_relay_splice_selected_total` | Counter | `policy` |
+//! | `proxy_relay_splice_fallback_total` | Counter | `reason` |
+//! | `proxy_relay_bytes_total` | Counter | `direction`, `path` |
+//! | `freedom_pool_leases_total` | Counter | `outbound` |
 //!
 //! # Usage
 //!
@@ -150,6 +155,96 @@ fn describe_metrics() {
         "proxy_relay_errors_total",
         metrics::Unit::Count,
         "Total relay errors by inbound"
+    );
+    metrics::describe_counter!(
+        "proxy_relay_first_byte_failures_total",
+        metrics::Unit::Count,
+        "Relay errors before the dispatcher could record transferred bytes"
+    );
+    metrics::describe_counter!(
+        "proxy_relay_splice_selected_total",
+        metrics::Unit::Count,
+        "Raw TCP relays selected for splice by policy"
+    );
+    metrics::describe_counter!(
+        "proxy_relay_splice_fallback_total",
+        metrics::Unit::Count,
+        "Raw TCP relays that fell back from splice"
+    );
+    metrics::describe_counter!(
+        "proxy_relay_bytes_total",
+        metrics::Unit::Bytes,
+        "Bytes relayed by path-specific relay implementation"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_hits_total",
+        metrics::Unit::Count,
+        "Freedom outbound preconnect pool hits after first client write succeeds"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_leases_total",
+        metrics::Unit::Count,
+        "Freedom outbound preconnect pool sockets leased before first-use validation"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_misses_total",
+        metrics::Unit::Count,
+        "Freedom outbound preconnect pool misses"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_stales_total",
+        metrics::Unit::Count,
+        "Freedom outbound stale pooled sockets discarded"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_errors_total",
+        metrics::Unit::Count,
+        "Freedom outbound background pool dial errors"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_refill_success_total",
+        metrics::Unit::Count,
+        "Freedom outbound background refill sockets added to the idle pool"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_refill_dropped_total",
+        metrics::Unit::Count,
+        "Freedom outbound background refill sockets dropped before entering the idle pool"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_first_use_retries_total",
+        metrics::Unit::Count,
+        "Pooled Freedom sockets discarded after failing the first client write"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_first_use_guard_skipped_total",
+        metrics::Unit::Count,
+        "Pooled Freedom first-use guard skipped because client bytes were not immediately available"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_fresh_retry_success_total",
+        metrics::Unit::Count,
+        "Fresh Freedom retries that succeeded after a pooled socket failed first use"
+    );
+    metrics::describe_counter!(
+        "freedom_pool_fresh_retry_failures_total",
+        metrics::Unit::Count,
+        "Fresh Freedom retries that failed after a pooled socket failed first use"
+    );
+    metrics::describe_histogram!(
+        "freedom_pool_idle_age_seconds",
+        metrics::Unit::Seconds,
+        "Age of a pooled Freedom socket when reused"
+    );
+    metrics::describe_gauge!(
+        "freedom_pool_capacity",
+        metrics::Unit::Count,
+        "Current adaptive per-destination Freedom pool capacity tier"
+    );
+    metrics::describe_gauge!(
+        "freedom_pool_hotness",
+        metrics::Unit::Count,
+        "Current adaptive per-destination Freedom pool hotness estimate"
     );
 }
 

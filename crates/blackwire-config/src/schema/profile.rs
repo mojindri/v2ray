@@ -46,6 +46,20 @@ pub struct FastConfig {
     /// benchmark environments where unencrypted VLESS TCP is acceptable.
     #[serde(default = "FastConfig::default_strict_production")]
     pub strict_production: bool,
+
+    /// TCP preconnect pooling policy for Freedom outbounds.
+    ///
+    /// `adaptive` starts conservative and enables pooling only for hot
+    /// destinations. `disabled` avoids preconnect pooling entirely. `fixed`
+    /// keeps legacy numeric `poolSize` behavior for lab/debug configs.
+    #[serde(default)]
+    pub pool: FastPoolPolicy,
+
+    /// Raw TCP relay policy. `adaptive` currently means "use splice when both
+    /// streams are raw TCP and record the decision"; policy hooks are kept here
+    /// so future payload-aware thresholds do not change config shape.
+    #[serde(default)]
+    pub splice: FastSplicePolicy,
 }
 
 impl FastConfig {
@@ -58,8 +72,36 @@ impl Default for FastConfig {
     fn default() -> Self {
         Self {
             strict_production: true,
+            pool: FastPoolPolicy::default(),
+            splice: FastSplicePolicy::default(),
         }
     }
+}
+
+/// TCP connection pool strategy for the Fast Profile outbound.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FastPoolPolicy {
+    /// Ramp pool size based on destination hotness (default).
+    #[default]
+    Adaptive,
+    /// Disable pooling entirely.
+    Disabled,
+    /// Use a fixed pool size set by `poolSize`.
+    Fixed,
+}
+
+/// Splice relay strategy for the Fast Profile dispatcher.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum FastSplicePolicy {
+    /// Use splice only after `ADAPTIVE_SPLICE_MIN_BYTES` have been relayed (default).
+    #[default]
+    Adaptive,
+    /// Never use splice; always use `copy_bidirectional`.
+    Disabled,
+    /// Always use splice for eligible (raw TCP) streams.
+    Always,
 }
 
 /// A validation finding returned by [`validate_fast_profile`].
@@ -344,6 +386,7 @@ mod tests {
         let mut cfg = fast_vless_config();
         cfg.fast = Some(FastConfig {
             strict_production: true,
+            ..Default::default()
         });
         cfg.inbounds[0].stream_settings = Some(StreamSettingsConfig {
             security: SecurityType::None,
@@ -360,6 +403,7 @@ mod tests {
         let mut cfg = fast_vless_config();
         cfg.fast = Some(FastConfig {
             strict_production: false,
+            ..Default::default()
         });
         cfg.inbounds[0].stream_settings = Some(StreamSettingsConfig {
             security: SecurityType::None,

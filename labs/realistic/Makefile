@@ -18,7 +18,8 @@ SSH_EXTRA_OPTS ?=
 	vps-server-setup vps-client-setup vps-preflight vps-test vps-tun vps-netem ci ci-full clean \
 	latency-local latency-local-dry latency-report latency-report-html latency-check-tools \
 	latency-lima latency-lima-build latency-chaos latency-profile \
-	latency-compare latency-vps
+	latency-compare latency-vps \
+	bench bench-build bench-xray bench-singbox bench-smoke
 
 help:
 	@grep -h -E '^[a-zA-Z0-9_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  %-24s %s\n", $$1, $$2}'

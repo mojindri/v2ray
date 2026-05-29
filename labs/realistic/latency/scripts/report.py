@@ -42,6 +42,35 @@ def ms(secs) -> str:
         return "—"
 
 
+def int_field(result: dict, key: str) -> int:
+    try:
+        return int(result.get(key, 0) or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def result_failed(result: dict) -> bool:
+    return (
+        bool(result.get("benchmark_failed", False))
+        or int_field(result, "errors") > 0
+        or int_field(result, "non_200_responses") > 0
+        or int_field(result, "timeout_errors") > 0
+        or int_field(result, "eof_errors") > 0
+        or int_field(result, "reset_errors") > 0
+        or int_field(result, "connection_refused_errors") > 0
+        or int_field(result, "other_errors") > 0
+    )
+
+
+def direct_failures(results: list[dict]) -> list[dict]:
+    return [
+        r for r in results
+        if isinstance(r.get("variant"), str)
+        and r["variant"].startswith("direct")
+        and result_failed(r)
+    ]
+
+
 def render_markdown(results: list[dict]) -> str:
     if not results:
         return "_No results found._\n"
@@ -52,20 +81,36 @@ def render_markdown(results: list[dict]) -> str:
         "",
         "All times in **milliseconds**. Lower is better.",
         "",
-        "| Variant | p50 | p90 | p95 | p99 | req/s | errors |",
-        "|---------|-----|-----|-----|-----|-------|--------|",
+        "| Variant | payload | keepalive | warmup | p50 | p90 | p95 | p99 | req/s | errors | non-200 | status |",
+        "|---------|---------|-----------|--------|-----|-----|-----|-----|-------|--------|---------|--------|",
     ]
+    direct_failed = direct_failures(results)
+    if direct_failed:
+        lines += [
+            "> **RUN INVALID:** direct baseline has request failures. Treat Fast/Xray/sing-box comparisons as diagnostic only until the upstream/load environment is clean.",
+            "",
+        ]
     for r in results:
-        row = "| {variant} | {p50} | {p90} | {p95} | {p99} | {rps} | {err} |".format(
+        failed = result_failed(r)
+        row = "| {variant} | {payload} | {keepalive} | {warmup} | {p50} | {p90} | {p95} | {p99} | {rps} | {err} | {non200} | {status} |".format(
             variant=r.get("variant", "?"),
+            payload=r.get("payload", "—"),
+            keepalive="on" if r.get("keepalive", True) else "off",
+            warmup=r.get("warmup_s", 0),
             p50=ms(r.get("p50_s")),
             p90=ms(r.get("p90_s")),
             p95=ms(r.get("p95_s")),
             p99=ms(r.get("p99_s")),
             rps=f"{float(r.get('requests_per_sec', 0)):.0f}",
             err=r.get("errors", 0),
+            non200=r.get("non_200_responses", 0),
+            status="FAIL" if failed else "ok",
         )
         lines.append(row)
+
+    gate_lines = render_fast_gate(results)
+    if gate_lines:
+        lines += ["", "## Fast Profile Gate", "", *gate_lines]
 
     lines += [
         "",
@@ -81,18 +126,67 @@ def render_markdown(results: list[dict]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_fast_gate(results: list[dict]) -> list[str]:
+    by_variant = {r.get("variant"): r for r in results}
+    direct_failed = direct_failures(results)
+    if direct_failed:
+        lines = [
+            f"- RUN INVALID: {len(direct_failed)} direct baseline variant(s) failed. Fix the benchmark environment before using this as a release gate."
+        ]
+        for r in direct_failed:
+            lines.append(
+                f"- Direct `{r.get('variant')}` failed with errors={int_field(r, 'errors')}, non_200={int_field(r, 'non_200_responses')}, timeouts={int_field(r, 'timeout_errors')}, eof={int_field(r, 'eof_errors')}, reset={int_field(r, 'reset_errors')}."
+            )
+        return lines
+    pairs = []
+    for variant, result in by_variant.items():
+        if not isinstance(variant, str):
+            continue
+        if variant.startswith("xray-bw-fast-tcp"):
+            pairs.append(("Xray", result, by_variant.get(variant.replace("xray-bw-fast-tcp", "xray-xray-tcp", 1))))
+        elif variant.startswith("singbox-bw-fast-tcp"):
+            pairs.append((
+                "sing-box",
+                result,
+                by_variant.get(variant.replace("singbox-bw-fast-tcp", "singbox-singbox-tcp", 1)),
+            ))
+    lines: list[str] = []
+    for label, fast, competitor in pairs:
+        if not fast or not competitor:
+            continue
+        checks = []
+        for key in ("p50_s", "p95_s", "p99_s"):
+            checks.append(float(fast.get(key, 0)) <= float(competitor.get(key, 0)) * 1.05)
+        checks.append(
+            float(fast.get("requests_per_sec", 0))
+            >= float(competitor.get("requests_per_sec", 0)) * 0.95
+        )
+        checks.append(not result_failed(fast))
+        status = "PASS" if all(checks) else "FAIL"
+        lines.append(
+            f"- {label} `{fast.get('variant')}`: {status} — fast vs matching baseline must be within 5% on p50/p95/p99/req/s with zero errors and zero non-200 responses."
+        )
+    return lines
+
+
 def render_html(results: list[dict]) -> str:
     now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     rows = ""
     for r in results:
+        failed = result_failed(r)
         rows += (
             f"<tr><td>{r.get('variant','?')}</td>"
+            f"<td>{r.get('payload','—')}</td>"
+            f"<td>{'on' if r.get('keepalive', True) else 'off'}</td>"
+            f"<td>{r.get('warmup_s', 0)}</td>"
             f"<td>{ms(r.get('p50_s'))}</td>"
             f"<td>{ms(r.get('p90_s'))}</td>"
             f"<td>{ms(r.get('p95_s'))}</td>"
             f"<td>{ms(r.get('p99_s'))}</td>"
             f"<td>{float(r.get('requests_per_sec',0)):.0f}</td>"
-            f"<td>{r.get('errors',0)}</td></tr>\n"
+            f"<td>{r.get('errors',0)}</td>"
+            f"<td>{r.get('non_200_responses',0)}</td>"
+            f"<td>{'FAIL' if failed else 'ok'}</td></tr>\n"
         )
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -111,7 +205,7 @@ td:first-child {{ text-align: left; }}
 <h1>Latency Comparison</h1>
 <p>{now} — all times in <strong>milliseconds</strong></p>
 <table>
-<tr><th>Variant</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>req/s</th><th>errors</th></tr>
+<tr><th>Variant</th><th>payload</th><th>keepalive</th><th>warmup</th><th>p50</th><th>p90</th><th>p95</th><th>p99</th><th>req/s</th><th>errors</th><th>non-200</th><th>status</th></tr>
 {rows}</table>
 <p><small>
   Generated by <code>labs/realistic/latency/scripts/report.py</code><br>

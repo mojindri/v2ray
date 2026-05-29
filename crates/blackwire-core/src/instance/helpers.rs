@@ -280,7 +280,7 @@ pub(crate) fn populate_vless_registry(
             .as_str()
             .ok_or_else(|| anyhow::anyhow!("VLESS client missing 'id'"))?;
         let uuid = parse_uuid(id_str)?;
-        let email = client["email"].as_str().unwrap_or("").to_string();
+        let email: std::sync::Arc<str> = client["email"].as_str().unwrap_or("").into();
         let flow = client["flow"].as_str().unwrap_or("").to_string();
         registry.add_user(VlessUser { email, uuid, flow });
     }
@@ -294,12 +294,12 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
 
 pub(crate) fn build_sniffing_map(
     inbounds: &[blackwire_config::schema::InboundConfig],
-) -> std::collections::HashMap<String, blackwire_config::schema::SniffingConfig> {
+) -> std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>> {
     let mut map = std::collections::HashMap::new();
     for inbound in inbounds {
         if let Some(sniff) = &inbound.sniffing {
             if sniff.enabled {
-                map.insert(inbound.tag.clone(), sniff.clone());
+                map.insert(inbound.tag.clone(), Arc::new(sniff.clone()));
             }
         }
     }

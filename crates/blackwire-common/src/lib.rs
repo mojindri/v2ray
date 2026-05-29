@@ -34,7 +34,7 @@ pub use socks5_address::{
     decode_socks5_address, read_socks5_address, write_socks5_address, ATYP_DOMAIN, ATYP_IPV4,
     ATYP_IPV6,
 };
-pub use stream::{AsyncReadWrite, BoxedStream, Link, PrependedStream, ReunionStream};
+pub use stream::{AsyncReadWrite, BoxedStream, Link, PooledStream, PrependedStream, ReunionStream};
 
 // Linux-only relay optimization support.
 //

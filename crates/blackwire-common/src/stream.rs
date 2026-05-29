@@ -32,6 +32,7 @@
 
 use std::any::Any;
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -84,6 +85,102 @@ impl<T: AsyncRead + AsyncWrite + Unpin + Send + 'static> AsyncReadWrite for T {
 /// reading/writing network data.
 pub type BoxedStream = Box<dyn AsyncReadWrite + Send + Unpin + 'static>;
 
+/// Marks a stream that came from an optimistic preconnect pool.
+///
+/// The dispatcher can use this narrow marker to apply a first-use guard
+/// without exposing pool internals through the outbound trait.
+pub struct PooledStream<S> {
+    inner: S,
+    pool_tag: Option<String>,
+    peer_addr: Option<SocketAddr>,
+}
+
+impl<S> PooledStream<S> {
+    /// Wrap a stream with no pool metadata.
+    pub fn new(inner: S) -> Self {
+        Self {
+            inner,
+            pool_tag: None,
+            peer_addr: None,
+        }
+    }
+
+    /// Wrap a stream with a pool tag for first-use tracking.
+    pub fn with_pool_tag(inner: S, pool_tag: impl Into<String>) -> Self {
+        Self {
+            inner,
+            pool_tag: Some(pool_tag.into()),
+            peer_addr: None,
+        }
+    }
+
+    /// Return the pool tag if this stream came from a pool.
+    pub fn pool_tag(&self) -> Option<&str> {
+        self.pool_tag.as_deref()
+    }
+
+    /// Wrap a stream with both a pool tag and the peer address.
+    pub fn with_pool_metadata(
+        inner: S,
+        pool_tag: impl Into<String>,
+        peer_addr: SocketAddr,
+    ) -> Self {
+        Self {
+            inner,
+            pool_tag: Some(pool_tag.into()),
+            peer_addr: Some(peer_addr),
+        }
+    }
+
+    /// Return the peer address if known.
+    pub fn peer_addr(&self) -> Option<SocketAddr> {
+        self.peer_addr
+    }
+
+    /// Unwrap to the inner stream, discarding metadata.
+    pub fn into_inner(self) -> S {
+        self.inner
+    }
+
+    /// Unwrap to `(inner, pool_tag)`.
+    pub fn into_parts(self) -> (S, Option<String>) {
+        (self.inner, self.pool_tag)
+    }
+
+    /// Unwrap to `(inner, pool_tag, peer_addr)`.
+    pub fn into_metadata_parts(self) -> (S, Option<String>, Option<SocketAddr>) {
+        (self.inner, self.pool_tag, self.peer_addr)
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for PooledStream<S> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for PooledStream<S> {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        data: &[u8],
+    ) -> Poll<io::Result<usize>> {
+        Pin::new(&mut self.inner).poll_write(cx, data)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
+}
+
 /// Recover a raw TCP stream from a boxed stream when the transport is still TCP.
 ///
 /// This is intentionally Linux-only because the only current caller is the
@@ -132,6 +229,15 @@ pub fn try_into_tcp_stream_with_prefix(
             .expect("stream type checked as PrependedStream<TcpStream> before downcast");
         let (tcp, prefix) = prepended.into_parts();
         return Ok((tcp, prefix));
+    }
+
+    if (*stream).as_any().is::<PooledStream<TcpStream>>() {
+        let any = stream.into_any();
+        let pooled = any
+            .downcast::<PooledStream<TcpStream>>()
+            .expect("stream type checked as PooledStream<TcpStream> before downcast");
+        let (tcp, _, _) = pooled.into_metadata_parts();
+        return Ok((tcp, Vec::new()));
     }
 
     if (*stream).as_any().is::<PrependedStream<BoxedStream>>() {
