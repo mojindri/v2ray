@@ -91,6 +91,8 @@ fn parse_server_config(cfg: &InboundConfig) -> Result<Hysteria2ServerConfig> {
             )
         })?;
 
+    let max_connections = cfg.limits.as_ref().and_then(|l| l.max_connections);
+
     Ok(Hysteria2ServerConfig {
         tag: cfg.tag.clone(),
         addr,
@@ -99,6 +101,7 @@ fn parse_server_config(cfg: &InboundConfig) -> Result<Hysteria2ServerConfig> {
         down_mbps,
         cert_pem,
         key_pem,
+        max_connections,
     })
 }
 

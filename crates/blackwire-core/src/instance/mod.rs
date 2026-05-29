@@ -35,8 +35,9 @@ use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::sync::Semaphore;
 use tokio::task::JoinHandle;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 
 use blackwire_app::dispatcher::{DefaultDispatcher, Dispatcher};
 use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler};
@@ -46,7 +47,9 @@ use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE
 use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
-use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
+use blackwire_transport::mkcp_accept_sessions;
+#[cfg(target_os = "linux")]
+use blackwire_transport::TunRuntime;
 use tokio::net::UdpSocket as TokioUdpSocket;
 
 use crate::http::build_http_inbound;
@@ -141,9 +144,13 @@ impl Instance {
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
         let mut tasks = Vec::new();
+        #[cfg(target_os = "linux")]
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+        #[cfg(not(target_os = "linux"))]
+        let shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
+        #[cfg(target_os = "linux")]
         if let Some(tun_cfg) = &config.tun {
             use blackwire_transport::TunConfig;
             let tc = TunConfig {
@@ -413,18 +420,46 @@ impl Instance {
                 });
                 let cfg = build_mkcp_server_config(addr, &in_cfg.stream_settings)
                     .with_context(|| format!("building mKCP inbound '{}'", in_cfg.tag))?;
+                let mkcp_sem = in_cfg
+                    .limits
+                    .as_ref()
+                    .and_then(|l| l.max_connections)
+                    .or(config.limits.max_connections_per_inbound)
+                    .or(config.limits.max_connections)
+                    .map(|n| Arc::new(Semaphore::new(n)));
+
                 let task = tokio::spawn(async move {
                     match mkcp_accept_sessions(&cfg).await {
                         Ok(mut sessions) => {
                             while let Some((stream, peer)) = sessions.recv().await {
                                 let conn_handler = Arc::clone(&conn_handler);
-                                tokio::spawn(async move {
-                                    if let Err(e) =
-                                        conn_handler.handle_connection(Box::new(stream), peer).await
-                                    {
-                                        error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                                if let Some(sem) = &mkcp_sem {
+                                    match Arc::clone(sem).try_acquire_owned() {
+                                        Ok(permit) => {
+                                            tokio::spawn(async move {
+                                                let _permit = permit;
+                                                if let Err(e) = conn_handler
+                                                    .handle_connection(Box::new(stream), peer)
+                                                    .await
+                                                {
+                                                    error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                                                }
+                                            });
+                                        }
+                                        Err(_) => {
+                                            warn!(addr = %addr, "mKCP connection limit reached; dropping session");
+                                        }
                                     }
-                                });
+                                } else {
+                                    tokio::spawn(async move {
+                                        if let Err(e) = conn_handler
+                                            .handle_connection(Box::new(stream), peer)
+                                            .await
+                                        {
+                                            error!(addr = %addr, error = %e, "mKCP inbound session failed");
+                                        }
+                                    });
+                                }
                             }
                         }
                         Err(e) => {
@@ -467,10 +502,30 @@ impl Instance {
                     dispatcher: dispatcher_for_handler,
                 });
 
+                let quic_sem = in_cfg
+                    .limits
+                    .as_ref()
+                    .and_then(|l| l.max_connections)
+                    .or(config.limits.max_connections_per_inbound)
+                    .or(config.limits.max_connections)
+                    .map(|n| Arc::new(Semaphore::new(n)));
+
                 let task = tokio::spawn(async move {
                     while let Some(connecting) = endpoint.accept().await {
                         let conn_handler = Arc::clone(&conn_handler);
+                        let permit = if let Some(sem) = &quic_sem {
+                            match Arc::clone(sem).try_acquire_owned() {
+                                Ok(p) => Some(p),
+                                Err(_) => {
+                                    warn!(addr = %addr, "QUIC connection limit reached; dropping connection");
+                                    continue;
+                                }
+                            }
+                        } else {
+                            None
+                        };
                         tokio::spawn(async move {
+                            let _permit = permit;
                             let connection = match connecting.await {
                                 Ok(connection) => connection,
                                 Err(e) => {

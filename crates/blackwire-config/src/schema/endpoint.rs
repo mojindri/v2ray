@@ -5,6 +5,19 @@ use validator::{Validate, ValidationError, ValidationErrors};
 
 use super::{Protocol, SniffingConfig, StreamSettingsConfig};
 
+fn reject_shadowtls_protocol(protocol: &Protocol) -> Result<(), ValidationError> {
+    if *protocol == Protocol::ShadowTls {
+        let mut error = ValidationError::new("unsupported_protocol");
+        error.message = Some(
+            "protocol 'shadowtls' is not a standalone proxy protocol; \
+             use 'security: shadowtls' in streamSettings on a VLESS, Trojan, or VMess endpoint"
+                .into(),
+        );
+        return Err(error);
+    }
+    Ok(())
+}
+
 /// An inbound handler: a port and protocol the proxy listens on.
 #[derive(Debug, Clone, Serialize, Deserialize, Validate)]
 pub struct InboundConfig {
@@ -12,6 +25,7 @@ pub struct InboundConfig {
     pub tag: String,
 
     /// Proxy protocol: "socks", "http", "vless", and so on.
+    #[validate(custom(function = "reject_shadowtls_protocol"))]
     pub protocol: Protocol,
 
     /// IP address to listen on.
@@ -69,6 +83,16 @@ pub struct OutboundConfig {
 impl Validate for OutboundConfig {
     fn validate(&self) -> Result<(), ValidationErrors> {
         let mut errors = ValidationErrors::new();
+
+        if self.protocol == Protocol::ShadowTls {
+            let mut error = ValidationError::new("unsupported_protocol");
+            error.message = Some(
+                "protocol 'shadowtls' is not a standalone proxy protocol; \
+                 use 'security: shadowtls' in streamSettings on a VLESS, Trojan, or VMess endpoint"
+                    .into(),
+            );
+            errors.add("protocol", error);
+        }
 
         if let Some(port) = self.settings.get("port") {
             let invalid = port

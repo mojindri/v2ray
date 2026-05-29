@@ -28,16 +28,27 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
+use async_trait::async_trait;
 use clap::{Parser, Subcommand};
 use tracing::{error, info};
+use validator::Validate;
 
-use blackwire_config::schema::{validate_fast_profile, ProfileMode, ProfileViolation};
+use blackwire_api::management::{InboundManagement, NativeEndpointConfig};
+use blackwire_config::schema::{
+    validate_fast_profile, Config, InboundConfig, OutboundConfig, ProfileMode, ProfileViolation,
+};
 use blackwire_config::ConfigManager;
 use blackwire_core::{requires_instance_restart, Instance};
 
 struct RunningInstance {
-    config: Arc<blackwire_config::schema::Config>,
+    config: Arc<Config>,
     instance: Instance,
+}
+
+#[derive(Clone)]
+struct RuntimeControl {
+    instance: Arc<tokio::sync::Mutex<Option<RunningInstance>>>,
+    profile_override: Option<ProfileMode>,
 }
 
 // ── Top-level CLI struct ──────────────────────────────────────────────────────
@@ -232,12 +243,27 @@ async fn run_proxy(args: RunArgs) -> Result<()> {
     // `Instance::from_config()` reads the current config snapshot, builds
     // all inbound/outbound handlers, and starts all TCP listener tasks.
     let config = effective_config(manager.get(), profile_override);
+    let api_addr = config
+        .api
+        .as_ref()
+        .and_then(blackwire_api::server::api_listen_addr);
+    let runtime_config = instance_runtime_config(&config);
     let instance = Arc::new(tokio::sync::Mutex::new(Some(RunningInstance {
-        config: Arc::clone(&config),
-        instance: Instance::from_config(config)
+        config: Arc::clone(&runtime_config),
+        instance: Instance::from_config(runtime_config)
             .await
             .context("building proxy instance from config")?,
     })));
+
+    if let Some(api_addr) = api_addr {
+        let management: blackwire_api::management::ManagementHandle = Arc::new(RuntimeControl {
+            instance: Arc::clone(&instance),
+            profile_override,
+        });
+        blackwire_api::server::start_api_server(&api_addr, management)
+            .with_context(|| format!("starting blackwire-api gRPC server on '{api_addr}'"))?;
+        info!(addr = %api_addr, "blackwire-api gRPC server started");
+    }
 
     // Step 4b: Apply hot-reload when config file changes (routing + VLESS users).
     // Listeners keep running; only per-connection lookup tables are refreshed.
@@ -249,8 +275,9 @@ async fn run_proxy(args: RunArgs) -> Result<()> {
                 if reload_rx.changed().await.is_err() {
                     break;
                 }
-                let new_config =
+                let effective =
                     effective_config(reload_rx.borrow_and_update().clone(), profile_override);
+                let new_config = instance_runtime_config(&effective);
 
                 let should_restart = {
                     let guard = live_instance.lock().await;
@@ -369,6 +396,276 @@ async fn shutdown_signal(instance: Arc<tokio::sync::Mutex<Option<RunningInstance
     }
 }
 
+impl RuntimeControl {
+    async fn with_reload<T>(
+        &self,
+        f: impl FnOnce(&blackwire_core::ReloadState) -> T,
+    ) -> Result<T, String> {
+        let guard = self.instance.lock().await;
+        let running = guard
+            .as_ref()
+            .ok_or_else(|| "no running instance is available".to_string())?;
+        Ok(f(&running.instance.reload))
+    }
+
+    async fn rebuild_with_config(&self, new_config: Config) -> Result<(), String> {
+        let runtime_config = Arc::new(new_config);
+        runtime_config
+            .validate()
+            .map_err(|e| format!("config validation failed: {e}"))?;
+        apply_profile_override_and_validate(&runtime_config, self.profile_override)
+            .map_err(|e| format!("{e:#}"))?;
+
+        let (old_config, old_instance) = {
+            let mut guard = self.instance.lock().await;
+            let running = guard
+                .take()
+                .ok_or_else(|| "no running instance is available".to_string())?;
+            (running.config, running.instance)
+        };
+        drop(old_instance);
+
+        match Instance::from_config(Arc::clone(&runtime_config)).await {
+            Ok(instance) => {
+                let mut guard = self.instance.lock().await;
+                *guard = Some(RunningInstance {
+                    config: runtime_config,
+                    instance,
+                });
+                Ok(())
+            }
+            Err(e) => {
+                let rollback = Instance::from_config(Arc::clone(&old_config)).await;
+                let mut guard = self.instance.lock().await;
+                match rollback {
+                    Ok(instance) => {
+                        *guard = Some(RunningInstance {
+                            config: old_config,
+                            instance,
+                        });
+                        Err(format!("instance rebuild failed; rolled back: {e:#}"))
+                    }
+                    Err(rollback_err) => {
+                        *guard = None;
+                        Err(format!(
+                            "instance rebuild failed and rollback failed; no instance is running: rebuild={e:#}; rollback={rollback_err:#}"
+                        ))
+                    }
+                }
+            }
+        }
+    }
+
+    async fn mutate_config(
+        &self,
+        f: impl FnOnce(&mut Config) -> Result<(), String>,
+    ) -> Result<(), String> {
+        let mut new_config = {
+            let guard = self.instance.lock().await;
+            guard
+                .as_ref()
+                .ok_or_else(|| "no running instance is available".to_string())?
+                .config
+                .as_ref()
+                .clone()
+        };
+        f(&mut new_config)?;
+        self.rebuild_with_config(new_config).await
+    }
+}
+
+fn parse_inbound_endpoint(config: NativeEndpointConfig) -> Result<InboundConfig, String> {
+    let endpoint: InboundConfig = serde_json::from_value(config.config)
+        .map_err(|e| format!("invalid inbound config JSON: {e}"))?;
+    if endpoint.tag != config.tag {
+        return Err(format!(
+            "inbound tag mismatch: request tag '{}' != config tag '{}'",
+            config.tag, endpoint.tag
+        ));
+    }
+    endpoint
+        .validate()
+        .map_err(|e| format!("inbound validation failed: {e}"))?;
+    Ok(endpoint)
+}
+
+fn parse_outbound_endpoint(config: NativeEndpointConfig) -> Result<OutboundConfig, String> {
+    let endpoint: OutboundConfig = serde_json::from_value(config.config)
+        .map_err(|e| format!("invalid outbound config JSON: {e}"))?;
+    if endpoint.tag != config.tag {
+        return Err(format!(
+            "outbound tag mismatch: request tag '{}' != config tag '{}'",
+            config.tag, endpoint.tag
+        ));
+    }
+    endpoint
+        .validate()
+        .map_err(|e| format!("outbound validation failed: {e}"))?;
+    Ok(endpoint)
+}
+
+#[async_trait]
+impl InboundManagement for RuntimeControl {
+    async fn list_inbound_tags(&self) -> Vec<String> {
+        self.with_reload(|r| r.inbound_tags.read().map(|t| t.clone()).unwrap_or_default())
+            .await
+            .unwrap_or_default()
+    }
+
+    async fn list_outbound_tags(&self) -> Vec<String> {
+        self.with_reload(|r| {
+            r.outbound_tags
+                .read()
+                .map(|t| t.clone())
+                .unwrap_or_default()
+        })
+        .await
+        .unwrap_or_default()
+    }
+
+    async fn vless_user_count(&self, inbound_tag: &str) -> Option<i64> {
+        self.with_reload(|r| {
+            r.vless_registries
+                .get(inbound_tag)
+                .map(|registry| registry.len() as i64)
+        })
+        .await
+        .ok()
+        .flatten()
+    }
+
+    async fn list_vless_users(
+        &self,
+        inbound_tag: &str,
+        email: &str,
+    ) -> Result<Vec<blackwire_api::management::VlessUserRecord>, String> {
+        self.with_reload(|r| {
+            r.vless_registries
+                .get(inbound_tag)
+                .map(|registry| {
+                    registry
+                        .list_users(email)
+                        .into_iter()
+                        .map(|u| blackwire_api::management::VlessUserRecord {
+                            email: u.email.to_string(),
+                            uuid: uuid::Uuid::from_bytes(u.uuid).to_string(),
+                            flow: u.flow.clone(),
+                            level: 0,
+                        })
+                        .collect()
+                })
+                .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))
+        })
+        .await?
+    }
+
+    async fn add_vless_user(
+        &self,
+        inbound_tag: &str,
+        email: &str,
+        uuid: &str,
+        flow: &str,
+    ) -> Result<(), String> {
+        self.with_reload(|r| {
+            r.vless_registries
+                .get(inbound_tag)
+                .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))
+                .and_then(|registry| {
+                    let uuid = uuid::Uuid::parse_str(uuid)
+                        .map_err(|e| format!("invalid UUID '{uuid}': {e}"))?
+                        .into_bytes();
+                    registry.add_user(blackwire_protocol::vless::VlessUser {
+                        email: email.into(),
+                        uuid,
+                        flow: flow.to_string(),
+                    });
+                    Ok(())
+                })
+        })
+        .await?
+    }
+
+    async fn remove_vless_user(&self, inbound_tag: &str, email: &str) -> Result<(), String> {
+        self.with_reload(|r| {
+            r.vless_registries
+                .get(inbound_tag)
+                .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))
+                .and_then(|registry| {
+                    if registry.remove_user_by_email(email) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "no VLESS user with email '{email}' on inbound '{inbound_tag}'"
+                        ))
+                    }
+                })
+        })
+        .await?
+    }
+
+    async fn add_inbound(&self, config: NativeEndpointConfig) -> Result<(), String> {
+        let endpoint = parse_inbound_endpoint(config)?;
+        self.mutate_config(|cfg| {
+            if cfg.inbounds.iter().any(|i| i.tag == endpoint.tag) {
+                return Err(format!("inbound '{}' already exists", endpoint.tag));
+            }
+            cfg.inbounds.push(endpoint);
+            Ok(())
+        })
+        .await
+    }
+
+    async fn remove_inbound(&self, tag: &str) -> Result<(), String> {
+        self.mutate_config(|cfg| {
+            let before = cfg.inbounds.len();
+            cfg.inbounds.retain(|i| i.tag != tag);
+            if cfg.inbounds.len() == before {
+                return Err(format!("inbound '{tag}' not found"));
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    async fn add_outbound(&self, config: NativeEndpointConfig) -> Result<(), String> {
+        let endpoint = parse_outbound_endpoint(config)?;
+        self.mutate_config(|cfg| {
+            if cfg.outbounds.iter().any(|o| o.tag == endpoint.tag) {
+                return Err(format!("outbound '{}' already exists", endpoint.tag));
+            }
+            cfg.outbounds.push(endpoint);
+            Ok(())
+        })
+        .await
+    }
+
+    async fn remove_outbound(&self, tag: &str) -> Result<(), String> {
+        self.mutate_config(|cfg| {
+            let before = cfg.outbounds.len();
+            cfg.outbounds.retain(|o| o.tag != tag);
+            if cfg.outbounds.len() == before {
+                return Err(format!("outbound '{tag}' not found"));
+            }
+            Ok(())
+        })
+        .await
+    }
+
+    async fn alter_outbound(&self, config: NativeEndpointConfig) -> Result<(), String> {
+        let endpoint = parse_outbound_endpoint(config)?;
+        self.mutate_config(|cfg| {
+            let existing = cfg
+                .outbounds
+                .iter_mut()
+                .find(|o| o.tag == endpoint.tag)
+                .ok_or_else(|| format!("outbound '{}' not found", endpoint.tag))?;
+            *existing = endpoint;
+            Ok(())
+        })
+        .await
+    }
+}
+
 // ── `test` subcommand ─────────────────────────────────────────────────────────
 
 /// Parse and validate the config file; return Ok or an error.
@@ -386,7 +683,7 @@ async fn test_config(args: TestArgs) -> Result<()> {
 fn effective_config(
     base: Arc<blackwire_config::schema::Config>,
     override_: Option<ProfileMode>,
-) -> Arc<blackwire_config::schema::Config> {
+) -> Arc<Config> {
     let Some(profile) = override_ else {
         return base;
     };
@@ -395,6 +692,18 @@ fn effective_config(
     }
     let mut cfg = (*base).clone();
     cfg.profile = profile;
+    Arc::new(cfg)
+}
+
+/// The CLI owns the gRPC API server so HandlerService can rebuild the live
+/// `Instance`. Strip `api` before handing config to core to avoid a second API
+/// server being started by direct `Instance::from_config` compatibility code.
+fn instance_runtime_config(base: &Arc<Config>) -> Arc<Config> {
+    if base.api.is_none() {
+        return Arc::clone(base);
+    }
+    let mut cfg = base.as_ref().clone();
+    cfg.api = None;
     Arc::new(cfg)
 }
 

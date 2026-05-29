@@ -235,8 +235,14 @@ impl Dispatcher for DefaultDispatcher {
         let sniff_cfg = self.sniffing.load().get(&ctx.inbound_tag).cloned();
         if let Some(cfg) = sniff_cfg {
             if cfg.enabled {
-                let (stream, sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
+                let (stream, mut sniff) = crate::sniff::sniff_stream(inbound_stream, &cfg).await?;
                 inbound_stream = stream;
+                // FakeDNS sniffing: metadata-only (no byte peek) — check if dest is a fake IP.
+                if sniff.domain.is_none() && cfg.dest_override.iter().any(|p| p == "fakedns") {
+                    if let Some(dns) = &self.dns {
+                        sniff = crate::sniff::sniff_fakedns(&dest, dns);
+                    }
+                }
                 dest = crate::sniff::apply_dest_override(dest, &sniff, &cfg);
                 ctx = ctx.with_sniff(sniff.protocol, sniff.domain);
             }

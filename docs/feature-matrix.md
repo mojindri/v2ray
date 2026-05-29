@@ -3,7 +3,16 @@
 Last updated against the `blackwire-*` workspace crates, `tests/tests/` e2e
 suite, `labs/realistic/` interop lab, and GitHub Actions (CI + cross-platform).
 
-**Source of truth:** Wire behavior and “Supported” labels follow [Xray-core](https://github.com/XTLS/Xray-core) and [sing-box](https://github.com/SagerNet/sing-box) implementations plus real clients in the realistic lab — not blackwire’s schema or this table alone. See [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md) and [parity-status.md](parity-status.md) (matrix **SKIP** ≠ server unsupported).
+**Source of truth:** Wire behavior and “Supported” labels are validated against real Xray-core and sing-box clients in the realistic lab — not blackwire’s schema or this table alone. See [parity-status.md](parity-status.md) (matrix **SKIP** ≠ server unsupported).
+
+**Release posture** (see [release.md](release.md) for the full support contract):
+
+| Label | Release meaning |
+| ----- | --------------- |
+| **Supported** | Safe to rely on in production — tested by CI, e2e suite, and realistic lab |
+| **Partial** | Shipped but has a known gap; read the notes before production use |
+| **Experimental** | Implemented end-to-end; missing hostile-network, breadth, or soak coverage |
+| **Unsupported** | Not implemented or explicitly fail-closed |
 
 Status labels:
 
@@ -23,10 +32,13 @@ Evidence shorthand: crate paths use `blackwire-{common,config,app,core,protocol,
 
 ## Product scope
 
-**blackwire** is a Rust-native **proxy server** that targets **wire compatibility**
-with Xray-core and sing-box on selected protocol/transport pairs. Validation uses
-in-process e2e tests, per-crate `production_readiness` tests, and (optionally)
-Docker labs with real upstream clients — not mock peers alone.
+**blackwire** is a Rust-native **proxy server** that implements **selected wire-compatible
+server paths** validated against Xray-core and sing-box clients. Compatibility is
+proved by in-process e2e tests, per-crate `production_readiness` tests, and Docker
+labs with real upstream clients — not spec claims or mock peers alone.
+
+No claim of full Xray/sing-box feature parity is made. See the Unsupported rows and
+[release.md](release.md) for what is explicitly out of scope.
 
 
 | Area                                            | Status           | Notes                                                                                                                                                                                                                                                         |
@@ -53,13 +65,13 @@ Outbound handlers: `Freedom`, `Vless`, `Hysteria2`, `Trojan`, `Vmess`, `Shadowso
 | Protocol                              | Inbound | Outbound | Status           | Evidence / notes                                                                                                                                         |
 | ------------------------------------- | ------- | -------- | ---------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | SOCKS5 (TCP CONNECT)                  | Yes     | No       | **Supported**    | `blackwire-protocol/socks.rs`; e2e `e2e_socks5_vless.rs`                                                                                                 |
-| SOCKS5 UDP ASSOCIATE                  | Yes     | Partial  | **Partial**      | `socks5_udp.rs` + TCP control channel; lab scenario `vless-udp` for VLESS path                                                                           |
+| SOCKS5 UDP ASSOCIATE                  | Yes     | Partial  | **Supported**    | `socks5_udp.rs` + TCP control channel; e2e `e2e_socks5_udp.rs` PASS; lab scenario `vless-udp` for VLESS path                                             |
 | HTTP CONNECT                          | Yes     | No       | **Supported**    | `http_connect.rs`, `blackwire-core/http.rs`; e2e `e2e_http_connect.rs`                                                                                   |
 | Freedom / direct                      | No      | Yes      | **Supported**    | `freedom.rs` — default direct outbound                                                                                                                   |
 | VLESS (TCP)                           | Yes     | Yes      | **Supported**    | `vless/`; golden + e2e matrix                                                                                                                            |
 | VLESS UDP command                     | Yes     | Yes      | **Supported**    | `vless/udp.rs` inbound relay; matrix `vless-udp` Xray+sing-box **PASS**; outbound `Command::Udp`; e2e `e2e_vless_udp_outbound.rs` PASS                   |
 | VLESS MUX command (0x03)              | Yes     | Yes      | **Supported**    | Mux.Cool + XUDP in `vless/mux.rs`; outbound client in `vless/mux_client.rs` (N logical streams over one VLESS conn); matrix `vless-mux` Xray **PASS**; `vless-udp` Xray XUDP **PASS** |
-| VLESS flow `xtls-rprx-vision`         | Partial | Partial  | **Experimental** | `vless/vision.rs` unpadding + direct-copy; lab row `vless-vision` green                                                                                  |
+| VLESS flow `xtls-rprx-vision`         | Yes     | Yes      | **Supported**    | `vless/vision.rs` via common `VisionStream`; lab row `vless-vision` green; Linux raw TCP flows hand off to splice/adaptive splice after Vision direct-copy negotiation |
 | VMess AEAD                            | Yes     | Yes      | **Supported**    | `vmess/`; legacy **alterId unsupported**                                                                                                                 |
 | Trojan (TCP)                          | Yes     | Yes      | **Supported**    | `trojan/`; e2e `e2e_trojan/`                                                                                                                             |
 | Trojan UDP                            | Yes     | Yes      | **Supported**    | Xray `CMD 0x03`; inbound: matrix `trojan-udp` Xray+sing-box **PASS**; outbound: `connect_trojan_on_stream_udp()`; e2e `e2e_trojan_udp_outbound.rs` PASS  |
@@ -83,15 +95,15 @@ TCP accept in `instance/mod.rs`. Hysteria2 uses its own QUIC listener.
 | TCP                                    | **Supported**    | `blackwire-transport/tcp.rs`                                                                                                                                                                                                                                                                                                                                               |
 | TLS (rustls)                           | **Supported**    | `transport/tls.rs`                                                                                                                                                                                                                                                                                                                                                         |
 | WebSocket                              | **Supported**    | `transport/ws.rs`; e2e `e2e_vless_ws.rs`                                                                                                                                                                                                                                                                                                                                   |
-| gRPC (Gun-style)                       | **Supported**    | `transport/grpc.rs`; e2e `e2e_http_vmess_grpc.rs`                                                                                                                                                                                                                                                                                                                          |
+| gRPC (Gun-style)                       | **Supported**    | `transport/grpc.rs`; e2e `e2e_http_vmess_grpc.rs`; `grpc_stream_reset` in `e2e_hostility.rs` PASS (END_STREAM propagates to downstream) |
 | REALITY                                | **Experimental** | `transport/reality/`, `blackwire-core/reality.rs`; e2e `e2e_reality_vless.rs`; transport-only tests `e2e_reality.rs`; Xray d1 interop ignored test                                                                                                                                                                                                                         |
 | ShadowTLS v3                           | **Experimental** | Server: `transport/shadowtls/` + e2e. Matrix: both clients **SKIP** (Xray 26+ outbound model; sing-box inbound model) — not “unsupported on server”                                                                                                                                                                                                                        |
 | mKCP                                   | **Experimental** | Server: `transport/mkcp/` + e2e. Matrix: both clients **SKIP** (sing-box no mKCP; Xray 26 finalmask) — not “unsupported on server”                                                                                                                                                                                                                                         |
 | QUIC (`network: quic` for VLESS/VMess) | **Experimental** | Server: `v2rayquic.rs` + e2e. Matrix: **sing-box PASS**, Xray **SKIP** (Xray 26+ removed legacy QUIC client transport)                                                                                                                                                                                                                                                     |
 | Hysteria2 (QUIC + HTTP/3 auth)         | **Experimental** | `hysteria2/` — TCP stream proxy + UDP datagram path                                                                                                                                                                                                                                                                                                                        |
-| TUN transparent proxy                  | **Partial**      | `transport/tun/` when `config.tun` set; privileged tests `tun_priv.rs` (`#[ignore]` without root / `priv-test`)                                                                                                                                                                                                                                                            |
+| TUN transparent proxy                  | **Supported**    | Linux TUN runtime via `transport/tun/` when `config.tun` is set; route setup/cleanup and UDP NAT covered by privileged `tun_priv.rs`; CI runs the privileged Linux TUN job |
 | HTTPUpgrade                            | **Supported**    | Inbound/outbound + lab row `vless-httpupgrade` (Docker external-client matrix)                                                                                                                                                                                                                                                                                             |
-| SplitHTTP / xHTTP                      | **Supported**    | **stream-one** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. **packet-up** (seq reorder, H2 `GET /split/<uuid>` + `POST /split/<uuid>/<seq>`): matrix `vless-splithttp-packet-up` **Xray PASS**; sing-box **SKIP** (upstream has no packet-up); in-process e2e `vless_splithttp_packet_up_h2_echo` **PASS**. Xmux/padding/`downloadSettings` remain backlog. |
+| SplitHTTP / xHTTP                      | **Supported**    | **stream-one** (ALPN h2): matrix `vless-splithttp` Xray+sing-box **PASS**. **packet-up** (seq reorder, H2 `GET /split/<uuid>` + `POST /split/<uuid>/<seq>`): matrix `vless-splithttp-packet-up` **Xray PASS**; sing-box **SKIP** (upstream has no packet-up); in-process e2e `vless_splithttp_packet_up_h2_echo` **PASS**. Extra xHTTP fields parse for native config parity (`xmux`, `downloadSettings`, placement/chunk hints), H2 packet-up multiplex sessions are accepted, stream-up GET-with-`seq` is accepted, and configured x-padding emits the requested header. |
 
 
 ---
@@ -123,7 +135,8 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | FakeIP pool + restore on dispatch     | **Supported** | `dns/fakeip.rs`, dispatcher; startup rejects invalid pool (`production_readiness`)                                                         |
 | DNS response cache                    | **Supported** | `dns/cache.rs`                                                                                                                             |
 | `domain_strategy` (routing)           | **Supported** | Xray `AsIs` / `IPIfNonMatch` / `IPOnDemand` in `dispatcher` + `router` (see [routing docs](https://xtls.github.io/en/config/routing.html)) |
-| Sniffing (`http` / `tls` / `fakedns`) | **Partial**   | `blackwire-app/sniff.rs` + dispatcher destOverride; lab row `vless-sniff` (port `8452`, dedicated client tmpls; green in Docker matrix)    |
+| Sniffing HTTP + TLS (`destOverride`, `routeOnly`, `metadataOnly`) | **Supported** | `blackwire-app/sniff.rs`; HTTP Host + TLS SNI detection; lab row `vless-sniff` green in Docker matrix |
+| Sniffing FakeDNS                      | **Supported**    | `sniff_fakedns` wired in dispatcher; `"fakedns"` in `destOverride` reverses fake IP → domain, sets `sniffed_protocol = "fakedns"`; `apply_dest_override` handles `"fakedns"`; 4 unit tests PASS (`sniff::tests`) |
 
 
 ---
@@ -141,7 +154,7 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | `port`                                    | **Supported** |                                                                                                               |
 | `source_ip`                               | **Supported** |                                                                                                               |
 | `inboundTag`                              | **Supported** |                                                                                                               |
-| `protocol` / sniffed domain rules         | **Partial**   | Requires inbound sniffing + `sniffed_protocol` on routing context; lab row `vless-sniff`                      |
+| `protocol` / sniffed domain rules         | **Supported** | `sniffed_protocol` is carried from HTTP/TLS/FakeDNS sniffing into routing context; router protocol-rule tests + lab row `vless-sniff` |
 | GeoIP / geosite (`geoip:`, `geosite:`)    | **Supported** | `geo/`; missing data files → empty matchers + warn                                                            |
 | Balancers (random / roundRobin / latency) | **Supported** | `balancer.rs`; HTTP health probes; in-process failover e2e `e2e_health_failover.rs`                           |
 | Health-check failover under fault         | **Supported** | In-process e2e `e2e_health_failover.rs` + Docker lab (`make -C labs/realistic health-failover`) both **PASS** |
@@ -161,12 +174,12 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | Hot-reload **routing rules**               | **Supported**    | `blackwire-core/reload.rs` — `LiveRouter::swap`                                                                                                                                                                   |
 | Hot-reload **VLESS user UUIDs**            | **Supported**    | Per-inbound registry refresh                                                                                                                                                                                      |
 | Hot-reload **GeoIP/geosite data**          | **Supported**    | Reloaded with router rebuild                                                                                                                                                                                      |
-| Hot-reload listeners / new tags / TLS keys | **Partial**      | `requires_instance_restart` + CLI rebuilds `Instance` on structural change (no separate `reload` subcommand)                                                                                                      |
-| Per-inbound / global `max_connections`     | **Partial**      | TCP accept path in `transport/tcp.rs` + config limits; not all protocols share the same limit surface                                                                                                             |
+| Hot-reload listeners / new tags / TLS keys | **Supported**    | `requires_instance_restart` detects structural changes; CLI rebuilds the running `Instance` and rolls back to the prior config if rebuild fails (rebuild path, not in-place listener swap) |
+| Per-inbound / global `max_connections`     | **Supported**    | TCP (`transport/tcp.rs`), mKCP, QUIC, and Hysteria2 accept loops all honour the 3-level hierarchy (`limits.maxConnections` per-inbound → per-inbound-class → global) |
 | Prometheus HTTP (`metricsAddr`)            | **Supported**    | `metrics.rs` — `/metrics`, `/healthz`, `/readyz`, `/version`                                                                                                                                                      |
 | Per-connection Prometheus counters         | **Supported**    | `record_connection_`* called from `dispatcher` after each relay                                                                                                                                                   |
-| v2ray gRPC Stats API                       | **Experimental** | `blackwire-api` StatsService + `runtime_stats`; starts when `api` listen set                                                                                                                                      |
-| v2ray gRPC Handler API                     | **Partial**      | `ListInbounds`, `ListOutbounds`, `GetInboundUsersCount`, `GetInboundUsers`, `AlterInbound` VLESS add/remove; `AddInbound`/`RemoveInbound`/`AddOutbound`/`RemoveOutbound` return UNIMPLEMENTED (use config reload) |
+| Stats API (gRPC)                           | **Experimental** | `blackwire-api` StatsService + `runtime_stats`; starts when `api` listen set                                                                                                                                      |
+| Handler API (gRPC)                         | **Supported**    | `ListInbounds`, `ListOutbounds`, `GetInboundUsersCount`, `GetInboundUsers`, `AlterInbound` VLESS add/remove; structural `AddInbound`, `RemoveInbound`, `AddOutbound`, `RemoveOutbound`, `AlterOutbound` accept native blackwire endpoint JSON in `proxy_settings`, rebuild the running CLI instance, and roll back on rebuild failure |
 
 
 ---
@@ -184,11 +197,11 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | `make audit` / `cargo-audit`                      | **Supported**    | Weekly **Security / Dependency audit** schedule + manual                            |
 | `make deny` / `cargo-deny`                        | **Supported**    | `deny.toml` license/advisory policy                                                 |
 | Adversarial integration tests                     | **Supported**    | `tests/tests/adversarial_*.rs` — fragmentation, cancellation, backpressure, etc.    |
-| Leak / resource tests                             | **Partial**      | `leak_assertions`, `resource_limits` (some `#[ignore]`)                             |
+| Leak / resource tests                             | **Supported**    | `resource_smoke.rs` covers bad-auth bursts, FakeIP/DNS pressure, stream churn, mKCP churn, and connection-limit overflow in normal CI; heavier ignored suites remain optional stress tests |
 | External-client Docker lab                        | **Supported**    | `labs/realistic/` — 15 protocols × 4 cases; `run-docker-matrix.sh`                  |
 | External-client VPS lab                           | **Supported**    | Same `scenarios.env` as Docker; `run-vps-matrix.sh` (one server start per protocol) |
 | TLS/REALITY byte-level fingerprint diff vs Chrome | **Unsupported**  | Functional interop ≠ identical ClientHello bytes                                    |
-| Packet capture on failure                         | **Partial**      | Set `MATRIX_PCAP_ON_FAIL=1` in `run-docker-matrix.sh`; not CI-gated                 |
+| Packet capture on failure                         | **Supported**    | `interop-smoke.yml` runs the Docker external-client matrix with `MATRIX_PCAP_ON_FAIL=1` and uploads `labs/realistic/reports/` artifacts |
 
 
 ---
@@ -200,7 +213,7 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | ----------------------------- | --------------- | ------------------------------------------------------------- |
 | Linux x86_64                  | **Supported**   | Primary dev and CI target                                     |
 | Linux aarch64                 | **Supported**   | CI job `Test (linux-arm64)` on `ubuntu-24.04-arm`             |
-| macOS (Apple Silicon / Intel) | **Partial**     | CI runs `macos-latest` tests; release artifacts not certified |
+| macOS (Apple Silicon / Intel) | **Supported**   | CI runs `macos-latest` tests and builds a release artifact in the cross-platform workflow |
 | Windows                       | **Unsupported** | Not built or tested in CI                                     |
 | OpenWrt                       | **Unsupported** | Not targeted                                                  |
 | Android / iOS native          | **Unsupported** | Not targeted                                                  |
@@ -231,8 +244,7 @@ production certification on all Experimental rows.
 - Native JSON schema — not V2Ray/Xray config paste-compatible.
 - VMess legacy non-AEAD / alterId — not implemented.
 - DoH/DoT DNS upstreams — skipped at resolver build.
-- XTLS Vision — flow recognized on wire; splice not implemented.
-- `blackwire-api` Handler RPCs — VLESS user add/remove via `AlterInbound`; listener/outbound tag RPCs require config reload.
+- Handler API (gRPC) — structural add/remove/alter RPCs use native blackwire endpoint JSON in `proxy_settings` rather than Xray core endpoint protobufs.
 - Full hot-reload of listeners, outbounds, and TLS material — requires process restart.
 
 ---

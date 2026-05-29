@@ -11,9 +11,10 @@
 //! Some tests are intentionally strict. If they fail, treat that as useful:
 //! the transport probably has a real production-hardening gap.
 
+#[cfg(target_os = "linux")]
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::{
     io,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr},
     pin::Pin,
     task::{Context, Poll},
     time::Duration,
@@ -30,6 +31,7 @@ use blackwire_transport::{
 use blackwire_transport::mkcp::header::HeaderType;
 use blackwire_transport::mkcp::segment::{Segment, CMD_ACK, CMD_PUSH, OVERHEAD};
 use blackwire_transport::reality::parse_client_hello;
+#[cfg(target_os = "linux")]
 use blackwire_transport::tun::{
     build_udp_response_packet, parse_ip_packet, TransportProtocol, TunSessionTable,
 };
@@ -630,6 +632,7 @@ fn mkcp_segment_decode_rejects_incomplete_data_without_consuming_payload() {
 // TUN packet parser tests
 // ─────────────────────────────────────────────────────────────────────────────
 
+#[cfg(target_os = "linux")]
 fn ipv4_packet(proto: u8, src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u16) -> Vec<u8> {
     let transport_len = if proto == 6 { 20 } else { 8 };
     let mut pkt = vec![0u8; 20 + transport_len];
@@ -649,6 +652,7 @@ fn ipv4_packet(proto: u8, src: [u8; 4], dst: [u8; 4], src_port: u16, dst_port: u
     pkt
 }
 
+#[cfg(target_os = "linux")]
 fn ipv6_packet(
     next_header: u8,
     src: [u8; 16],
@@ -674,6 +678,7 @@ fn ipv6_packet(
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_parser_accepts_ipv4_tcp_and_udp() {
     let tcp = ipv4_packet(6, [1, 2, 3, 4], [5, 6, 7, 8], 1234, 443);
     let parsed = parse_ip_packet(&tcp).expect("IPv4 TCP packet rejected");
@@ -693,6 +698,7 @@ fn tun_parser_accepts_ipv4_tcp_and_udp() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_parser_accepts_ipv6_tcp_and_udp() {
     let src = Ipv6Addr::LOCALHOST.octets();
     let dst = Ipv6Addr::UNSPECIFIED.octets();
@@ -713,6 +719,7 @@ fn tun_parser_accepts_ipv6_tcp_and_udp() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_parser_rejects_short_and_unknown_ip_versions() {
     assert!(parse_ip_packet(&[]).is_none());
     assert!(parse_ip_packet(&[0x45]).is_none());
@@ -721,6 +728,7 @@ fn tun_parser_rejects_short_and_unknown_ip_versions() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_parser_rejects_ipv4_ihl_smaller_than_minimum() {
     let mut pkt = ipv4_packet(6, [1, 1, 1, 1], [2, 2, 2, 2], 1000, 2000);
     pkt[0] = 0x44; // IPv4, IHL=4. Invalid: IHL must be >= 5.
@@ -732,6 +740,7 @@ fn tun_parser_rejects_ipv4_ihl_smaller_than_minimum() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_parser_rejects_ipv4_total_length_smaller_than_header() {
     let mut pkt = ipv4_packet(6, [1, 1, 1, 1], [2, 2, 2, 2], 1000, 2000);
     pkt[2..4].copy_from_slice(&(10u16).to_be_bytes());
@@ -743,6 +752,7 @@ fn tun_parser_rejects_ipv4_total_length_smaller_than_header() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_builds_udp_response_packet_with_reverse_tuple() {
     let mut request = ipv4_packet(17, [10, 0, 0, 2], [8, 8, 8, 8], 53000, 53);
     request.extend_from_slice(b"query");
@@ -765,6 +775,7 @@ fn tun_builds_udp_response_packet_with_reverse_tuple() {
 }
 
 #[test]
+#[cfg(target_os = "linux")]
 fn tun_session_table_tracks_reverse_udp_flow_and_expiry() {
     let request = ipv4_packet(17, [10, 0, 0, 2], [8, 8, 8, 8], 53000, 53);
     let response = ipv4_packet(17, [8, 8, 8, 8], [10, 0, 0, 2], 53, 53000);

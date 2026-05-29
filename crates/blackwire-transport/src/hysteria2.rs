@@ -12,6 +12,7 @@ mod varint;
 
 pub use auth::AuthError;
 pub use proto::{AuthRequest, AuthResponse, TcpRequest, TcpResponse};
+pub use udp::Destination as UdpDestination;
 
 use std::net::SocketAddr;
 use std::pin::Pin;
@@ -52,6 +53,8 @@ pub struct Hysteria2ServerConfig {
     pub cert_pem: String,
     /// Private key for `cert_pem`, in PEM format.
     pub key_pem: String,
+    /// Maximum concurrent QUIC connections. Falls back to `MAX_HYSTERIA2_CONNECTIONS`.
+    pub max_connections: Option<usize>,
 }
 
 /// Configuration for a Hysteria2 outbound client.
@@ -96,10 +99,11 @@ impl Hysteria2Server {
 
         info!(addr = %self.config.addr, "Hysteria2 server listening (HTTP/3)");
 
-        // Global connection cap — matches the official hysteria2 server default of
-        // `maxIncomingConnections: 1024`. sing-quic has no cap, but we follow the
-        // reference implementation to bound memory and task count.
-        let conn_limiter = Arc::new(Semaphore::new(MAX_HYSTERIA2_CONNECTIONS));
+        let cap = self
+            .config
+            .max_connections
+            .unwrap_or(MAX_HYSTERIA2_CONNECTIONS);
+        let conn_limiter = Arc::new(Semaphore::new(cap));
 
         while let Some(incoming) = endpoint.accept().await {
             let permit = match Arc::clone(&conn_limiter).try_acquire_owned() {
@@ -401,5 +405,90 @@ impl rustls::client::danger::ServerCertVerifier for SkipVerifier {
             rustls::SignatureScheme::ED25519,
             rustls::SignatureScheme::RSA_PKCS1_SHA256,
         ]
+    }
+}
+
+/// A client-side Hysteria2 UDP session.
+///
+/// Wraps the QUIC connection for sending and receiving UDP datagrams.
+/// Create one per client UDP flow (SOCKS5 session or test harness).
+pub struct Hysteria2UdpSession {
+    conn: quinn::Connection,
+    _endpoint: quinn::Endpoint,
+    session_id: u32,
+    packet_id: std::sync::atomic::AtomicU16,
+}
+
+impl Hysteria2UdpSession {
+    /// Connect to a Hysteria2 server and authenticate.
+    ///
+    /// Returns a UDP session ready for `send` / `recv`.
+    pub async fn connect(config: &Hysteria2ClientConfig) -> Result<Self, ProxyError> {
+        let rx_bps = config.down_mbps.saturating_mul(1_000_000 / 8);
+        let target_bps = config.up_mbps.saturating_mul(1_000_000 / 8);
+        let mut transport_config = quinn::TransportConfig::default();
+        transport_config.congestion_controller_factory(Arc::new(BrutalCCFactory::new(target_bps)));
+        let (stream_rx, conn_rx, conn_tx) =
+            crate::quic::bdp_windows(config.down_mbps, config.up_mbps);
+        transport_config.stream_receive_window(stream_rx);
+        transport_config.receive_window(conn_rx);
+        transport_config.send_window(conn_tx);
+        // Enable QUIC datagrams for UDP relay.
+        transport_config.datagram_receive_buffer_size(Some(2 * 1024 * 1024));
+        transport_config.datagram_send_buffer_size(2 * 1024 * 1024);
+
+        let transport_arc = Arc::new(transport_config);
+        let client_config = build_hysteria2_client_config(config.skip_cert_verify, transport_arc)
+            .map_err(|e| ProxyError::Transport(e.to_string()))?;
+
+        let bind_addr: SocketAddr = "0.0.0.0:0"
+            .parse()
+            .map_err(|e| ProxyError::Transport(format!("bind addr: {e}")))?;
+        let endpoint = quinn::Endpoint::client(bind_addr)
+            .map_err(|e| ProxyError::Transport(format!("client endpoint: {e}")))?;
+
+        let conn = endpoint
+            .connect_with(client_config, config.server, &config.server_name)
+            .map_err(|e| ProxyError::Transport(format!("QUIC connect: {e}")))?
+            .await
+            .map_err(|e| ProxyError::Transport(format!("QUIC handshake: {e}")))?;
+
+        client_h3_auth(&conn, &config.password, rx_bps).await?;
+
+        Ok(Self {
+            conn,
+            _endpoint: endpoint,
+            session_id: rand::random(),
+            packet_id: std::sync::atomic::AtomicU16::new(0),
+        })
+    }
+
+    /// Send a UDP payload to `dest` through the Hysteria2 tunnel.
+    pub fn send(&self, dest: udp::Destination, data: bytes::Bytes) -> Result<(), ProxyError> {
+        let packet_id = self
+            .packet_id
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dg = udp::UdpDatagram {
+            session_id: self.session_id,
+            packet_id,
+            frag_id: 0,
+            frag_num: 1,
+            dest,
+            data,
+        };
+        let encoded = udp::encode_udp_datagram(&dg);
+        self.conn
+            .send_datagram(encoded)
+            .map_err(|e| ProxyError::Transport(format!("send_datagram: {e}")))
+    }
+
+    /// Receive a UDP response datagram from the server.
+    pub async fn recv(&self) -> Result<udp::UdpDatagram, ProxyError> {
+        let raw = self
+            .conn
+            .read_datagram()
+            .await
+            .map_err(|e| ProxyError::Transport(format!("read_datagram: {e}")))?;
+        udp::decode_udp_datagram(&raw).map_err(|e| ProxyError::Transport(e.to_string()))
     }
 }

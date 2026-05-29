@@ -212,6 +212,76 @@ pub struct SplitHttpConfig {
     /// Extra HTTP headers.
     #[serde(default)]
     pub headers: std::collections::HashMap<String, String>,
+
+    /// Xray xHTTP padding byte range. Accepted as native JSON so string/range
+    /// forms remain config-compatible.
+    #[serde(
+        default,
+        rename = "xPaddingBytes",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub x_padding_bytes: Option<serde_json::Value>,
+
+    /// Xray xHTTP padding method (`repeat-x`, `tokenish`, etc.).
+    #[serde(default, rename = "xPaddingMethod")]
+    pub x_padding_method: String,
+
+    /// Xray xHTTP padding header name.
+    #[serde(default, rename = "xPaddingHeader")]
+    pub x_padding_header: String,
+
+    /// Xray xHTTP padding key used by header/cookie placements.
+    #[serde(default, rename = "xPaddingKey")]
+    pub x_padding_key: String,
+
+    /// Xray xHTTP padding placement (`header`, `cookie`, etc.).
+    #[serde(default, rename = "xPaddingPlacement")]
+    pub x_padding_placement: String,
+
+    /// Xray xHTTP upload session placement.
+    #[serde(default, rename = "sessionPlacement")]
+    pub session_placement: String,
+
+    /// Xray xHTTP upload session key.
+    #[serde(default, rename = "sessionKey")]
+    pub session_key: String,
+
+    /// Xray xHTTP upload sequence placement.
+    #[serde(default, rename = "seqPlacement")]
+    pub seq_placement: String,
+
+    /// Xray xHTTP upload sequence key.
+    #[serde(default, rename = "seqKey")]
+    pub seq_key: String,
+
+    /// Xray xHTTP upload data placement.
+    #[serde(default, rename = "uplinkDataPlacement")]
+    pub uplink_data_placement: String,
+
+    /// Xray xHTTP upload data key.
+    #[serde(default, rename = "uplinkDataKey")]
+    pub uplink_data_key: String,
+
+    /// Xray xHTTP upload chunk size hint.
+    #[serde(default, rename = "uplinkChunkSize")]
+    pub uplink_chunk_size: u32,
+
+    /// Server-side maximum buffered packet-up POST bodies.
+    #[serde(default, rename = "scMaxBufferedPosts")]
+    pub sc_max_buffered_posts: usize,
+
+    /// Xray Xmux settings. The current implementation supports h2 packet-up
+    /// multi-session multiplexing; this field is retained for config parity.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub xmux: Option<serde_json::Value>,
+
+    /// Xray downloadSettings. Retained as native JSON for config parity.
+    #[serde(
+        default,
+        rename = "downloadSettings",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub download_settings: Option<serde_json::Value>,
 }
 
 fn default_splithttp_method() -> String {

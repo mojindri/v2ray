@@ -51,7 +51,7 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use blackwire_common::ProxyError;
 use blackwire_transport::{
-    dev_self_signed, tls_accept, RealityClient, RealityClientConfig, RealityServer,
+    reality_server_tls_stream, RealityClient, RealityClientConfig, RealityServer,
     RealityServerConfig,
 };
 
@@ -168,13 +168,11 @@ async fn spawn_dummy_fallback() -> SocketAddr {
 ///
 /// Expected: `RealityServer::accept()` replays the ClientHello into rustls,
 /// the TLS handshake completes, and application bytes flow both directions.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_valid_auth_succeeds() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();
     let short_id = vec![0xAA, 0xBB, 0xCC, 0xDD];
     let fallback_addr = spawn_dummy_fallback().await;
-    let (cert_pem, key_pem) = dev_self_signed().expect("self-signed TLS cert");
 
     // Start our REALITY server.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -193,8 +191,12 @@ async fn d0_self_valid_auth_succeeds() {
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
             let result = async {
-                let stream = srv.accept(Box::new(stream)).await?;
-                let mut tls = tls_accept(stream, &cert_pem, &key_pem, &[]).await?;
+                // Use accept_with_key to get the per-connection auth key, then
+                // complete TLS 1.3 using the REALITY-generated Ed25519 cert.
+                let accepted = srv.accept_with_key(Box::new(stream)).await?;
+                let mut tls =
+                    reality_server_tls_stream(accepted.stream, &accepted.auth_key, "example.com")
+                        .await?;
 
                 let mut buf = [0u8; 4];
                 tls.read_exact(&mut buf).await?;
@@ -260,7 +262,6 @@ async fn d0_self_valid_auth_succeeds() {
 /// forwards the connection to the fallback destination.
 ///
 /// Expected: `RealityServer::accept_direct` returns `Err(ProxyError::FallbackRequired)`.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_wrong_short_id_triggers_fallback() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();
@@ -292,6 +293,11 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
 
     // Connect with the wrong short ID. dial() attempts a full TLS handshake,
     // so the fallback plaintext path must surface as an error here.
+    //
+    // We bound this to 10 s: do_fallback proxies through copy_bidirectional_with_idle
+    // (300 s idle timeout), so without a client-side bound the test would take
+    // ~300 s.  Dropping the dial() future closes the client TCP stream, which
+    // makes the relay's down-leg detect EOF and return quickly.
     let client = RealityClient::new(RealityClientConfig {
         server: server_addr,
         server_public_key: pub_bytes,
@@ -299,14 +305,15 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
         sni: "example.com".to_string(),
         fingerprint: "chrome".to_string(),
     });
+    let dial_result = timeout(Duration::from_secs(10), client.dial()).await;
     assert!(
-        client.dial().await.is_err(),
+        dial_result.map(|r| r.is_err()).unwrap_or(true),
         "wrong short ID should not complete the TLS 1.3 handshake"
     );
 
-    let fallback_triggered = timeout(Duration::from_secs(5), rx)
+    let fallback_triggered = timeout(Duration::from_secs(10), rx)
         .await
-        .expect("server timed out")
+        .expect("server timed out after 10 s — fallback did not complete")
         .expect("channel closed");
 
     assert!(
@@ -321,7 +328,6 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
 ///
 /// This test mocks the clock skew by setting `max_time_diff = 0`, so the
 /// timestamp check always fails.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_zero_max_time_diff_triggers_fallback() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();
@@ -358,23 +364,28 @@ async fn d0_self_zero_max_time_diff_triggers_fallback() {
         }
     });
 
-    let dial_result = RealityClient::new(RealityClientConfig {
-        server: server_addr,
-        server_public_key: pub_bytes,
-        short_id,
-        sni: "example.com".to_string(),
-        fingerprint: "chrome".to_string(),
-    })
-    .dial()
+    // Same 10 s bound as d0_self_wrong_short_id_triggers_fallback: dropping the
+    // dial() future closes the client TCP stream so do_fallback's relay exits.
+    let dial_result = timeout(
+        Duration::from_secs(10),
+        RealityClient::new(RealityClientConfig {
+            server: server_addr,
+            server_public_key: pub_bytes,
+            short_id,
+            sni: "example.com".to_string(),
+            fingerprint: "chrome".to_string(),
+        })
+        .dial(),
+    )
     .await;
     assert!(
-        dial_result.is_err(),
+        dial_result.map(|r| r.is_err()).unwrap_or(true),
         "mismatched short_id should fail before TLS app-data is ready"
     );
 
-    let triggered = timeout(Duration::from_secs(5), rx)
+    let triggered = timeout(Duration::from_secs(10), rx)
         .await
-        .expect("server timed out")
+        .expect("server timed out after 10 s — fallback did not complete")
         .expect("channel closed");
 
     assert!(triggered, "mismatched short_id must trigger fallback");

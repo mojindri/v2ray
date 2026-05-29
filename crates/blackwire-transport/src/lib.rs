@@ -39,6 +39,7 @@ mod splithttp_packet_up;
 pub mod splithttp;
 
 /// TUN transport runtime and packet helpers for full-device proxying.
+#[cfg(target_os = "linux")]
 pub mod tun;
 
 // gRPC transport
@@ -58,7 +59,7 @@ pub use grpc::{decode_grpc_frame, encode_grpc_frame, grpc_accept, grpc_connect, 
 pub use httpupgrade::{accept_httpupgrade, dial_httpupgrade, httpupgrade_listen_path};
 pub use hysteria2::{
     Hysteria2Client, Hysteria2ClientConfig, Hysteria2OutboundHandler, Hysteria2Server,
-    Hysteria2ServerConfig,
+    Hysteria2ServerConfig, Hysteria2UdpSession, UdpDestination,
 };
 pub use mkcp::{
     mkcp_accept_once, mkcp_accept_sessions, mkcp_connect, MkcpClientConfig, MkcpServerConfig,
@@ -70,8 +71,9 @@ pub use quic::{
 };
 pub use quic::{BrutalCC, BrutalCCFactory};
 pub use reality::{
-    complete_tls13_server_handshake, tls_cert_for_auth_key, tls_pem_for_auth_key, RealityAccepted,
-    RealityClient, RealityClientConfig, RealityServer, RealityServerConfig, Tls13Stream,
+    complete_tls13_server_handshake, reality_server_tls_stream, tls_cert_for_auth_key,
+    tls_pem_for_auth_key, RealityAccepted, RealityClient, RealityClientConfig, RealityServer,
+    RealityServerConfig, Tls13Stream,
 };
 pub use shadowtls::{
     compute_marker, shadowtls_accept, shadowtls_connect, shadowtls_marker_accept,
@@ -87,6 +89,7 @@ pub use tls::{
     cached_client_config as tls_cached_client_config, tls_accept, tls_accept_tls13,
     tls_accept_with_acceptor, tls_connect, tls_connect_with_config,
 };
+#[cfg(target_os = "linux")]
 pub use tun::{
     build_tcp_rst, create_tun, IpPacket, TransportProtocol, TunConfig, TunRuntime, UdpNatTable,
 };
