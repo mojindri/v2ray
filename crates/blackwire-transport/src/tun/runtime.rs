@@ -73,7 +73,7 @@ impl TunRuntime {
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     async fn run_platform(
-        mut self,
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))] mut self,
         device: TunDevice,
         shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
