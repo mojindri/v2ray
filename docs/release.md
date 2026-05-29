@@ -34,12 +34,12 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 
 Treat these as unstable — they may be promoted or downgraded in later releases.
 
-- REALITY (VLESS/REALITY e2e passes; live external-client interop run is `#[ignore]` without Docker setup)
-- Hysteria2 (e2e passes; no hostile-network, UDP, or long-lived soak validation)
+- REALITY (d0 self-interop tests now in CI; d1 Xray-server interop requires Docker — still `#[ignore]`)
+- Hysteria2 (TCP + UDP relay tested in CI; no hostile-network / loss-jitter or long-lived soak proof)
 - ShadowTLS v3 (local e2e passes; no external sing-box / shadow-tls interop matrix)
 - mKCP (local multi-session e2e; no loss/jitter lab, no external client proof)
 - QUIC / V2Ray QUIC transport (sing-box PASS in matrix; Xray legacy QUIC client removed upstream)
-- Stats API (gRPC) (wired; no soak or observability validation)
+- Stats API (gRPC) (uptime, RSS, task count wired; no soak or observability validation)
 
 ### Unsupported (fail-closed or explicitly out of scope)
 
@@ -137,8 +137,8 @@ A feature moves from Experimental/Partial to Supported **only** when all items b
 
 | Feature | Required proof before promotion |
 | ------- | -------------------------------- |
-| REALITY | Live external-client interop run archived (d1 test unignored) |
-| Hysteria2 | Hostile-network (loss/jitter), UDP relay, long-lived stream, and soak run |
+| REALITY | Live external-client interop run archived (d1 test unignored, requires Docker) |
+| Hysteria2 | Hostile-network (loss/jitter), long-lived stream, and soak run (UDP relay: tested) |
 | TUN | Privileged Linux CI tests, route setup/cleanup, UDP NAT, rollback-on-failure |
 | Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload, rollback on failed reload |
 | ShadowTLS v3 | External sing-box / shadow-tls interop matrix passing |
