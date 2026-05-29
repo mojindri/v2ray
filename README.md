@@ -129,7 +129,7 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 | **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
 | **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
 | **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
-| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests; macOS utun and Windows Wintun device creation compile through the native `tun` crate backend; Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs compile cross-platform; runtime support is checked through an explicit platform contract | macOS/Windows full-device runtime still needs native routing and TCP redirection |
+| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests; macOS utun and Windows Wintun device creation compile through the native `tun` crate backend; Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; runtime support is checked through an explicit platform contract | macOS/Windows full-device runtime still needs native routing and TCP redirection |
 
 See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
 
