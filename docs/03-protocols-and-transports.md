@@ -377,12 +377,12 @@ default routes through the OS-assigned utun interface, loads a scoped PF anchor
 for TCP/DNS redirection, and uses
 `tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets
 so proxy egress does not re-enter the utun capture path. Windows Wintun device
-creation, split-route setup, and protected outbound interface binding are wired
-through the native `tun` crate backend, and Windows can use
-`tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`. Windows
-still fails early through the explicit TUN platform support contract when
-`config.tun` asks for a full-device runtime because a native TCP redirection
-backend is still required.
+creation, split-route setup, protected outbound interface binding, and
+packet-level TCP bridging are wired through the native `tun` crate backend, and
+Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled
+`wintun.dll`. The Windows TCP bridge terminates TCP packets from Wintun and
+opens SOCKS5 CONNECT requests to the local proxy listener configured by
+`tun.redirect_port`.
 
 ## ShadowTLS
 

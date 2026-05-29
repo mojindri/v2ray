@@ -97,7 +97,11 @@ fn nat_response_packet_addresses_reversed() {
         protocol: blackwire_transport::tun::TransportProtocol::Udp,
         header_len: 0,
         payload_offset: 0,
+        transport_offset: 0,
         payload_len: 0,
+        tcp_seq: None,
+        tcp_ack: None,
+        tcp_flags: None,
     };
     let pkt = blackwire_transport::tun::build_udp_response_packet(&fake, payload).unwrap();
     let parsed = parse_ip_packet(&pkt).unwrap();

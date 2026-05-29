@@ -614,9 +614,9 @@ fn parse_macos_pf_token(output: &str) -> Option<String> {
 
 /// Applies Windows Wintun split-default route state.
 ///
-/// This sends IPv4 traffic into the Wintun adapter. It deliberately does not
-/// claim TCP redirection: Windows still needs a WFP/WinDivert redirect backend
-/// or a packet-level TCP proxy before the platform contract can be promoted.
+/// This sends IPv4 traffic into the Wintun adapter. TCP is handled by the
+/// runtime's packet-level bridge because Windows does not expose an iptables/PF
+/// equivalent for arbitrary original-destination redirects.
 #[cfg(target_os = "windows")]
 pub async fn setup_windows_routes(config: &TunConfig) -> Result<()> {
     validate_windows_runtime_config(config)?;

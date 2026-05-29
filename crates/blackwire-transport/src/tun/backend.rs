@@ -57,11 +57,11 @@ pub fn current_tun_support() -> TunPlatformSupport {
             backend: "windows-wintun",
             packet_api: true,
             device_backend: true,
-            full_device_runtime: false,
-            tcp_redirection: false,
+            full_device_runtime: true,
+            tcp_redirection: true,
             udp_nat: true,
             requires_privileges: true,
-            note: "Windows Wintun device creation, split routes, and protected outbound interface binding are wired, but full runtime requires native TCP redirection before it can be supported",
+            note: "Windows Wintun runtime with split routes, packet-level TCP bridge to the local SOCKS listener, protected outbound interface binding, and UDP NAT",
         }
     }
 

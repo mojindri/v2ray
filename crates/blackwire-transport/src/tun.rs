@@ -18,12 +18,18 @@ pub mod route;
 pub mod runtime;
 /// Session/flow tracking helpers.
 pub mod session;
+/// Packet-level TCP bridge used by Windows Wintun.
+#[cfg(any(test, target_os = "windows"))]
+pub mod tcp;
 
 pub use backend::{current_tun_support, ensure_tun_runtime_supported, TunPlatformSupport};
 pub use device::{create_tun, TunConfig, TunDevice};
 pub use nat::UdpNatTable;
 pub use packet::{
-    build_tcp_rst, build_udp_response_packet, parse_ip_packet, IpPacket, TransportProtocol,
+    build_tcp_packet, build_tcp_rst, build_udp_response_packet, parse_ip_packet, IpPacket,
+    TransportProtocol,
 };
 pub use runtime::TunRuntime;
 pub use session::{FlowKey, TunSession, TunSessionTable};
+#[cfg(any(test, target_os = "windows"))]
+pub use tcp::TcpBridgeTable;
