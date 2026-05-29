@@ -29,7 +29,7 @@ pub struct TunConfig {
     pub mtu: u16,
     /// Packet mark used to bypass TUN redirection rules.
     pub bypass_mark: u32,
-    /// macOS-only physical interface used by protected outbound sockets.
+    /// macOS/Windows physical interface used by protected outbound sockets.
     pub outbound_interface: Option<String>,
     /// Local TCP port where redirected TCP flows are sent.
     pub redirect_port: u16,
