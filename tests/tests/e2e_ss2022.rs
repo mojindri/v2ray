@@ -20,9 +20,10 @@ const SS_PASSWORD: &str = "test-shadowsocks-2022-password";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-fn unused_local_port() -> u16 {
-    let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
-    l.local_addr().unwrap().port()
+fn reserve_local_port() -> (u16, std::net::TcpListener) {
+    let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+    let port = listener.local_addr().unwrap().port();
+    (port, listener)
 }
 
 fn parse_config(json: String) -> Arc<blackwire_config::schema::Config> {
@@ -126,10 +127,14 @@ async fn socks5_connect(socks_port: u16, dest: &str, dest_port: u16) -> tokio::n
 /// Full chain: SOCKS5 → SS-2022 outbound → SS-2022 inbound → Freedom → echo server.
 #[tokio::test]
 async fn ss2022_full_chain_echo() {
-    let ss_port = unused_local_port();
-    let socks_port = unused_local_port();
+    let (ss_port, ss_reservation) = reserve_local_port();
+    let (socks_port, socks_reservation) = reserve_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
+    // Release reservations immediately before binding instances to minimize
+    // address reuse races under parallel test execution.
+    drop(ss_reservation);
+    drop(socks_reservation);
     let _server = blackwire_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
@@ -153,10 +158,14 @@ async fn ss2022_full_chain_echo() {
 /// Large payload (> 16 KiB) to verify chunked framing.
 #[tokio::test]
 async fn ss2022_large_payload_echo() {
-    let ss_port = unused_local_port();
-    let socks_port = unused_local_port();
+    let (ss_port, ss_reservation) = reserve_local_port();
+    let (socks_port, socks_reservation) = reserve_local_port();
     let (echo_port, echo_task) = spawn_echo_server().await;
 
+    // Release reservations immediately before binding instances to minimize
+    // address reuse races under parallel test execution.
+    drop(ss_reservation);
+    drop(socks_reservation);
     let _server = blackwire_core::Instance::from_config(ss2022_server_config(ss_port))
         .await
         .unwrap();
@@ -255,7 +264,7 @@ async fn stream_encrypt_decrypt_roundtrip() {
 /// Server config with wrong password should be built (it only fails at connection time).
 #[test]
 fn ss2022_config_parses() {
-    let port = unused_local_port();
+    let (port, _reservation) = reserve_local_port();
     let config = ss2022_server_config(port);
     assert_eq!(config.inbounds.len(), 1);
     assert_eq!(config.outbounds.len(), 1);
