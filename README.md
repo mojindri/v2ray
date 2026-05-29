@@ -25,18 +25,20 @@ This is a pre-1.0 project. The support contract is explicit:
 **Release-supported** (CI + e2e + realistic lab):
 - VLESS over TCP, REALITY, WebSocket, HTTPUpgrade, SplitHTTP
 - VMess AEAD over TCP
+- VMess over gRPC (Gun transport) — END_STREAM propagation validated
 - Trojan over TLS
 - Shadowsocks 2022
+- SOCKS5 (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT
 - DNS resolver (system, DoH/DoT), FakeIP, routing rules, GeoIP/geosite
+- HTTP + TLS sniffing (`destOverride`, `routeOnly`, `metadataOnly`)
 - Prometheus metrics, config hot-reload (routing rules, VLESS users, GeoIP)
+- Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 
 **Partial** (shipped with known gaps — read the notes in [docs/feature-matrix.md](docs/feature-matrix.md)):
-- gRPC transport — EOF/reset propagation gap when upstream closes (see `grpc_stream_reset` in `e2e_hostility.rs`)
 - TUN transparent proxy — Linux only, no production validation
-- Sniffing / protocol-based routing
+- FakeDNS sniffing — not wired in `analyze_peek()`; HTTP + TLS are Supported
 - Handler API (gRPC) — user add/remove only; structural ops unsupported
 - Structural hot-reload (listener/outbound changes require restart)
-- Resource-stress coverage
 - macOS artifacts
 
 **Experimental** (implemented, lacking hostile-network or soak proof):

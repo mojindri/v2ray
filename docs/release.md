@@ -11,15 +11,18 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 
 - VLESS over TCP, REALITY, WebSocket, HTTPUpgrade, SplitHTTP (stream-one + packet-up)
 - VMess AEAD over TCP
+- VMess over gRPC (Gun transport); END_STREAM propagation validated
 - Trojan over TLS/TCP
 - Shadowsocks 2022 (TCP + UDP SIP022)
-- SOCKS5 inbound, HTTP CONNECT inbound, Freedom outbound
+- SOCKS5 inbound (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT inbound, Freedom outbound
 - DNS resolver (system, DoH, DoT), FakeIP pool, DNS cache, `domain_strategy`
+- HTTP + TLS sniffing with `destOverride`, `routeOnly`, `metadataOnly`
 - Routing rules (domain, suffix, keyword, regex, IP/CIDR, port, source_ip, inboundTag, GeoIP/geosite)
 - Load balancer with health-check failover
 - Prometheus metrics (`/metrics`, `/healthz`, `/readyz`, `/version`)
 - Config hot-reload: routing rules, VLESS user UUIDs, GeoIP/geosite data
 - Native JSON config schema with fail-closed validation
+- Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 
 ### Partial (shipped with known gaps)
 
@@ -27,12 +30,10 @@ Do not treat these as production-ready without reading the notes.
 
 | Area | Known gap |
 | ---- | --------- |
-| gRPC transport | When the upstream (Freedom outbound) closes, H2 `END_STREAM` does not reliably propagate to the downstream SOCKS5 client. `grpc_stream_reset` in `e2e_hostility.rs` is `#[ignore]` pending fix. |
 | TUN transparent proxy | Linux-only, privileged tests only, no broad production validation. Do not use in production yet. |
-| Sniffing / protocol-based routing | `vless-sniff` lab row passes; broader HTTP/TLS/FakeDNS routing and `metadataOnly` / `routeOnly` coverage is incomplete. |
+| FakeDNS sniffing | FakeDNS path not wired in `analyze_peek()`; HTTP + TLS sniffing are Supported. |
 | Handler API (gRPC) | Supported operations: `ListInbounds`, `ListOutbounds`, `GetInboundUsersCount`, `GetInboundUsers`, `AlterInbound` (VLESS add/remove). Unsupported (return UNIMPLEMENTED): `AddInbound`, `RemoveInbound`, `AddOutbound`, `RemoveOutbound`, `AlterOutbound`. |
 | Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload require an instance restart. |
-| Resource-stress coverage | Bad-auth burst, FakeIP allocation pressure, WS/gRPC stream churn, connection-limit overflow are not CI-gated. Run manually before traffic-bearing deployments. |
 | macOS | CI runs `macos-latest` tests; release artifacts are not certified. |
 
 ### Experimental (implemented; missing hostile-network or soak proof)
@@ -146,8 +147,7 @@ A feature moves from Experimental/Partial to Supported **only** when all items b
 | REALITY | Live external-client interop run archived (d1 test unignored) |
 | Hysteria2 | Hostile-network (loss/jitter), UDP relay, long-lived stream, and soak run |
 | TUN | Privileged Linux CI tests, route setup/cleanup, UDP NAT, rollback-on-failure |
-| Sniffing / protocol routing | Lab proof for HTTP + TLS + FakeDNS routing and `metadataOnly` / `routeOnly` |
-| gRPC transport | `grpc_stream_reset` test unignored and passing |
+| FakeDNS sniffing | `analyze_peek()` wired for FakeDNS; lab row proof for FakeDNS routing |
 | Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload, rollback on failed reload |
 | SplitHTTP extras | Xmux, padding, `downloadSettings` implemented and tested |
 | ShadowTLS v3 | External sing-box / shadow-tls interop matrix passing |

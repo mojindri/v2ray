@@ -52,6 +52,8 @@ pub struct Hysteria2ServerConfig {
     pub cert_pem: String,
     /// Private key for `cert_pem`, in PEM format.
     pub key_pem: String,
+    /// Maximum concurrent QUIC connections. Falls back to `MAX_HYSTERIA2_CONNECTIONS`.
+    pub max_connections: Option<usize>,
 }
 
 /// Configuration for a Hysteria2 outbound client.
@@ -96,10 +98,11 @@ impl Hysteria2Server {
 
         info!(addr = %self.config.addr, "Hysteria2 server listening (HTTP/3)");
 
-        // Global connection cap — matches the official hysteria2 server default of
-        // `maxIncomingConnections: 1024`. sing-quic has no cap, but we follow the
-        // reference implementation to bound memory and task count.
-        let conn_limiter = Arc::new(Semaphore::new(MAX_HYSTERIA2_CONNECTIONS));
+        let cap = self
+            .config
+            .max_connections
+            .unwrap_or(MAX_HYSTERIA2_CONNECTIONS);
+        let conn_limiter = Arc::new(Semaphore::new(cap));
 
         while let Some(incoming) = endpoint.accept().await {
             let permit = match Arc::clone(&conn_limiter).try_acquire_owned() {
