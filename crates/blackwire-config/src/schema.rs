@@ -163,10 +163,12 @@ pub struct TunConfig {
     /// iptables/nftables mark for packets that should bypass the TUN path.
     #[serde(default = "default_tun_bypass_mark")]
     pub bypass_mark: u32,
-    /// macOS-only physical interface used by protected outbound sockets.
+    /// Physical interface used by protected outbound sockets on macOS/Windows.
     ///
-    /// Example: `"en0"`. When unset, macOS full-device TUN remains gated to
-    /// avoid routing Blackwire's own outbound sockets back into utun.
+    /// Examples: `"en0"` on macOS or `"Ethernet"` on Windows. When unset,
+    /// macOS full-device TUN remains gated to avoid routing Blackwire's own
+    /// outbound sockets back into utun; Windows cannot safely promote full
+    /// runtime until outbound bypass and TCP redirection are both available.
     #[serde(
         default,
         rename = "outboundInterface",

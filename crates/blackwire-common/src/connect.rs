@@ -9,6 +9,16 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::Duration;
 
 use tokio::net::{TcpSocket, TcpStream, ToSocketAddrs, UdpSocket};
+#[cfg(target_os = "windows")]
+use windows_sys::Win32::{
+    NetworkManagement::{
+        IpHelper::{
+            ConvertInterfaceAliasToLuid, ConvertInterfaceLuidToIndex, ConvertInterfaceNameToLuidW,
+        },
+        Ndis::NET_LUID_LH,
+    },
+    Networking::WinSock::{setsockopt, IPPROTO_IP, IPPROTO_IPV6, IPV6_UNICAST_IF, IP_UNICAST_IF},
+};
 
 use crate::ProxyError;
 
@@ -41,10 +51,9 @@ pub fn outbound_bypass_mark() -> Option<u32> {
 
 /// Configure a process-wide outbound interface index for protected sockets.
 ///
-/// macOS TUN mode uses this to bind Blackwire's own outbound sockets to a
-/// physical interface before `connect()`, preventing those sockets from being
-/// captured by the utun route. Other platforms keep this state for future
-/// protected-socket backends.
+/// macOS and Windows TUN modes use this to bind Blackwire's own outbound
+/// sockets to a physical interface before `connect()`, preventing those sockets
+/// from being captured by full-device routes.
 pub fn set_outbound_interface_index(index: u32) {
     OUTBOUND_INTERFACE_INDEX.store(index, Ordering::Relaxed);
 }
@@ -60,9 +69,20 @@ pub fn outbound_interface_index() -> Option<u32> {
     (index != 0).then_some(index)
 }
 
-/// Resolve a macOS interface name and configure it for protected outbound sockets.
-#[cfg(target_os = "macos")]
+/// Resolve a platform interface name and configure it for protected outbound sockets.
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub fn set_outbound_interface_name(name: &str) -> Result<(), ProxyError> {
+    set_platform_outbound_interface_name(name)
+}
+
+/// Configure a named outbound interface on platforms that support it.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+pub fn set_outbound_interface_name(_name: &str) -> Result<(), ProxyError> {
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn set_platform_outbound_interface_name(name: &str) -> Result<(), ProxyError> {
     let c_name = std::ffi::CString::new(name)
         .map_err(|_| ProxyError::Transport("outbound interface contains NUL byte".into()))?;
     let index = unsafe { libc::if_nametoindex(c_name.as_ptr()) };
@@ -73,9 +93,10 @@ pub fn set_outbound_interface_name(name: &str) -> Result<(), ProxyError> {
     Ok(())
 }
 
-/// Configure a named outbound interface on platforms that support it.
-#[cfg(not(target_os = "macos"))]
-pub fn set_outbound_interface_name(_name: &str) -> Result<(), ProxyError> {
+#[cfg(target_os = "windows")]
+fn set_platform_outbound_interface_name(name: &str) -> Result<(), ProxyError> {
+    let index = windows_interface_index(name)?;
+    set_outbound_interface_index(index);
     Ok(())
 }
 
@@ -101,6 +122,15 @@ pub fn protect_udp_socket_with_bypass_mark(
     if let Some(index) = outbound_interface_index() {
         protect_macos_socket(socket, false, index)?;
         protect_macos_socket(socket, true, index)?;
+    }
+
+    #[cfg(target_os = "windows")]
+    if let Some(index) = outbound_interface_index() {
+        let ipv6 = socket
+            .local_addr()
+            .map(|addr| addr.is_ipv6())
+            .unwrap_or(false);
+        protect_windows_socket(socket, ipv6, index)?;
     }
 
     Ok(())
@@ -156,6 +186,11 @@ fn protected_tcp_socket(addr: SocketAddr) -> Result<TcpSocket, ProxyError> {
         protect_macos_socket(&socket, addr.is_ipv6(), index)?;
     }
 
+    #[cfg(target_os = "windows")]
+    if let Some(index) = outbound_interface_index() {
+        protect_windows_socket(&socket, addr.is_ipv6(), index)?;
+    }
+
     socket.set_nodelay(true).map_err(ProxyError::Io)?;
     Ok(socket)
 }
@@ -193,6 +228,82 @@ fn protect_macos_socket<S: std::os::fd::AsRawFd>(
     }
 }
 
+#[cfg(target_os = "windows")]
+fn windows_interface_index(name: &str) -> Result<u32, ProxyError> {
+    if name.contains('\0') {
+        return Err(ProxyError::Transport(
+            "outbound interface contains NUL byte".into(),
+        ));
+    }
+
+    let wide_name = windows_wide_name(name);
+    let mut luid = NET_LUID_LH { Value: 0 };
+    let alias_rc = unsafe { ConvertInterfaceAliasToLuid(wide_name.as_ptr(), &mut luid) };
+    let name_rc = if alias_rc == 0 {
+        0
+    } else {
+        unsafe { ConvertInterfaceNameToLuidW(wide_name.as_ptr(), &mut luid) }
+    };
+    if alias_rc != 0 && name_rc != 0 {
+        return Err(ProxyError::Io(std::io::Error::from_raw_os_error(
+            name_rc as i32,
+        )));
+    }
+
+    let mut index = 0u32;
+    let index_rc = unsafe { ConvertInterfaceLuidToIndex(&luid, &mut index) };
+    if index_rc != 0 {
+        return Err(ProxyError::Io(std::io::Error::from_raw_os_error(
+            index_rc as i32,
+        )));
+    }
+    if index == 0 {
+        return Err(ProxyError::Transport(format!(
+            "outbound interface '{name}' resolved to index 0"
+        )));
+    }
+    Ok(index)
+}
+
+#[cfg(target_os = "windows")]
+fn windows_wide_name(name: &str) -> Vec<u16> {
+    name.encode_utf16().chain(std::iter::once(0)).collect()
+}
+
+#[cfg(target_os = "windows")]
+fn protect_windows_socket<S: std::os::windows::io::AsRawSocket>(
+    socket: &S,
+    ipv6: bool,
+    index: u32,
+) -> Result<(), ProxyError> {
+    let level = if ipv6 { IPPROTO_IPV6 } else { IPPROTO_IP };
+    let option = if ipv6 { IPV6_UNICAST_IF } else { IP_UNICAST_IF };
+    let value = windows_unicast_if_value(index, ipv6);
+    let rc = unsafe {
+        setsockopt(
+            socket.as_raw_socket() as usize,
+            level,
+            option,
+            &value as *const u32 as *const u8,
+            std::mem::size_of::<u32>() as i32,
+        )
+    };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(ProxyError::Io(std::io::Error::last_os_error()))
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_unicast_if_value(index: u32, ipv6: bool) -> u32 {
+    if ipv6 {
+        index
+    } else {
+        index.to_be()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -219,5 +330,11 @@ mod tests {
 
         clear_outbound_interface_index();
         assert_eq!(outbound_interface_index(), None);
+    }
+
+    #[test]
+    fn windows_unicast_if_value_uses_network_order_for_ipv4() {
+        assert_eq!(windows_unicast_if_value(0x0102_0304, false), 0x0403_0201);
+        assert_eq!(windows_unicast_if_value(0x0102_0304, true), 0x0102_0304);
     }
 }
