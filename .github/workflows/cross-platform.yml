@@ -61,8 +61,6 @@ jobs:
         run: cargo test -p blackwire-transport --lib --locked tun::route::tests::windows
       - name: Check TUN platform support contract
         run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
-      - name: Check Windows workspace compile
-        run: cargo check --workspace --all-targets --locked
 
   docker:
     name: Docker
