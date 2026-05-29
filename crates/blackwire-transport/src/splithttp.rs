@@ -1317,15 +1317,17 @@ mod tests {
         let (mut client, server) = tokio::io::duplex(8192);
         let server = Box::new(server) as BoxedStream;
 
-        let mut settings = StreamSettingsConfig::default();
-        settings.splithttp_settings = Some(SplitHttpConfig {
-            path: "/split".into(),
-            mode: "stream-one".into(),
-            x_padding_bytes: Some(serde_json::Value::String("4-8".into())),
-            x_padding_method: "repeat-x".into(),
-            x_padding_header: "X-Test-Padding".into(),
+        let settings = StreamSettingsConfig {
+            splithttp_settings: Some(SplitHttpConfig {
+                path: "/split".into(),
+                mode: "stream-one".into(),
+                x_padding_bytes: Some(serde_json::Value::String("4-8".into())),
+                x_padding_method: "repeat-x".into(),
+                x_padding_header: "X-Test-Padding".into(),
+                ..Default::default()
+            }),
             ..Default::default()
-        });
+        };
 
         let connect_task =
             tokio::spawn(async move { splithttp_connect(server, "example.test", &settings).await });
