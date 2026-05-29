@@ -26,6 +26,8 @@ message RemoveUserOperation {
 
 message InboundHandlerConfig {
   string tag = 1;
+  TypedMessage receiver_settings = 2;
+  TypedMessage proxy_settings = 3;
 }
 
 message ListInboundsRequest {
@@ -56,15 +58,18 @@ message AlterInboundRequest {
 
 message AlterInboundResponse {}
 
-message AddInboundRequest {}
+message AddInboundRequest { InboundHandlerConfig inbound = 1; }
 message AddInboundResponse {}
 message RemoveInboundRequest { string tag = 1; }
 message RemoveInboundResponse {}
-message AddOutboundRequest {}
+message AddOutboundRequest { OutboundHandlerConfig outbound = 1; }
 message AddOutboundResponse {}
 message RemoveOutboundRequest { string tag = 1; }
 message RemoveOutboundResponse {}
-message AlterOutboundRequest { string tag = 1; }
+message AlterOutboundRequest {
+  string tag = 1;
+  TypedMessage operation = 2;
+}
 message AlterOutboundResponse {}
 message ListOutboundsRequest {}
 message ListOutboundsResponse {
@@ -73,6 +78,10 @@ message ListOutboundsResponse {
 
 message OutboundHandlerConfig {
   string tag = 1;
+  TypedMessage sender_settings = 2;
+  TypedMessage proxy_settings = 3;
+  int64 expire = 4;
+  string comment = 5;
 }
 
 service HandlerService {

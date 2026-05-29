@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  MATRIX_PCAP_ON_FAIL: "1"
 
 jobs:
   integration-matrix:
@@ -26,7 +27,7 @@ jobs:
         run: timeout 10m make -C labs/realistic negative-auth
       - name: Upload integration logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: integration-logs
           path: |
@@ -56,7 +57,7 @@ jobs:
           fi
       - name: Upload interop logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: interop-logs
           path: labs/realistic/reports/

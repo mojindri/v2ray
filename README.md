@@ -1,11 +1,11 @@
 # Blackwire
 
-Rust-native proxy **server** aimed at **wire compatibility** with the Xray and
-sing-box client ecosystem.
+Rust-native proxy **server** implementing **selected wire-compatible server paths**
+validated against Xray-core and sing-box clients.
 
 This repository is organized around two goals:
 
-- implement a practical protocol/transport matrix as an Xray/sing-box-compatible server
+- implement a practical protocol/transport matrix as a server compatible with Xray-core and sing-box clients
 - prove compatibility with **real upstream clients** — Xray-core and sing-box in
   Docker labs, Lima fingerprint checks, and two-VPS production-style runs
 
@@ -14,9 +14,49 @@ tests. External-client automation lives under `labs/realistic/` and currently
 starts with a VLESS REALITY scenario that can be expanded through
 `labs/realistic/external-clients/scenarios.env`.
 
-The project uses its **own JSON config schema** (not a byte-for-byte Xray config
+The project uses its **own JSON config schema** (not a byte-for-byte Xray/sing-box config
 drop-in). Wire behavior and client interop are the compatibility contract. For
 per-protocol status, see [docs/feature-matrix.md](docs/feature-matrix.md).
+
+## Release Status
+
+This is a pre-1.0 project. The support contract is explicit:
+
+**Release-supported** (CI + e2e + realistic lab):
+- VLESS over TCP, REALITY, WebSocket, HTTPUpgrade, SplitHTTP
+- VMess AEAD over TCP
+- VMess over gRPC (Gun transport) — END_STREAM propagation validated
+- Trojan over TLS
+- Shadowsocks 2022
+- SOCKS5 (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT
+- DNS resolver (system, DoH/DoT), FakeIP, routing rules, GeoIP/geosite
+- HTTP + TLS + FakeDNS sniffing (`destOverride`, `routeOnly`, `metadataOnly`)
+- Sniffed `protocol` routing rules
+- Prometheus metrics, config hot-reload (routing rules, VLESS users, GeoIP)
+- Structural config reload via automatic CLI instance rebuild with rollback
+- Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
+- Resource-risk smoke coverage in normal CI
+- External-client failure pcaps in CI artifacts
+- TUN transparent proxy on Linux, including privileged CI coverage
+- Handler API (gRPC) list/user/structural endpoint operations
+- macOS release artifact build
+
+**Experimental** (implemented, lacking hostile-network or soak proof):
+- REALITY
+- Hysteria2
+- ShadowTLS v3
+- mKCP, QUIC (V2Ray QUIC transport)
+- Stats API (gRPC)
+- SplitHTTP extras (Xmux, padding, `downloadSettings`)
+
+**Unsupported** (fail-closed or documented out of scope):
+- `protocol: shadowtls` — fails config validation; use `security: shadowtls` in `streamSettings`
+- V2Ray/Xray JSON config import
+- VMess legacy alterId / non-AEAD
+- DNS/dokodemo/tun as inbound `protocol` values
+- Byte-identical browser TLS fingerprinting
+- Windows, OpenWrt, Android, iOS
+- Standalone client app
 
 ## Start Here
 
@@ -89,7 +129,7 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 | **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
 | **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
 | **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
-| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged tests | Broad production validation and cross-platform support — **do not use in production yet** |
+| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests | Cross-platform TUN support is out of scope |
 
 See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
 

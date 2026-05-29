@@ -48,7 +48,7 @@ const MAX_HEADER_BYTES: usize = 16384;
 pub enum SplitHttpMode {
     /// One HTTP request; upload body + download response (Xray `stream-one`).
     StreamOne,
-    /// Split upload/download (not implemented server-side).
+    /// Split upload/download (Xray packet-up / stream-up).
     PacketUp,
     /// Other / legacy alias — treated like stream-one when dialing.
     Other,
@@ -89,6 +89,12 @@ pub async fn splithttp_connect(
         request.push_str(value);
         request.push_str("\r\n");
     }
+    if let Some((key, value)) = x_padding_header(&cfg) {
+        request.push_str(&key);
+        request.push_str(": ");
+        request.push_str(&value);
+        request.push_str("\r\n");
+    }
     request.push_str("\r\n");
     stream.write_all(request.as_bytes()).await?;
     stream.flush().await?;
@@ -112,6 +118,45 @@ fn upsert_packet_up_session(session_id: &str) -> Arc<UploadQueue> {
         .entry(session_id.to_string())
         .or_insert_with(|| UploadQueue::new(64))
         .clone()
+}
+
+fn x_padding_header(cfg: &SplitHttpConfig) -> Option<(String, String)> {
+    let len = x_padding_len(cfg.x_padding_bytes.as_ref())?;
+    if len == 0 {
+        return None;
+    }
+    let key = if cfg.x_padding_header.is_empty() {
+        "X-Padding".to_string()
+    } else {
+        cfg.x_padding_header.clone()
+    };
+    let value = match cfg.x_padding_method.as_str() {
+        "tokenish" => "A".repeat(len),
+        _ => "X".repeat(len),
+    };
+    Some((key, value))
+}
+
+fn x_padding_len(value: Option<&serde_json::Value>) -> Option<usize> {
+    let value = value?;
+    if let Some(n) = value.as_u64() {
+        return Some(n.min(4096) as usize);
+    }
+    if let Some(s) = value.as_str() {
+        let first = s
+            .split(['-', ','])
+            .next()
+            .and_then(|v| v.trim().parse::<usize>().ok())?;
+        return Some(first.min(4096));
+    }
+    if let Some(obj) = value.as_object() {
+        for key in ["from", "min", "Min", "minLength"] {
+            if let Some(n) = obj.get(key).and_then(|v| v.as_u64()) {
+                return Some(n.min(4096) as usize);
+            }
+        }
+    }
+    None
 }
 
 fn remove_packet_up_session(session_id: &str) {
@@ -478,13 +523,6 @@ pub async fn splithttp_accept_h2_packet_up(
                 );
                 continue;
             }
-            if !seq.is_empty() {
-                let _ = respond.send_response(
-                    http::Response::builder().status(501).body(()).unwrap(),
-                    true,
-                );
-                continue;
-            }
             if !download_sessions.insert(session.clone()) {
                 let _ = respond.send_response(
                     http::Response::builder().status(409).body(()).unwrap(),
@@ -594,6 +632,21 @@ fn split_http_config(stream_settings: &StreamSettingsConfig) -> SplitHttpConfig 
             mode: String::new(),
             uplink_http_method: String::new(),
             headers: Default::default(),
+            x_padding_bytes: None,
+            x_padding_method: String::new(),
+            x_padding_header: String::new(),
+            x_padding_key: String::new(),
+            x_padding_placement: String::new(),
+            session_placement: String::new(),
+            session_key: String::new(),
+            seq_placement: String::new(),
+            seq_key: String::new(),
+            uplink_data_placement: String::new(),
+            uplink_data_key: String::new(),
+            uplink_chunk_size: 0,
+            sc_max_buffered_posts: 0,
+            xmux: None,
+            download_settings: None,
         })
 }
 
@@ -676,11 +729,6 @@ async fn packet_up_accept(
         if session.is_empty() {
             return Err(ProxyError::Protocol(
                 "packet-up GET requires session id in path".into(),
-            ));
-        }
-        if !seq.is_empty() {
-            return Err(ProxyError::Protocol(
-                "packet-up GET with seq (stream-up) not implemented".into(),
             ));
         }
         let queue = upsert_packet_up_session(&session);
@@ -1188,6 +1236,117 @@ mod tests {
         assert_eq!(tunnels.lock().unwrap().len(), 2);
         drop(client);
         accept_task.abort();
+    }
+
+    #[tokio::test]
+    async fn packet_up_h2_accepts_stream_up_get_with_seq() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        let (client_io, server_io) = tokio::io::duplex(64 * 1024);
+        let server = Box::new(server_io) as BoxedStream;
+        let tunnel_count = Arc::new(AtomicUsize::new(0));
+        let count_cb = tunnel_count.clone();
+        let on_tunnel: PacketUpH2TunnelFn = Arc::new(move |accepted| {
+            if matches!(accepted, SplitHttpAcceptResult::Tunnel(_)) {
+                count_cb.fetch_add(1, Ordering::SeqCst);
+            }
+        });
+        let accept_task = tokio::spawn(async move {
+            splithttp_accept(
+                server,
+                Some("/split"),
+                None,
+                SplitHttpMode::PacketUp,
+                Some(on_tunnel),
+            )
+            .await
+        });
+
+        let (mut client, conn) = client::Builder::new().handshake(client_io).await.unwrap();
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
+
+        let get_req = http::Request::builder()
+            .method(http::Method::GET)
+            .uri("https://example.test/split/sess-stream-up/0")
+            .body(())
+            .unwrap();
+        let (get_resp_fut, mut send_get_end) = client.send_request(get_req, false).unwrap();
+        send_get_end.send_data(Bytes::new(), true).unwrap();
+
+        let response = get_resp_fut.await.unwrap();
+        assert_eq!(response.status(), http::StatusCode::OK);
+        for _ in 0..100 {
+            if tunnel_count.load(Ordering::SeqCst) == 1 {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(tunnel_count.load(Ordering::SeqCst), 1);
+
+        drop(client);
+        accept_task.abort();
+    }
+
+    #[tokio::test]
+    async fn packet_up_http1_accepts_stream_up_get_with_seq() {
+        let (mut client, server) = tokio::io::duplex(8192);
+        let server = Box::new(server) as BoxedStream;
+        let accept_task = tokio::spawn(async move {
+            splithttp_accept(server, Some("/split"), None, SplitHttpMode::PacketUp, None).await
+        });
+
+        client
+            .write_all(b"GET /split/sess-http1/0 HTTP/1.1\r\nHost: example.test\r\n\r\n")
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        let mut raw = vec![0u8; 512];
+        let n = client.read(&mut raw).await.unwrap();
+        let resp = String::from_utf8_lossy(&raw[..n]);
+        assert!(resp.contains("200 OK"), "response: {resp}");
+
+        let accepted = accept_task.await.unwrap().expect("accept failed");
+        assert!(matches!(accepted, SplitHttpAcceptResult::Tunnel(_)));
+    }
+
+    #[tokio::test]
+    async fn connect_emits_xpadding_header() {
+        let (mut client, server) = tokio::io::duplex(8192);
+        let server = Box::new(server) as BoxedStream;
+
+        let settings = StreamSettingsConfig {
+            splithttp_settings: Some(SplitHttpConfig {
+                path: "/split".into(),
+                mode: "stream-one".into(),
+                x_padding_bytes: Some(serde_json::Value::String("4-8".into())),
+                x_padding_method: "repeat-x".into(),
+                x_padding_header: "X-Test-Padding".into(),
+                ..Default::default()
+            }),
+            ..Default::default()
+        };
+
+        let connect_task =
+            tokio::spawn(async move { splithttp_connect(server, "example.test", &settings).await });
+
+        let mut raw = vec![0u8; 1024];
+        let n = client.read(&mut raw).await.unwrap();
+        let request = String::from_utf8_lossy(&raw[..n]);
+        assert!(
+            request.contains("X-Test-Padding: XXXX"),
+            "request: {request}"
+        );
+
+        client
+            .write_all(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n")
+            .await
+            .unwrap();
+        client.flush().await.unwrap();
+
+        connect_task.await.unwrap().expect("connect failed");
     }
 }
 

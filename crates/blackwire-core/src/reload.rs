@@ -34,6 +34,7 @@ use std::time::SystemTime;
 
 use anyhow::Result;
 use arc_swap::ArcSwap;
+use async_trait::async_trait;
 use dashmap::DashMap;
 use parking_lot::Mutex;
 use serde_json::Value;
@@ -160,26 +161,27 @@ impl ReloadState {
     }
 }
 
+#[async_trait]
 impl blackwire_api::management::InboundManagement for ReloadState {
-    fn list_inbound_tags(&self) -> Vec<String> {
+    async fn list_inbound_tags(&self) -> Vec<String> {
         self.inbound_tags
             .read()
             .map(|t| t.clone())
             .unwrap_or_default()
     }
 
-    fn list_outbound_tags(&self) -> Vec<String> {
+    async fn list_outbound_tags(&self) -> Vec<String> {
         self.outbound_tags
             .read()
             .map(|t| t.clone())
             .unwrap_or_default()
     }
 
-    fn vless_user_count(&self, inbound_tag: &str) -> Option<i64> {
+    async fn vless_user_count(&self, inbound_tag: &str) -> Option<i64> {
         self.vless_registry(inbound_tag).map(|r| r.len() as i64)
     }
 
-    fn list_vless_users(
+    async fn list_vless_users(
         &self,
         inbound_tag: &str,
         email: &str,
@@ -199,7 +201,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
             .collect())
     }
 
-    fn add_vless_user(
+    async fn add_vless_user(
         &self,
         inbound_tag: &str,
         email: &str,
@@ -218,7 +220,7 @@ impl blackwire_api::management::InboundManagement for ReloadState {
         Ok(())
     }
 
-    fn remove_vless_user(&self, inbound_tag: &str, email: &str) -> Result<(), String> {
+    async fn remove_vless_user(&self, inbound_tag: &str, email: &str) -> Result<(), String> {
         let registry = self
             .vless_registry(inbound_tag)
             .ok_or_else(|| format!("inbound '{inbound_tag}' has no VLESS user registry"))?;

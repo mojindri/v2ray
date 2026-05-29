@@ -57,17 +57,16 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Item | Notes |
 |------|--------|
-| Vision TLS splice | Direct-copy on TLS records; not kernel splice |
+| Vision TLS splice | Linux raw TCP handoff to the existing splice/adaptive-splice relay after Vision direct-copy negotiation; wrapped transports remain copy-path |
 | Trojan UDP outbound | `connect_trojan_on_stream_udp()`; in-process e2e PASS; no external-client lab row |
 | XUDP vs Mux.Cool UDP | XUDP: session `0` + GlobalID; Mux.Cool UDP: non-zero session id |
-| Hot-reload listeners | `AddInbound`/`RemoveInbound` listener rebind UNIMPLEMENTED |
+| Handler structural RPCs | `AddInbound`/`RemoveInbound` rebuild the running CLI instance using native blackwire endpoint JSON; in-place listener rebind remains backlog |
 | Native JSON only | Xray/sing-box JSON not imported |
 
 ## Backlog (post–P0/P1)
 
 | Item | Work |
 |------|------|
-| SplitHTTP packet-up extras (Xmux, padding, `downloadSettings`) | Optional; hiddify-sing-box manual |
 | Kernel TLS (`SO_KTLS`) | Experimental, isolated opt-in via `BLACKWIRE_ENABLE_KTLS=1` (`force` for debugging); default TLS path stays on rustls locally; CI sets `BLACKWIRE_ENABLE_KTLS=1` on Linux |
 | In-place listener rebind | P4 |
 

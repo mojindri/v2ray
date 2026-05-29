@@ -68,11 +68,24 @@ pub async fn relay_bidirectional_with_splice_policy(
 ) -> io::Result<(u64, u64)> {
     #[cfg(target_os = "linux")]
     {
-        use blackwire_common::{try_into_tcp_stream_with_prefix, PrependedStream};
+        use blackwire_common::{
+            try_into_tcp_stream_with_prefix, try_into_vision_stream, PrependedStream,
+        };
 
         let (mut inbound, inbound_prefix) = match try_into_tcp_stream_with_prefix(inbound) {
             Ok(parts) => parts,
             Err(inbound) => {
+                let inbound = match try_into_vision_stream(inbound) {
+                    Ok(vision) => {
+                        return relay_vision_inbound_with_splice_policy(
+                            vision,
+                            outbound,
+                            splice_policy,
+                        )
+                        .await;
+                    }
+                    Err(inbound) => inbound,
+                };
                 metrics::counter!(
                     "proxy_relay_splice_fallback_total",
                     "reason" => "inbound_wrapped"
@@ -148,6 +161,197 @@ pub async fn relay_bidirectional_with_splice_policy(
     {
         let _ = splice_policy;
         tokio_copy_bidirectional(inbound, outbound).await
+    }
+}
+
+#[cfg(target_os = "linux")]
+async fn relay_vision_inbound_with_splice_policy(
+    mut inbound: blackwire_common::VisionStream<BoxedStream>,
+    outbound: BoxedStream,
+    splice_policy: FastSplicePolicy,
+) -> io::Result<(u64, u64)> {
+    use blackwire_common::{try_into_tcp_stream_with_prefix, PrependedStream};
+
+    let (mut outbound, outbound_prefix) = match try_into_tcp_stream_with_prefix(outbound) {
+        Ok(parts) => parts,
+        Err(outbound) => {
+            metrics::counter!(
+                "proxy_relay_splice_fallback_total",
+                "reason" => "vision_outbound_wrapped"
+            )
+            .increment(1);
+            return tokio_copy_bidirectional(Box::new(inbound), outbound).await;
+        }
+    };
+
+    let mut up = 0u64;
+    let mut down = outbound_prefix.len() as u64;
+    let mut up_eof = false;
+    let mut down_eof = false;
+    let mut up_buf = PooledRelayBuffer::new(ADAPTIVE_COPY_BUFFER_BYTES);
+    let mut down_buf = PooledRelayBuffer::new(ADAPTIVE_COPY_BUFFER_BYTES);
+    let started_at = tokio::time::Instant::now();
+    let mut up_full_read_streak = 0u8;
+    let mut down_full_read_streak = 0u8;
+
+    if !outbound_prefix.is_empty() {
+        inbound.write_all(&outbound_prefix).await?;
+    }
+
+    loop {
+        if inbound.is_direct_copy_ready()
+            && inbound.inner_is_tcp_like()
+            && !up_eof
+            && !down_eof
+            && vision_splice_policy_ready(
+                splice_policy,
+                up,
+                down,
+                started_at.elapsed(),
+                up_full_read_streak,
+                down_full_read_streak,
+            )
+        {
+            metrics::counter!(
+                "proxy_relay_splice_selected_total",
+                "policy" => vision_splice_policy_label(splice_policy),
+                "flow" => "vision"
+            )
+            .increment(1);
+
+            let inbound_inner = inbound.into_inner();
+            match try_into_tcp_stream_with_prefix(inbound_inner) {
+                Ok((mut inbound_tcp, inbound_prefix)) => {
+                    if !inbound_prefix.is_empty() {
+                        outbound.write_all(&inbound_prefix).await?;
+                        up += inbound_prefix.len() as u64;
+                    }
+                    match blackwire_common::splice::splice_bidirectional(
+                        &mut inbound_tcp,
+                        &mut outbound,
+                    )
+                    .await
+                    {
+                        Ok((more_up, more_down)) => {
+                            up += more_up;
+                            down += more_down;
+                            let path = if splice_policy == FastSplicePolicy::Adaptive {
+                                "vision_adaptive_splice"
+                            } else {
+                                "vision_splice"
+                            };
+                            record_relay_path_bytes(path, up, down);
+                            return Ok((up, down));
+                        }
+                        Err(_) => {
+                            metrics::counter!(
+                                "proxy_relay_splice_fallback_total",
+                                "reason" => "vision_splice_error"
+                            )
+                            .increment(1);
+                            let inbound: BoxedStream = if inbound_prefix.is_empty() {
+                                Box::new(inbound_tcp)
+                            } else {
+                                Box::new(PrependedStream::new(inbound_tcp, inbound_prefix))
+                            };
+                            let (more_up, more_down) =
+                                tokio_copy_bidirectional(inbound, Box::new(outbound)).await?;
+                            record_relay_path_bytes(
+                                "vision_copy_after_splice_error",
+                                up + more_up,
+                                down + more_down,
+                            );
+                            return Ok((up + more_up, down + more_down));
+                        }
+                    }
+                }
+                Err(inbound_inner) => {
+                    metrics::counter!(
+                        "proxy_relay_splice_fallback_total",
+                        "reason" => "vision_inner_wrapped"
+                    )
+                    .increment(1);
+                    let (more_up, more_down) =
+                        tokio_copy_bidirectional(inbound_inner, Box::new(outbound)).await?;
+                    record_relay_path_bytes(
+                        "vision_copy_inner_wrapped",
+                        up + more_up,
+                        down + more_down,
+                    );
+                    return Ok((up + more_up, down + more_down));
+                }
+            }
+        }
+
+        if up_eof && down_eof {
+            let reason = if splice_policy == FastSplicePolicy::Disabled {
+                "vision_policy_disabled"
+            } else {
+                "vision_direct_not_ready"
+            };
+            metrics::counter!("proxy_relay_splice_fallback_total", "reason" => reason).increment(1);
+            record_relay_path_bytes("vision_copy", up, down);
+            return Ok((up, down));
+        }
+
+        tokio::select! {
+            biased;
+            read = outbound.read(down_buf.as_mut_slice()), if !down_eof => {
+                let n = read?;
+                if n == 0 {
+                    down_eof = true;
+                    inbound.shutdown().await?;
+                } else {
+                    inbound.write_all(&down_buf.as_slice()[..n]).await?;
+                    down += n as u64;
+                    down_full_read_streak =
+                        update_full_read_streak(down_full_read_streak, n, down_buf.len());
+                }
+            }
+            read = inbound.read(up_buf.as_mut_slice()), if !up_eof => {
+                let n = read?;
+                if n == 0 {
+                    up_eof = true;
+                    outbound.shutdown().await?;
+                } else {
+                    outbound.write_all(&up_buf.as_slice()[..n]).await?;
+                    up += n as u64;
+                    up_full_read_streak =
+                        update_full_read_streak(up_full_read_streak, n, up_buf.len());
+                }
+            }
+        }
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn vision_splice_policy_ready(
+    splice_policy: FastSplicePolicy,
+    up: u64,
+    down: u64,
+    elapsed: Duration,
+    up_full_read_streak: u8,
+    down_full_read_streak: u8,
+) -> bool {
+    match splice_policy {
+        FastSplicePolicy::Disabled => false,
+        FastSplicePolicy::Always => true,
+        FastSplicePolicy::Adaptive => adaptive_splice_ready_for_directions(
+            up,
+            down,
+            elapsed,
+            up_full_read_streak,
+            down_full_read_streak,
+        ),
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn vision_splice_policy_label(splice_policy: FastSplicePolicy) -> &'static str {
+    match splice_policy {
+        FastSplicePolicy::Disabled => "disabled",
+        FastSplicePolicy::Always => "always",
+        FastSplicePolicy::Adaptive => "adaptive",
     }
 }
 

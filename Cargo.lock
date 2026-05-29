@@ -433,11 +433,14 @@ name = "blackwire"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "axum",
+ "blackwire-api",
  "blackwire-app",
  "blackwire-common",
  "blackwire-config",
  "blackwire-core",
+ "blackwire-protocol",
  "clap",
  "hex",
  "metrics-exporter-prometheus",
@@ -448,6 +451,7 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "uuid",
+ "validator",
  "x25519-dalek",
 ]
 
@@ -456,6 +460,7 @@ name = "blackwire-api"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "blackwire-app",
  "blackwire-common",
  "prost",
@@ -485,7 +490,6 @@ dependencies = [
  "dashmap",
  "hickory-resolver",
  "ipnet",
- "libc",
  "lru",
  "metrics",
  "metrics-exporter-prometheus",
@@ -668,6 +672,7 @@ dependencies = [
  "rustls",
  "rustls-acme",
  "rustls-native-certs",
+ "serde_json",
  "sha1 0.11.0",
  "sha2 0.11.0",
  "socket2",

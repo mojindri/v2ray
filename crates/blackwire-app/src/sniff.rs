@@ -4,11 +4,17 @@
 //! HTTP Host or TLS SNI (unless `metadataOnly`). `destOverride` rewrites an IP
 //! destination to the sniffed domain; `routeOnly` keeps the dial target as-is and
 //! exposes the sniffed domain for routing only.
+//!
+//! FakeDNS sniffing (`"fakedns"` in `destOverride`) is metadata-only: it checks
+//! whether the destination is a fake IP and reverse-looks up the domain without
+//! peeking at any stream bytes.
 
 use blackwire_common::{Address, BoxedStream, PrependedStream, ProxyError};
 use blackwire_config::schema::SniffingConfig;
 use tokio::io::AsyncReadExt;
 use tokio::time::{timeout, Duration};
+
+use crate::dns::DnsModule;
 
 const MAX_SNIFF: usize = 8192;
 /// Xray waits briefly for client payload before routing; do not block the dispatcher forever.
@@ -87,7 +93,7 @@ pub fn apply_dest_override(dest: Address, sniff: &SniffResult, config: &Sniffing
             if config
                 .dest_override
                 .iter()
-                .any(|p| p == "http" || p == "tls")
+                .any(|p| p == "http" || p == "tls" || p == "fakedns")
             {
                 Address::Domain(domain.clone(), port)
             } else {
@@ -95,6 +101,24 @@ pub fn apply_dest_override(dest: Address, sniff: &SniffResult, config: &Sniffing
             }
         }
         other => other,
+    }
+}
+
+/// FakeDNS sniffing: reverse-lookup a fake IP to its domain name.
+///
+/// Unlike HTTP/TLS sniffing, this is metadata-only — no stream bytes are consumed.
+/// Returns a `SniffResult` with `protocol = "fakedns"` when `dest` is a recognised
+/// fake IP, or a default (empty) result otherwise.
+pub fn sniff_fakedns(dest: &Address, dns: &DnsModule) -> SniffResult {
+    let Address::Ipv4(ip, _) = dest else {
+        return SniffResult::default();
+    };
+    let Some(domain) = dns.reverse_fake(*ip) else {
+        return SniffResult::default();
+    };
+    SniffResult {
+        protocol: Some("fakedns".into()),
+        domain: Some(domain),
     }
 }
 
@@ -177,4 +201,77 @@ fn http_host(data: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dns::{DnsModule, DnsModuleConfig};
+    use blackwire_config::schema::SniffingConfig;
+
+    #[tokio::test]
+    async fn sniff_fakedns_returns_domain_for_fake_ip() {
+        let dns = DnsModule::new(DnsModuleConfig {
+            fake_ip_enabled: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        let fake_ip = dns.resolve_fake("example.com").unwrap();
+        let dest = Address::Ipv4(fake_ip, 80);
+        let result = sniff_fakedns(&dest, &dns);
+
+        assert_eq!(result.protocol.as_deref(), Some("fakedns"));
+        assert_eq!(result.domain.as_deref(), Some("example.com"));
+    }
+
+    #[tokio::test]
+    async fn sniff_fakedns_returns_default_for_real_ip() {
+        let dns = DnsModule::new(DnsModuleConfig {
+            fake_ip_enabled: true,
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+
+        let dest = Address::Ipv4("1.2.3.4".parse().unwrap(), 80);
+        let result = sniff_fakedns(&dest, &dns);
+
+        assert!(result.protocol.is_none());
+        assert!(result.domain.is_none());
+    }
+
+    #[test]
+    fn apply_dest_override_fakedns_replaces_ip_with_domain() {
+        let config = SniffingConfig {
+            enabled: true,
+            dest_override: vec!["fakedns".into()],
+            ..Default::default()
+        };
+        let sniff = SniffResult {
+            protocol: Some("fakedns".into()),
+            domain: Some("example.com".into()),
+        };
+        let dest = Address::Ipv4("198.18.0.1".parse().unwrap(), 443);
+        let result = apply_dest_override(dest, &sniff, &config);
+        assert_eq!(result, Address::Domain("example.com".into(), 443));
+    }
+
+    #[test]
+    fn apply_dest_override_fakedns_route_only_keeps_ip() {
+        let config = SniffingConfig {
+            enabled: true,
+            route_only: true,
+            dest_override: vec!["fakedns".into()],
+            ..Default::default()
+        };
+        let sniff = SniffResult {
+            protocol: Some("fakedns".into()),
+            domain: Some("example.com".into()),
+        };
+        let dest = Address::Ipv4("198.18.0.1".parse().unwrap(), 443);
+        let result = apply_dest_override(dest, &sniff, &config);
+        assert_eq!(result, Address::Ipv4("198.18.0.1".parse().unwrap(), 443));
+    }
 }

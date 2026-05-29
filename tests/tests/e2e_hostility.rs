@@ -555,15 +555,8 @@ async fn websocket_peer_drops_connection() {
 }
 
 /// VMess-gRPC target drops the TCP connection while a gRPC stream is active.
-/// Proxy gRPC layer must clean up without deadlock.
-///
-/// Ignored: when the Freedom outbound drops, the H2 stream reset (RST_STREAM /
-/// END_STREAM) does not propagate back to the downstream SOCKS5 client within
-/// the test window. This is a known gRPC EOF-propagation gap — tracked for a
-/// follow-up fix in the gRPC transport layer.
+/// The END_STREAM must propagate back to the downstream SOCKS5 client.
 #[tokio::test]
-#[ignore = "gRPC EOF propagation from upstream target to downstream client is not yet \
-            implemented — H2 stream is not reset when Freedom outbound closes"]
 async fn grpc_stream_reset() {
     let grpc_srv_port = unused_local_port();
     let socks_port = unused_local_port();
