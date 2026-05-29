@@ -44,7 +44,10 @@ use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler
 use blackwire_app::health::HealthChecker;
 use blackwire_app::router::LiveRouter;
 use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE_MIN_BYTES};
-use blackwire_common::{clear_outbound_bypass_mark, set_outbound_bypass_mark};
+use blackwire_common::{
+    clear_outbound_bypass_mark, clear_outbound_interface_index, set_outbound_bypass_mark,
+    set_outbound_interface_name,
+};
 use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
@@ -117,6 +120,8 @@ pub struct Instance {
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
     /// Process-wide outbound bypass mark configured for this TUN instance.
     outbound_bypass_mark: Option<u32>,
+    /// Process-wide outbound interface configured for this TUN instance.
+    outbound_interface: Option<String>,
     /// Hot-reload state shared with the config watcher.
     pub reload: ReloadState,
 }
@@ -148,11 +153,13 @@ impl Instance {
         let mut tasks = Vec::new();
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
         let mut outbound_bypass_mark = None;
+        let mut outbound_interface = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
         if let Some(tun_cfg) = &config.tun {
             ensure_tun_runtime_supported()?;
             outbound_bypass_mark = Some(tun_cfg.bypass_mark);
+            outbound_interface = tun_cfg.outbound_interface.clone();
 
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
@@ -166,6 +173,7 @@ impl Instance {
                     .with_context(|| format!("invalid TUN netmask '{}'", tun_cfg.netmask))?,
                 mtu: tun_cfg.mtu,
                 bypass_mark: tun_cfg.bypass_mark,
+                outbound_interface: tun_cfg.outbound_interface.clone(),
                 redirect_port: tun_cfg.redirect_port,
                 dns_port: tun_cfg.dns_port,
                 wintun_file: tun_cfg.wintun_file.clone(),
@@ -667,11 +675,16 @@ impl Instance {
         if let Some(mark) = outbound_bypass_mark {
             set_outbound_bypass_mark(mark);
         }
+        if let Some(interface) = &outbound_interface {
+            set_outbound_interface_name(interface)
+                .with_context(|| format!("invalid TUN outbound interface '{interface}'"))?;
+        }
 
         Ok(Self {
             tasks,
             shutdown_tx,
             outbound_bypass_mark,
+            outbound_interface,
             reload,
         })
     }
@@ -716,6 +729,9 @@ impl Drop for Instance {
         }
         if self.outbound_bypass_mark.take().is_some() {
             clear_outbound_bypass_mark();
+        }
+        if self.outbound_interface.take().is_some() {
+            clear_outbound_interface_index();
         }
         for task in &self.tasks {
             task.abort();

@@ -27,6 +27,8 @@ pub struct TunConfig {
     pub mtu: u16,
     /// Packet mark used to bypass TUN redirection rules.
     pub bypass_mark: u32,
+    /// macOS-only physical interface used by protected outbound sockets.
+    pub outbound_interface: Option<String>,
     /// Local TCP port where redirected TCP flows are sent.
     pub redirect_port: u16,
     /// Local UDP port where redirected DNS packets are sent.
@@ -49,6 +51,7 @@ impl Default for TunConfig {
             netmask,
             mtu: 1500,
             bypass_mark: 0x1234,
+            outbound_interface: None,
             redirect_port: 7890,
             dns_port: 5300,
             wintun_file: None,

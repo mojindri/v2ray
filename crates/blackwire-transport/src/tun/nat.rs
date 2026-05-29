@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context as _, Result};
+use blackwire_common::protect_udp_socket_with_bypass_mark;
 use tokio::net::UdpSocket;
 use tokio::sync::{mpsc, oneshot};
 use tracing::debug;
@@ -163,11 +164,11 @@ impl UdpNatTable {
             .await
             .context("bind bypass UDP socket")?;
 
-        #[cfg(target_os = "linux")]
-        if self.bypass_mark != 0 {
-            use nix::sys::socket::{setsockopt, sockopt::Mark};
-            setsockopt(&socket, Mark, &self.bypass_mark).context("SO_MARK on bypass socket")?;
-        }
+        protect_udp_socket_with_bypass_mark(
+            &socket,
+            (self.bypass_mark != 0).then_some(self.bypass_mark),
+        )
+        .map_err(|e| anyhow::anyhow!("protect UDP socket: {e}"))?;
 
         socket
             .connect(remote)

@@ -20,3 +20,6 @@ tracing.workspace      = true
 libc.workspace = true
 io-uring.workspace = true
 nix.workspace = true
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libc.workspace = true

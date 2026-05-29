@@ -47,7 +47,7 @@ pub fn current_tun_support() -> TunPlatformSupport {
             tcp_redirection: false,
             udp_nat: true,
             requires_privileges: true,
-            note: "macOS utun device creation is wired, but full runtime requires native routing and TCP redirection before it can be supported",
+            note: "macOS utun device creation and protected outbound interface binding are wired, but full runtime requires native routing and TCP redirection before it can be supported",
         }
     }
 

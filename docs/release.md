@@ -26,7 +26,7 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 - Resource-risk smoke coverage in normal CI
 - External-client failure pcaps captured and uploaded by CI
-- TUN transparent proxy on Linux, covered by privileged CI tests; macOS utun and Windows Wintun device creation compile through native backends; Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; full-device runtime startup still fails early through an explicit platform support contract until native routing and TCP redirection are implemented
+- TUN transparent proxy on Linux, covered by privileged CI tests; Linux outbound sockets use `SO_MARK`; macOS can configure `tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets; macOS utun and Windows Wintun device creation compile through native backends; Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; full-device runtime startup still fails early through an explicit platform support contract until native routing and TCP redirection are implemented
 - Handler API structural endpoint operations with rebuild rollback
 - macOS release artifact build
 

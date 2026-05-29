@@ -163,6 +163,17 @@ pub struct TunConfig {
     /// iptables/nftables mark for packets that should bypass the TUN path.
     #[serde(default = "default_tun_bypass_mark")]
     pub bypass_mark: u32,
+    /// macOS-only physical interface used by protected outbound sockets.
+    ///
+    /// Example: `"en0"`. When unset, macOS full-device TUN remains gated to
+    /// avoid routing Blackwire's own outbound sockets back into utun.
+    #[serde(
+        default,
+        rename = "outboundInterface",
+        alias = "outbound_interface",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub outbound_interface: Option<String>,
     /// Local port where redirected TCP connections are accepted.
     #[serde(default = "default_tun_redirect_port")]
     pub redirect_port: u16,
@@ -247,13 +258,15 @@ mod tests {
     }
 
     #[test]
-    fn tun_wintun_file_accepts_camel_and_snake_case() {
+    fn tun_platform_fields_accept_camel_and_snake_case() {
         let camel: TunConfig = serde_json::from_str(
             r#"{
+                "outboundInterface": "en0",
                 "wintunFile": "C:\\Program Files\\Blackwire\\wintun.dll"
             }"#,
         )
         .unwrap();
+        assert_eq!(camel.outbound_interface.as_deref(), Some("en0"));
         assert_eq!(
             camel.wintun_file.as_deref(),
             Some(r#"C:\Program Files\Blackwire\wintun.dll"#)
@@ -261,10 +274,12 @@ mod tests {
 
         let snake: TunConfig = serde_json::from_str(
             r#"{
+                "outbound_interface": "Ethernet",
                 "wintun_file": ".\\wintun.dll"
             }"#,
         )
         .unwrap();
+        assert_eq!(snake.outbound_interface.as_deref(), Some("Ethernet"));
         assert_eq!(snake.wintun_file.as_deref(), Some(r#".\wintun.dll"#));
     }
 
