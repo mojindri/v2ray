@@ -31,14 +31,15 @@ This is a pre-1.0 project. The support contract is explicit:
 - SOCKS5 (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT
 - DNS resolver (system, DoH/DoT), FakeIP, routing rules, GeoIP/geosite
 - HTTP + TLS + FakeDNS sniffing (`destOverride`, `routeOnly`, `metadataOnly`)
+- Sniffed `protocol` routing rules
 - Prometheus metrics, config hot-reload (routing rules, VLESS users, GeoIP)
+- Structural config reload via automatic CLI instance rebuild with rollback
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
-
-**Partial** (shipped with known gaps — read the notes in [docs/feature-matrix.md](docs/feature-matrix.md)):
-- TUN transparent proxy — Linux only, no production validation
-- Handler API (gRPC) — user add/remove only; structural ops unsupported
-- Structural hot-reload (listener/outbound changes require restart)
-- macOS artifacts
+- Resource-risk smoke coverage in normal CI
+- External-client failure pcaps in CI artifacts
+- TUN transparent proxy on Linux, including privileged CI coverage
+- Handler API (gRPC) list/user/structural endpoint operations
+- macOS release artifact build
 
 **Experimental** (implemented, lacking hostile-network or soak proof):
 - REALITY
@@ -51,7 +52,6 @@ This is a pre-1.0 project. The support contract is explicit:
 **Unsupported** (fail-closed or documented out of scope):
 - `protocol: shadowtls` — fails config validation; use `security: shadowtls` in `streamSettings`
 - V2Ray/Xray JSON config import
-- `AddInbound`, `RemoveInbound`, `AddOutbound`, `RemoveOutbound`, `AlterOutbound` Handler API calls
 - VMess legacy alterId / non-AEAD
 - DNS/dokodemo/tun as inbound `protocol` values
 - Byte-identical browser TLS fingerprinting
@@ -129,7 +129,7 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 | **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
 | **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
 | **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
-| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged tests | Broad production validation and cross-platform support — **do not use in production yet** |
+| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests | Cross-platform TUN support is out of scope |
 
 See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
 

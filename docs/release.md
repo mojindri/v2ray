@@ -17,23 +17,18 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 - SOCKS5 inbound (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT inbound, Freedom outbound
 - DNS resolver (system, DoH, DoT), FakeIP pool, DNS cache, `domain_strategy`
 - HTTP + TLS + FakeDNS sniffing with `destOverride`, `routeOnly`, `metadataOnly`
-- Routing rules (domain, suffix, keyword, regex, IP/CIDR, port, source_ip, inboundTag, GeoIP/geosite)
+- Routing rules (domain, suffix, keyword, regex, IP/CIDR, port, source_ip, inboundTag, sniffed `protocol`, GeoIP/geosite)
 - Load balancer with health-check failover
 - Prometheus metrics (`/metrics`, `/healthz`, `/readyz`, `/version`)
 - Config hot-reload: routing rules, VLESS user UUIDs, GeoIP/geosite data
+- Structural config reload via automatic CLI instance rebuild with rollback
 - Native JSON config schema with fail-closed validation
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
-
-### Partial (shipped with known gaps)
-
-Do not treat these as production-ready without reading the notes.
-
-| Area | Known gap |
-| ---- | --------- |
-| TUN transparent proxy | Linux-only, privileged tests only, no broad production validation. Do not use in production yet. |
-| Handler API (gRPC) | Supported operations: `ListInbounds`, `ListOutbounds`, `GetInboundUsersCount`, `GetInboundUsers`, `AlterInbound` (VLESS add/remove). Unsupported (return UNIMPLEMENTED): `AddInbound`, `RemoveInbound`, `AddOutbound`, `RemoveOutbound`, `AlterOutbound`. |
-| Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload require an instance restart. |
-| macOS | CI runs `macos-latest` tests; release artifacts are not certified. |
+- Resource-risk smoke coverage in normal CI
+- External-client failure pcaps captured and uploaded by CI
+- TUN transparent proxy on Linux, covered by privileged CI tests
+- Handler API structural endpoint operations with rebuild rollback
+- macOS release artifact build
 
 ### Experimental (implemented; missing hostile-network or soak proof)
 
@@ -45,7 +40,6 @@ Treat these as unstable — they may be promoted or downgraded in later releases
 - mKCP (local multi-session e2e; no loss/jitter lab, no external client proof)
 - QUIC / V2Ray QUIC transport (sing-box PASS in matrix; Xray legacy QUIC client removed upstream)
 - Stats API (gRPC) (wired; no soak or observability validation)
-- SplitHTTP extras: Xmux, padding, `downloadSettings` are backlog items
 
 ### Unsupported (fail-closed or explicitly out of scope)
 
@@ -54,7 +48,7 @@ at config validation (before any traffic is handled) or return an error at runti
 
 - `protocol: shadowtls` as an inbound or outbound — fails validation with a message to use `security: shadowtls` in `streamSettings` instead
 - V2Ray / Xray JSON config import — interop is wire-level only; translate configs manually
-- `AddInbound`, `RemoveInbound`, `AddOutbound`, `RemoveOutbound`, `AlterOutbound` via Handler API — use config reload / instance restart
+- Handler API structural endpoint RPCs use native blackwire endpoint JSON in `proxy_settings`; Xray core endpoint protobuf decoding is not implemented
 - VMess legacy non-AEAD / alterId — only AEAD is implemented
 - DNS, dokodemo, tun as inbound `protocol` values — not in the `Protocol` enum; deserialization fails
 - Byte-identical browser TLS fingerprinting — functional interop ≠ identical ClientHello bytes
@@ -147,6 +141,5 @@ A feature moves from Experimental/Partial to Supported **only** when all items b
 | Hysteria2 | Hostile-network (loss/jitter), UDP relay, long-lived stream, and soak run |
 | TUN | Privileged Linux CI tests, route setup/cleanup, UDP NAT, rollback-on-failure |
 | Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload, rollback on failed reload |
-| SplitHTTP extras | Xmux, padding, `downloadSettings` implemented and tested |
 | ShadowTLS v3 | External sing-box / shadow-tls interop matrix passing |
 | mKCP | Loss/jitter lab + external client proof |

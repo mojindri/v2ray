@@ -276,6 +276,31 @@ mod tests {
         assert_eq!(s.security, SecurityType::Reality);
     }
 
+    #[test]
+    fn splithttp_xhttp_extras_deserialise() {
+        let json = r#"{
+            "network": "splithttp",
+            "splithttpSettings": {
+                "path": "/split",
+                "mode": "packet-up",
+                "xPaddingBytes": "16-32",
+                "xPaddingMethod": "repeat-x",
+                "xPaddingHeader": "X-Test-Padding",
+                "scMaxBufferedPosts": 12,
+                "xmux": { "maxConcurrency": 4 },
+                "downloadSettings": { "network": "tcp" }
+            }
+        }"#;
+        let s: StreamSettingsConfig = serde_json::from_str(json).unwrap();
+        let cfg = s.splithttp_settings.expect("splithttp settings");
+        assert_eq!(cfg.mode, "packet-up");
+        assert_eq!(cfg.x_padding_method, "repeat-x");
+        assert_eq!(cfg.x_padding_header, "X-Test-Padding");
+        assert_eq!(cfg.sc_max_buffered_posts, 12);
+        assert!(cfg.xmux.is_some());
+        assert!(cfg.download_settings.is_some());
+    }
+
     /// `protocol: shadowtls` on an inbound must be rejected with a clear error
     /// pointing users to `security: shadowtls` instead.
     #[test]

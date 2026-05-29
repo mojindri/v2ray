@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  MATRIX_PCAP_ON_FAIL: "1"
 
 jobs:
   integration-matrix:

@@ -31,6 +31,7 @@ rcgen.workspace             = true
 tokio-tungstenite.workspace = true
 tonic.workspace             = true
 prost.workspace             = true
+serde_json.workspace        = true
 h2.workspace                = true
 http.workspace              = true
 quinn.workspace                 = true

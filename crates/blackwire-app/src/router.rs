@@ -626,6 +626,67 @@ mod tests {
         assert!(rule.matches_with_geo(&ctx, &HashMap::new(), &geosite));
     }
 
+    #[test]
+    fn protocol_rule_matches_sniffed_protocol() {
+        let rule = CompiledRule {
+            outbound_tag: "sniffed".into(),
+            domain_matcher: None,
+            geosite_codes: vec![],
+            ip_matcher: None,
+            geoip_codes: vec![],
+            port_ranges: vec![],
+            inbound_tags: vec![],
+            protocols: vec!["http".into(), "tls".into()],
+        };
+
+        let dest = Address::Domain("example.com".into(), 443);
+        let ctx = RoutingContext {
+            dest: &dest,
+            network: Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+            sniffed_protocol: Some("tls"),
+            sniffed_domain: Some("example.com"),
+        };
+
+        assert!(rule.matches(&ctx));
+    }
+
+    #[test]
+    fn protocol_rule_requires_matching_sniffed_protocol() {
+        let rule = CompiledRule {
+            outbound_tag: "sniffed".into(),
+            domain_matcher: None,
+            geosite_codes: vec![],
+            ip_matcher: None,
+            geoip_codes: vec![],
+            port_ranges: vec![],
+            inbound_tags: vec![],
+            protocols: vec!["http".into()],
+        };
+
+        let dest = Address::Domain("example.com".into(), 80);
+        let no_sniff_ctx = RoutingContext {
+            dest: &dest,
+            network: Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+            sniffed_protocol: None,
+            sniffed_domain: None,
+        };
+        let wrong_sniff_ctx = RoutingContext {
+            dest: &dest,
+            network: Network::Tcp,
+            inbound_tag: "in",
+            user: None,
+            sniffed_protocol: Some("tls"),
+            sniffed_domain: Some("example.com"),
+        };
+
+        assert!(!rule.matches(&no_sniff_ctx));
+        assert!(!rule.matches(&wrong_sniff_ctx));
+    }
+
     // Checks that an invalid CIDR string returns an error rather than panicking.
     #[test]
     fn invalid_cidr_returns_error() {

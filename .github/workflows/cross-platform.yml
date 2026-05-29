@@ -29,6 +29,44 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
 
+  tun-privileged:
+    name: TUN privileged (linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check TUN device support
+        run: |
+          sudo modprobe tun || true
+          test -c /dev/net/tun
+      - name: Run privileged TUN tests
+        run: |
+          sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv -- --include-ignored
+
+  macos-artifact:
+    name: macOS release artifact
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build release binary
+        run: cargo build --locked --release --bin blackwire
+      - name: Package artifact
+        run: |
+          mkdir -p dist
+          tar -czf dist/blackwire-${{ runner.os }}-${{ runner.arch }}.tar.gz -C target/release blackwire
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: blackwire-macos-${{ runner.arch }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 30
+
   docker:
     name: Docker
     runs-on: ubuntu-latest
