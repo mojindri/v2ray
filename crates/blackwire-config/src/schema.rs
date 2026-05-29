@@ -290,7 +290,9 @@ mod tests {
             "outbounds": [{"tag": "d", "protocol": "freedom"}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        let err = cfg.validate().expect_err("shadowtls inbound should fail validation");
+        let err = cfg
+            .validate()
+            .expect_err("shadowtls inbound should fail validation");
         let msg = err.to_string();
         assert!(
             msg.contains("shadowtls") || msg.contains("streamSettings"),
@@ -311,7 +313,9 @@ mod tests {
             "outbounds": [{"tag": "bad", "protocol": "shadowtls"}]
         }"#;
         let cfg: Config = serde_json::from_str(json).unwrap();
-        let err = cfg.validate().expect_err("shadowtls outbound should fail validation");
+        let err = cfg
+            .validate()
+            .expect_err("shadowtls outbound should fail validation");
         let msg = err.to_string();
         assert!(
             msg.contains("shadowtls") || msg.contains("streamSettings"),
