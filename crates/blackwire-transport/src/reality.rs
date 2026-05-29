@@ -29,6 +29,19 @@ pub use parser::{parse_client_hello, ClientHelloFields};
 pub use server::{RealityAccepted, RealityServer, RealityServerConfig};
 pub use tls13::{complete_tls13_server_handshake, Tls13Stream};
 
+/// Complete TLS 1.3 as server after REALITY auth, wrapping the result in a `BoxedStream`.
+///
+/// Combines [`complete_tls13_server_handshake`] and [`Tls13Stream::new_server`] so that
+/// callers don't need to name the private [`AppKeys`] type.
+pub async fn reality_server_tls_stream(
+    mut stream: blackwire_common::BoxedStream,
+    auth_key: &[u8; 32],
+    cover_sni: &str,
+) -> Result<blackwire_common::BoxedStream, blackwire_common::ProxyError> {
+    let keys = complete_tls13_server_handshake(&mut stream, auth_key, cover_sni).await?;
+    Ok(Box::new(Tls13Stream::new_server(stream, keys)))
+}
+
 /// The HKDF info string used to derive the REALITY auth key.
 ///
 /// This must match exactly between client and server, including casing.

@@ -51,8 +51,8 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use blackwire_common::ProxyError;
 use blackwire_transport::{
-    dev_self_signed, tls_accept, RealityClient, RealityClientConfig, RealityServer,
-    RealityServerConfig,
+    dev_self_signed, reality_server_tls_stream, tls_accept, RealityClient, RealityClientConfig,
+    RealityServer, RealityServerConfig,
 };
 
 // ── Shared constants ──────────────────────────────────────────────────────────
@@ -168,13 +168,11 @@ async fn spawn_dummy_fallback() -> SocketAddr {
 ///
 /// Expected: `RealityServer::accept()` replays the ClientHello into rustls,
 /// the TLS handshake completes, and application bytes flow both directions.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_valid_auth_succeeds() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();
     let short_id = vec![0xAA, 0xBB, 0xCC, 0xDD];
     let fallback_addr = spawn_dummy_fallback().await;
-    let (cert_pem, key_pem) = dev_self_signed().expect("self-signed TLS cert");
 
     // Start our REALITY server.
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -193,8 +191,12 @@ async fn d0_self_valid_auth_succeeds() {
     tokio::spawn(async move {
         if let Ok((stream, _)) = listener.accept().await {
             let result = async {
-                let stream = srv.accept(Box::new(stream)).await?;
-                let mut tls = tls_accept(stream, &cert_pem, &key_pem, &[]).await?;
+                // Use accept_with_key to get the per-connection auth key, then
+                // complete TLS 1.3 using the REALITY-generated Ed25519 cert.
+                let accepted = srv.accept_with_key(Box::new(stream)).await?;
+                let mut tls =
+                    reality_server_tls_stream(accepted.stream, &accepted.auth_key, "example.com")
+                        .await?;
 
                 let mut buf = [0u8; 4];
                 tls.read_exact(&mut buf).await?;
@@ -260,7 +262,6 @@ async fn d0_self_valid_auth_succeeds() {
 /// forwards the connection to the fallback destination.
 ///
 /// Expected: `RealityServer::accept_direct` returns `Err(ProxyError::FallbackRequired)`.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_wrong_short_id_triggers_fallback() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();
@@ -321,7 +322,6 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
 ///
 /// This test mocks the clock skew by setting `max_time_diff = 0`, so the
 /// timestamp check always fails.
-#[ignore = "d0 self-interop: cargo test --test interop d0 -- --ignored"]
 #[tokio::test]
 async fn d0_self_zero_max_time_diff_triggers_fallback() {
     let (priv_bytes, pub_bytes) = generate_test_keypair();

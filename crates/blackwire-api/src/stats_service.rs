@@ -56,15 +56,16 @@ impl StatsService for StatsServiceImpl {
         &self,
         _request: Request<SysStatsRequest>,
     ) -> Result<Response<SysStatsResponse>, Status> {
+        let rss = runtime_stats::rss_bytes();
         Ok(Response::new(SysStatsResponse {
-            num_goroutine: 0,
+            num_goroutine: runtime_stats::num_tasks() as u32,
             num_gc: 0,
-            alloc: 0,
-            total_alloc: 0,
-            sys: 0,
+            alloc: rss,
+            total_alloc: rss,
+            sys: rss,
             mallocs: 0,
             frees: 0,
-            live_objects: 0,
+            live_objects: runtime_stats::num_threads() as u64,
             pause_total_ns: 0,
             uptime: runtime_stats::uptime_secs(),
         }))
