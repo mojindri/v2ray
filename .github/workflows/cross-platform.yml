@@ -47,6 +47,23 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
 
+  windows-tun-contract:
+    name: Windows TUN contract
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Windows outbound socket protection
+        run: cargo test -p blackwire-common --locked connect::tests
+      - name: Check Windows Wintun route command contract
+        run: cargo test -p blackwire-transport --lib --locked tun::route::tests::windows
+      - name: Check TUN platform support contract
+        run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
+      - name: Check Windows workspace compile
+        run: cargo check --workspace --all-targets --locked
+
   docker:
     name: Docker
     runs-on: ubuntu-latest
