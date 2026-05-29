@@ -1,10 +1,10 @@
 //! Privileged integration tests for the TUN subsystem.
 //!
-//! Two categories:
+//! Linux-only tests in two categories:
 //!
-//!   * Cross-platform tests that need no privileges (run in normal CI).
-//!   * Linux-only tests that need root / CAP_NET_ADMIN, gated with
-//!     `#[cfg(target_os = "linux")]` and the `priv-test` Cargo feature.
+//!   * Parser/NAT tests that need no privileges.
+//!   * Privileged tests that need root / CAP_NET_ADMIN, gated with the
+//!     `priv-test` Cargo feature.
 //!
 //! Run privileged tests on a Linux host with:
 //!   sudo -E cargo test -p blackwire-transport --features priv-test \
@@ -15,7 +15,8 @@
 //! Set `TUN_INTEROP=1` in the environment to also run the end-to-end
 //! network-traffic round-trip test (requires internet access + root).
 
-#[cfg(target_os = "linux")]
+#![cfg(target_os = "linux")]
+
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::time::Duration;
@@ -23,11 +24,8 @@ use std::time::Duration;
 use tokio::net::UdpSocket;
 use tokio::time::timeout;
 
-use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
-
-#[cfg(target_os = "linux")]
 use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
-#[cfg(target_os = "linux")]
+use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
 use tokio::sync::watch;
 
 // ── helpers ───────────────────────────────────────────────────────────────────

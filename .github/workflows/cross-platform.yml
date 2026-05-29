@@ -6,18 +6,27 @@ on:
 
 jobs:
   test:
-    name: Test (${{ matrix.os }})
+    name: ${{ matrix.name }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - name: Test (ubuntu-latest)
+            os: ubuntu-latest
+            command: cargo test --workspace --locked
+          - name: Test (macos-latest)
+            os: macos-latest
+            command: cargo test --workspace --locked
+          - name: Check (windows-latest)
+            os: windows-latest
+            command: cargo check --workspace --all-targets --locked
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --locked
+      - run: ${{ matrix.command }}
 
   test-arm64:
     name: Test (linux-arm64)

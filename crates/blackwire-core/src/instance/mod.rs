@@ -144,7 +144,10 @@ impl Instance {
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
         let mut tasks = Vec::new();
+        #[cfg(target_os = "linux")]
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+        #[cfg(not(target_os = "linux"))]
+        let shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
         #[cfg(target_os = "linux")]
