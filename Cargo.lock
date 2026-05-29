@@ -527,6 +527,7 @@ dependencies = [
  "crossbeam-queue",
  "io-uring",
  "libc",
+ "nix",
  "parking_lot",
  "thiserror 2.0.18",
  "tokio",
