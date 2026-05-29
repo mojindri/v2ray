@@ -51,8 +51,8 @@ use x25519_dalek::{PublicKey, StaticSecret};
 
 use blackwire_common::ProxyError;
 use blackwire_transport::{
-    dev_self_signed, reality_server_tls_stream, tls_accept, RealityClient, RealityClientConfig,
-    RealityServer, RealityServerConfig,
+    reality_server_tls_stream, RealityClient, RealityClientConfig, RealityServer,
+    RealityServerConfig,
 };
 
 // ── Shared constants ──────────────────────────────────────────────────────────
@@ -293,6 +293,11 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
 
     // Connect with the wrong short ID. dial() attempts a full TLS handshake,
     // so the fallback plaintext path must surface as an error here.
+    //
+    // We bound this to 10 s: do_fallback proxies through copy_bidirectional_with_idle
+    // (300 s idle timeout), so without a client-side bound the test would take
+    // ~300 s.  Dropping the dial() future closes the client TCP stream, which
+    // makes the relay's down-leg detect EOF and return quickly.
     let client = RealityClient::new(RealityClientConfig {
         server: server_addr,
         server_public_key: pub_bytes,
@@ -300,14 +305,15 @@ async fn d0_self_wrong_short_id_triggers_fallback() {
         sni: "example.com".to_string(),
         fingerprint: "chrome".to_string(),
     });
+    let dial_result = timeout(Duration::from_secs(10), client.dial()).await;
     assert!(
-        client.dial().await.is_err(),
+        dial_result.map(|r| r.is_err()).unwrap_or(true),
         "wrong short ID should not complete the TLS 1.3 handshake"
     );
 
-    let fallback_triggered = timeout(Duration::from_secs(5), rx)
+    let fallback_triggered = timeout(Duration::from_secs(10), rx)
         .await
-        .expect("server timed out")
+        .expect("server timed out after 10 s — fallback did not complete")
         .expect("channel closed");
 
     assert!(
@@ -358,23 +364,28 @@ async fn d0_self_zero_max_time_diff_triggers_fallback() {
         }
     });
 
-    let dial_result = RealityClient::new(RealityClientConfig {
-        server: server_addr,
-        server_public_key: pub_bytes,
-        short_id,
-        sni: "example.com".to_string(),
-        fingerprint: "chrome".to_string(),
-    })
-    .dial()
+    // Same 10 s bound as d0_self_wrong_short_id_triggers_fallback: dropping the
+    // dial() future closes the client TCP stream so do_fallback's relay exits.
+    let dial_result = timeout(
+        Duration::from_secs(10),
+        RealityClient::new(RealityClientConfig {
+            server: server_addr,
+            server_public_key: pub_bytes,
+            short_id,
+            sni: "example.com".to_string(),
+            fingerprint: "chrome".to_string(),
+        })
+        .dial(),
+    )
     .await;
     assert!(
-        dial_result.is_err(),
+        dial_result.map(|r| r.is_err()).unwrap_or(true),
         "mismatched short_id should fail before TLS app-data is ready"
     );
 
-    let triggered = timeout(Duration::from_secs(5), rx)
+    let triggered = timeout(Duration::from_secs(10), rx)
         .await
-        .expect("server timed out")
+        .expect("server timed out after 10 s — fallback did not complete")
         .expect("channel closed");
 
     assert!(triggered, "mismatched short_id must trigger fallback");

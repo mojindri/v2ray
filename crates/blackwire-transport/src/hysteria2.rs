@@ -464,11 +464,7 @@ impl Hysteria2UdpSession {
     }
 
     /// Send a UDP payload to `dest` through the Hysteria2 tunnel.
-    pub fn send(
-        &self,
-        dest: udp::Destination,
-        data: bytes::Bytes,
-    ) -> Result<(), ProxyError> {
+    pub fn send(&self, dest: udp::Destination, data: bytes::Bytes) -> Result<(), ProxyError> {
         let packet_id = self
             .packet_id
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

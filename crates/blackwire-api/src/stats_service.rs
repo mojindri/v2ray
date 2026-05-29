@@ -65,7 +65,7 @@ impl StatsService for StatsServiceImpl {
             sys: rss,
             mallocs: 0,
             frees: 0,
-            live_objects: runtime_stats::num_threads() as u64,
+            live_objects: runtime_stats::num_threads(),
             pause_total_ns: 0,
             uptime: runtime_stats::uptime_secs(),
         }))
