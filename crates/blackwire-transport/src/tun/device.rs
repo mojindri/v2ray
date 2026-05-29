@@ -5,7 +5,7 @@ use tracing::info;
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use super::backend::current_tun_support;
 
-/// Platform TUN device type used by [`TunRuntime`].
+/// Platform TUN device type used by [`crate::tun::TunRuntime`].
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 pub type TunDevice = tun::AsyncDevice;
 
