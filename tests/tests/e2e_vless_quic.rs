@@ -85,6 +85,9 @@ fn server_config(
     cert_path: &Path,
     key_path: &Path,
 ) -> Arc<blackwire_config::schema::Config> {
+    let cert_json =
+        serde_json::to_string(&cert_path.to_string_lossy()).expect("serialize cert path");
+    let key_json = serde_json::to_string(&key_path.to_string_lossy()).expect("serialize key path");
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -98,16 +101,14 @@ fn server_config(
                 "streamSettings": {{
                     "network": "quic",
                     "tlsSettings": {{
-                        "certificateFile": "{}",
-                        "keyFile": "{}"
+                        "certificateFile": {cert_json},
+                        "keyFile": {key_json}
                     }}
                 }}
             }}],
             "outbounds": [{{ "tag": "freedom", "protocol": "freedom" }}],
             "routing": {{ "rules": [{{ "outboundTag": "freedom" }}] }}
-        }}"#,
-        cert_path.display(),
-        key_path.display()
+        }}"#
     ))
 }
 

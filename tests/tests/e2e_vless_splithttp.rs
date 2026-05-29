@@ -128,6 +128,8 @@ fn client_config(socks_port: u16, vless_port: u16) -> Arc<blackwire_config::sche
 
 fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Config> {
     let (cert, key) = write_temp_tls_files();
+    let cert_json = serde_json::to_string(&cert).expect("serialize cert path");
+    let key_json = serde_json::to_string(&key).expect("serialize key path");
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -142,8 +144,8 @@ fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Con
                     "network": "splithttp",
                     "security": "tls",
                     "tlsSettings": {{
-                        "certificateFile": "{}",
-                        "keyFile": "{}",
+                        "certificateFile": {cert_json},
+                        "keyFile": {key_json},
                         "alpn": ["h2"]
                     }},
                     "splithttpSettings": {{
@@ -154,8 +156,7 @@ fn packet_up_server_config(vless_port: u16) -> Arc<blackwire_config::schema::Con
             }}],
             "outbounds": [{{ "tag": "freedom", "protocol": "freedom" }}],
             "routing": {{ "rules": [{{ "outboundTag": "freedom" }}] }}
-        }}"#,
-        cert, key
+        }}"#
     ))
 }
 

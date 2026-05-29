@@ -1,0 +1,100 @@
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "dns": {
+    "servers": [
+      "1.1.1.1",
+      "8.8.8.8"
+    ],
+    "fake_ip": {
+      "enabled": true,
+      "pool": "198.18.0.0/15"
+    }
+  },
+  "tun": {
+    "name": "blackwire-tun",
+    "address": "198.18.0.1",
+    "netmask": "255.255.0.0",
+    "mtu": 1500,
+    "bypass_mark": 4660,
+    "outboundInterface": "en0",
+    "redirect_port": 7890,
+    "dns_port": 5300
+  },
+  "inbounds": [
+    {
+      "tag": "socks-local",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 7890,
+      "sniffing": {
+        "enabled": true,
+        "destOverride": [
+          "http",
+          "tls",
+          "fakedns"
+        ]
+      }
+    },
+    {
+      "tag": "http-local",
+      "protocol": "http",
+      "listen": "127.0.0.1",
+      "port": 7891
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "proxy",
+      "protocol": "vless",
+      "settings": {
+        "address": "203.0.113.40",
+        "port": 443,
+        "users": [
+          {
+            "id": "a3482e88-686a-4a58-8126-99c9df64b7bf",
+            "flow": ""
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "tun-proxy.example.com",
+          "allowInsecure": false
+        },
+        "wsSettings": {
+          "path": "/proxy",
+          "headers": {
+            "Host": "tun-proxy.example.com"
+          }
+        }
+      }
+    },
+    {
+      "tag": "direct",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "type": "field",
+        "ip": [
+          "127.0.0.1/8",
+          "10.0.0.0/8",
+          "172.16.0.0/12",
+          "192.168.0.0/16"
+        ],
+        "outboundTag": "direct"
+      },
+      {
+        "type": "field",
+        "outboundTag": "proxy"
+      }
+    ]
+  }
+}

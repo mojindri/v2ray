@@ -7,7 +7,7 @@
 - TLS/REALITY handshake code.
 - DNS and FakeIP state.
 - Config loader and hot reload.
-- TUN/privileged Linux paths.
+- TUN/privileged Linux, macOS, and Windows paths.
 - Metrics/admin API.
 - Logs and reports.
 - Docker/systemd deployment files.

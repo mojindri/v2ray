@@ -57,7 +57,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingConfig>,
 
-    /// Linux TUN interception settings.
+    /// TUN interception settings.
+    ///
+    /// Linux, macOS, and Windows have active full-device runtimes today.
+    /// Windows uses Wintun split routes plus a packet-level TCP bridge to the
+    /// local SOCKS listener because Windows does not provide an iptables/PF
+    /// equivalent for arbitrary original-destination redirects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 
@@ -140,7 +145,7 @@ pub struct LimitsConfig {
     pub max_idle_seconds: Option<u64>,
 }
 
-/// Top-level Linux TUN interception settings.
+/// Top-level TUN interception settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TunConfig {
     /// TUN interface name (e.g. `"tun0"`).
@@ -155,15 +160,39 @@ pub struct TunConfig {
     /// MTU for the TUN interface.
     #[serde(default = "default_tun_mtu")]
     pub mtu: u16,
-    /// iptables/nftables mark for packets that should bypass the TUN path.
+    /// Linux packet mark for packets that should bypass the TUN path.
     #[serde(default = "default_tun_bypass_mark")]
     pub bypass_mark: u32,
+    /// Physical interface used by protected outbound sockets on macOS/Windows.
+    ///
+    /// Examples: `"en0"` on macOS or `"Ethernet"` on Windows. macOS requires
+    /// this so Blackwire's own outbound sockets can bypass utun capture.
+    /// Windows uses it when set; otherwise it falls back to the OS route table
+    /// and the configured Wintun split routes.
+    #[serde(
+        default,
+        rename = "outboundInterface",
+        alias = "outbound_interface",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub outbound_interface: Option<String>,
     /// Local port where redirected TCP connections are accepted.
     #[serde(default = "default_tun_redirect_port")]
     pub redirect_port: u16,
     /// Local DNS port used by the transparent-proxy DNS path.
     #[serde(default = "default_tun_dns_port")]
     pub dns_port: u16,
+    /// Windows-only path to `wintun.dll`.
+    ///
+    /// When unset, the Windows backend uses the `tun` crate default
+    /// (`wintun.dll` in the process DLL search path).
+    #[serde(
+        default,
+        rename = "wintunFile",
+        alias = "wintun_file",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub wintun_file: Option<String>,
 }
 
 fn default_tun_name() -> String {
@@ -228,6 +257,32 @@ mod tests {
         assert_eq!(cfg.outbounds.len(), 1);
         assert_eq!(cfg.inbounds[0].tag, "socks");
         assert_eq!(cfg.outbounds[0].tag, "direct");
+    }
+
+    #[test]
+    fn tun_platform_fields_accept_camel_and_snake_case() {
+        let camel: TunConfig = serde_json::from_str(
+            r#"{
+                "outboundInterface": "en0",
+                "wintunFile": "C:\\Program Files\\Blackwire\\wintun.dll"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(camel.outbound_interface.as_deref(), Some("en0"));
+        assert_eq!(
+            camel.wintun_file.as_deref(),
+            Some(r#"C:\Program Files\Blackwire\wintun.dll"#)
+        );
+
+        let snake: TunConfig = serde_json::from_str(
+            r#"{
+                "outbound_interface": "Ethernet",
+                "wintun_file": ".\\wintun.dll"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(snake.outbound_interface.as_deref(), Some("Ethernet"));
+        assert_eq!(snake.wintun_file.as_deref(), Some(r#".\wintun.dll"#));
     }
 
     #[test]

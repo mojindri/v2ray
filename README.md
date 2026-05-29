@@ -37,7 +37,7 @@ This is a pre-1.0 project. The support contract is explicit:
 - Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
 - Resource-risk smoke coverage in normal CI
 - External-client failure pcaps in CI artifacts
-- TUN transparent proxy on Linux, including privileged CI coverage
+- TUN transparent proxy on Linux/macOS/Windows, including privileged CI coverage
 - Handler API (gRPC) list/user/structural endpoint operations
 - macOS release artifact build
 
@@ -129,7 +129,7 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 | **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
 | **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
 | **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
-| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests | Cross-platform TUN support is out of scope |
+| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests; Linux outbound sockets use `SO_MARK`; macOS utun runtime installs split default routes plus a PF anchor for TCP/DNS redirection and uses `tun.outboundInterface`/`tun.outbound_interface` for protected proxy egress; Windows Wintun device creation, split-route setup, packet-level TCP bridging to the local SOCKS listener, and protected outbound interface binding are wired, and Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; runtime support is checked through an explicit platform contract | Broader production soak and external-client TUN lab coverage |
 
 See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
 

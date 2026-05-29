@@ -1,13 +1,22 @@
 //! Privileged integration tests for the TUN subsystem.
 //!
-//! Linux-only tests in two categories:
+//! Platform TUN tests in two categories:
 //!
 //!   * Parser/NAT tests that need no privileges.
-//!   * Privileged tests that need root / CAP_NET_ADMIN, gated with the
-//!     `priv-test` Cargo feature.
+//!   * Privileged runtime tests that need root/admin privileges, gated with
+//!     the `priv-test` Cargo feature.
 //!
 //! Run privileged tests on a Linux host with:
 //!   sudo -E cargo test -p blackwire-transport --features priv-test \
+//!       --test tun_priv -- --include-ignored
+//!
+//! Run privileged tests on macOS with:
+//!   sudo -E cargo test -p blackwire-transport --features priv-test \
+//!       --test tun_priv -- --include-ignored
+//!
+//! Run privileged tests on Windows from an elevated shell with:
+//!   set WINTUN_FILE=C:\path\to\wintun.dll
+//!   cargo test -p blackwire-transport --features priv-test \
 //!       --test tun_priv -- --include-ignored
 //!
 //! # VPS interop
@@ -15,18 +24,19 @@
 //! Set `TUN_INTEROP=1` in the environment to also run the end-to-end
 //! network-traffic round-trip test (requires internet access + root).
 
-#![cfg(target_os = "linux")]
+#![cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 
+#[cfg(target_os = "linux")]
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::time::Duration;
 
 use tokio::net::UdpSocket;
+use tokio::sync::watch;
 use tokio::time::timeout;
 
 use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
 use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
-use tokio::sync::watch;
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -97,7 +107,11 @@ fn nat_response_packet_addresses_reversed() {
         protocol: blackwire_transport::tun::TransportProtocol::Udp,
         header_len: 0,
         payload_offset: 0,
+        transport_offset: 0,
         payload_len: 0,
+        tcp_seq: None,
+        tcp_ack: None,
+        tcp_flags: None,
     };
     let pkt = blackwire_transport::tun::build_udp_response_packet(&fake, payload).unwrap();
     let parsed = parse_ip_packet(&pkt).unwrap();
@@ -124,8 +138,10 @@ async fn tun_device_creates_and_is_up() {
         netmask: "255.255.0.0".parse().unwrap(),
         mtu: 1500,
         bypass_mark: 0xabcd,
+        outbound_interface: None,
         redirect_port: 17890,
         dns_port: 15300,
+        wintun_file: None,
     };
     let _dev = create_tun(&cfg).expect("TUN device creation failed — is this running as root?");
 
@@ -160,8 +176,10 @@ async fn tun_runtime_starts_and_shuts_down() {
         netmask: "255.255.0.0".parse().unwrap(),
         mtu: 1500,
         bypass_mark: 0xbcde,
+        outbound_interface: None,
         redirect_port: 17891,
         dns_port: 15301,
+        wintun_file: None,
     };
     let device = create_tun(&cfg).expect("TUN device creation failed");
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
@@ -194,6 +212,96 @@ async fn tun_runtime_starts_and_shuts_down() {
         .expect("runtime task panicked");
 }
 
+/// Starts the macOS utun runtime long enough to create the device, resolve the
+/// OS-assigned utun name, install split routes/PF state, and clean up.
+#[cfg(target_os = "macos")]
+#[tokio::test]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires root + priv-test feature"
+)]
+async fn macos_tun_runtime_privileged_smoke() {
+    let outbound_interface = macos_default_interface()
+        .await
+        .expect("failed to detect macOS default interface");
+    let cfg = TunConfig {
+        name: "blackwire-ci-utun".into(),
+        address: "198.19.10.1".parse().unwrap(),
+        netmask: "255.255.0.0".parse().unwrap(),
+        mtu: 1500,
+        bypass_mark: 0,
+        outbound_interface: Some(outbound_interface),
+        redirect_port: 17893,
+        dns_port: 15303,
+        wintun_file: None,
+    };
+    let device = create_tun(&cfg).expect("macOS utun creation failed");
+    run_runtime_briefly(cfg, device).await;
+}
+
+/// Starts the Windows Wintun runtime long enough to create the adapter, install
+/// split routes, exercise runtime startup, and clean up routes on shutdown.
+#[cfg(target_os = "windows")]
+#[tokio::test]
+#[cfg_attr(
+    not(feature = "priv-test"),
+    ignore = "requires elevated shell + priv-test feature + WINTUN_FILE"
+)]
+async fn windows_tun_runtime_privileged_smoke() {
+    let wintun_file =
+        std::env::var("WINTUN_FILE").expect("WINTUN_FILE must point to wintun.dll for CI smoke");
+    let cfg = TunConfig {
+        name: "Blackwire CI Wintun".into(),
+        address: "198.19.11.1".parse().unwrap(),
+        netmask: "255.255.0.0".parse().unwrap(),
+        mtu: 1500,
+        bypass_mark: 0,
+        outbound_interface: None,
+        redirect_port: 17894,
+        dns_port: 15304,
+        wintun_file: Some(wintun_file),
+    };
+    let device = create_tun(&cfg).expect("Windows Wintun creation failed");
+    run_runtime_briefly(cfg, device).await;
+}
+
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+async fn run_runtime_briefly(cfg: TunConfig, device: blackwire_transport::tun::TunDevice) {
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { TunRuntime::new(cfg).run(device, shutdown_rx).await });
+
+    tokio::time::sleep(Duration::from_millis(250)).await;
+    shutdown_tx
+        .send(true)
+        .expect("runtime shutdown receiver dropped before signal");
+
+    timeout(Duration::from_secs(10), handle)
+        .await
+        .expect("TUN runtime smoke timed out")
+        .expect("TUN runtime task panicked")
+        .expect("TUN runtime returned an error");
+}
+
+#[cfg(target_os = "macos")]
+async fn macos_default_interface() -> std::io::Result<String> {
+    let output = tokio::process::Command::new("route")
+        .args(["-n", "get", "default"])
+        .output()
+        .await?;
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .filter_map(|line| line.split_once(':'))
+        .find_map(|(key, value)| (key.trim() == "interface").then(|| value.trim().to_owned()))
+        .filter(|name| !name.is_empty())
+        .ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("default route interface not found in: {stdout}"),
+            )
+        })
+}
+
 // ── Route setup/cleanup ───────────────────────────────────────────────────────
 
 /// Installs and removes the IPv4 routing rules, verifying they appear and
@@ -214,8 +322,10 @@ async fn route_setup_and_cleanup_are_symmetric() {
         netmask: "255.255.0.0".parse().unwrap(),
         mtu: 1500,
         bypass_mark: 0xcdef,
+        outbound_interface: None,
         redirect_port: 17892,
         dns_port: 15302,
+        wintun_file: None,
     };
 
     // Create TUN device so the route can reference the interface.

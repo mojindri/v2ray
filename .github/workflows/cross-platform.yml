@@ -17,9 +17,9 @@ jobs:
           - name: Test (macos-latest)
             os: macos-latest
             command: cargo test --workspace --locked
-          - name: Check (windows-latest)
+          - name: Test (windows-latest)
             os: windows-latest
-            command: cargo check --workspace --all-targets --locked
+            command: cargo test --workspace --locked
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     steps:
@@ -38,23 +38,100 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
 
-  tun-privileged:
-    name: TUN privileged (linux)
+  linux-tun-contract:
+    name: Linux TUN contract
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: "false"
+      - name: Check Linux outbound socket protection
+        run: cargo test -p blackwire-common --locked connect::tests
+      - name: Check Linux route contract
+        run: cargo test -p blackwire-transport --lib --locked tun::route::tests
+      - name: Check TUN platform support contract
+        run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
+
+  linux-tun-privileged:
+    name: Linux TUN privileged
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - name: Check TUN device support
         run: |
           sudo modprobe tun || true
           test -c /dev/net/tun
-      - name: Run privileged TUN tests
+      - name: Run Linux privileged TUN tests
         run: |
           sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv -- --include-ignored
+
+  windows-tun-contract:
+    name: Windows TUN contract
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check Windows outbound socket protection
+        run: cargo test -p blackwire-common --locked connect::tests
+      - name: Check Windows Wintun route command contract
+        run: cargo test -p blackwire-transport --lib --locked tun::route::tests::windows
+      - name: Check TUN platform support contract
+        run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
+
+  macos-tun-contract:
+    name: macOS TUN contract
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check macOS outbound socket protection
+        run: cargo test -p blackwire-common --locked connect::tests
+      - name: Check macOS route/PF contract
+        run: cargo test -p blackwire-transport --lib --locked tun::route::tests::macos
+      - name: Check TUN platform support contract
+        run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target
+
+  macos-tun-privileged:
+    name: macOS TUN privileged
+    runs-on: macos-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run macOS privileged TUN runtime smoke
+        run: |
+          sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv macos_tun_runtime_privileged_smoke -- --include-ignored
+
+  windows-tun-privileged:
+    name: Windows TUN privileged
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Download Wintun
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://www.wintun.net/builds/wintun-0.14.1.zip" -OutFile "$env:RUNNER_TEMP\wintun.zip"
+          Expand-Archive -Path "$env:RUNNER_TEMP\wintun.zip" -DestinationPath "$env:RUNNER_TEMP\wintun" -Force
+          $dll = Join-Path $env:RUNNER_TEMP "wintun\wintun\bin\amd64\wintun.dll"
+          if (!(Test-Path $dll)) {
+            throw "wintun.dll not found at $dll"
+          }
+          "WINTUN_FILE=$dll" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+      - name: Run Windows privileged TUN runtime smoke
+        shell: pwsh
+        run: cargo test -p blackwire-transport --features priv-test --test tun_priv windows_tun_runtime_privileged_smoke -- --include-ignored
 
   docker:
     name: Docker

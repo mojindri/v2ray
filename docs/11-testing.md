@@ -18,7 +18,7 @@ This document is the single reference for running every test tier in this projec
 | 8. Interop server-compat | Xray/sing-box clients → our server | ~5 min | Docker |
 | 9. Interop client-compat | Our Rust client → Xray REALITY server (d1) | ~30s | Docker |
 | 10. VPS external-client matrix | Same 16 rows as Docker (`scenarios.env`) over public network | ~10 min | Two Ubuntu 24.04 VPS |
-| 11. TUN privileged | TUN device, iptables, SO_MARK on Linux | ~1 min | Linux VPS + root |
+| 11. TUN privileged | Linux TUN routing, macOS utun/PF smoke, Windows Wintun smoke | ~1 min | Platform privileges |
 
 ## Where You Run Things
 
@@ -407,7 +407,7 @@ blackwire run -c /etc/blackwire/generated/server-vless-reality.json &
 
 ## Tier 10 — TUN privileged tests
 
-Runs the TUN subsystem tests on Linux with root. Requires the Rust toolchain on the server VPS (or run from source if the VPS has the repo checked out).
+Runs the TUN subsystem tests with platform privileges. Linux uses root/CAP_NET_ADMIN, macOS uses `sudo` for utun route/PF setup, and Windows uses an elevated runner plus a Wintun DLL.
 
 ```sh
 SSH_SERVER=1.2.3.4 make -C labs/realistic vps-tun
@@ -422,10 +422,21 @@ sudo -E bash labs/realistic/scripts/run-tun-priv.sh
 Three test groups run in sequence:
 
 1. **Cross-platform unit tests** — packet parsing, NAT table logic, UDP response synthesis. No root needed.
-2. **Privileged device tests** — creates a real TUN device, checks `ip link show`, installs and removes iptables rules, verifies symmetry.
+2. **Privileged device tests** — creates a real TUN device, checks `ip link show` on Linux, installs and removes platform route/redirection state, verifies cleanup symmetry where the OS exposes it.
 3. **VPS interop** — sends a real UDP DNS query to `8.8.8.8:53` through the TUN NAT table and verifies the response arrives as a synthesized TUN packet.
 
-The third group requires real internet access on the server.
+CI also runs focused privileged runtime smoke tests on macOS and Windows:
+
+```sh
+sudo -E cargo test -p blackwire-transport --features priv-test --test tun_priv macos_tun_runtime_privileged_smoke -- --include-ignored
+```
+
+```powershell
+$env:WINTUN_FILE = "C:\path\to\wintun.dll"
+cargo test -p blackwire-transport --features priv-test --test tun_priv windows_tun_runtime_privileged_smoke -- --include-ignored
+```
+
+The VPS interop group requires real internet access on the server.
 
 ---
 
@@ -479,6 +490,6 @@ SSH_SERVER=1.2.3.4 SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_ed25519 \
 | 8 | Xray/sing-box/hiddify clients can use our server (configured scenarios) |
 | 9 | Our REALITY client interoperates with live xray-core (d1) |
 | 10 | External-client matrix (16 rows) passes over real public network; SKIPs documented |
-| 11 | TUN device, iptables routing, and UDP NAT work on real Linux |
+| 11 | TUN device, platform route/redirection setup, and UDP NAT work under platform privileges |
 
 Tiers 1–9 are the mandatory green gate before any merge to main. Tiers 10–11 are required before a protocol or subsystem is marked production-ready.
