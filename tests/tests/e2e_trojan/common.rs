@@ -151,6 +151,8 @@ pub(crate) fn trojan_server_tls(
     cert_path: &str,
     key_path: &str,
 ) -> Arc<blackwire_config::schema::Config> {
+    let cert_json = serde_json::to_string(cert_path).expect("serialize cert path");
+    let key_json = serde_json::to_string(key_path).expect("serialize key path");
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -165,8 +167,8 @@ pub(crate) fn trojan_server_tls(
                     "network": "tcp",
                     "security": "tls",
                     "tlsSettings": {{
-                        "certificateFile": "{cert_path}",
-                        "keyFile": "{key_path}"
+                        "certificateFile": {cert_json},
+                        "keyFile": {key_json}
                     }}
                 }}
             }}],
@@ -212,6 +214,8 @@ pub(crate) fn vless_ws_tls_server(
     cert_path: &str,
     key_path: &str,
 ) -> Arc<blackwire_config::schema::Config> {
+    let cert_json = serde_json::to_string(cert_path).expect("serialize cert path");
+    let key_json = serde_json::to_string(key_path).expect("serialize key path");
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -226,8 +230,8 @@ pub(crate) fn vless_ws_tls_server(
                     "network": "ws",
                     "security": "tls",
                     "tlsSettings": {{
-                        "certificateFile": "{cert_path}",
-                        "keyFile": "{key_path}"
+                        "certificateFile": {cert_json},
+                        "keyFile": {key_json}
                     }},
                     "wsSettings": {{
                         "path": "/proxy"
