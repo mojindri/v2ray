@@ -62,6 +62,8 @@ fn server_config(
     cert_path: &str,
     key_path: &str,
 ) -> std::sync::Arc<blackwire_config::schema::Config> {
+    let cert_json = serde_json::to_string(cert_path).expect("serialize cert path");
+    let key_json = serde_json::to_string(key_path).expect("serialize key path");
     parse_config(format!(
         r#"{{
             "inbounds": [{{
@@ -78,8 +80,8 @@ fn server_config(
                     "network": "quic",
                     "security": "tls",
                     "tlsSettings": {{
-                        "certificateFile": "{cert_path}",
-                        "keyFile": "{key_path}"
+                        "certificateFile": {cert_json},
+                        "keyFile": {key_json}
                     }}
                 }}
             }}],
