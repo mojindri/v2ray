@@ -89,8 +89,8 @@ pub use tls::{
     tls_accept_with_acceptor, tls_connect, tls_connect_with_config,
 };
 pub use tun::{
-    build_tcp_rst, create_tun, current_tun_support, ensure_tun_runtime_supported, IpPacket,
-    TransportProtocol, TunConfig, TunPlatformSupport, TunRuntime, UdpNatTable,
+    build_tcp_packet, build_tcp_rst, create_tun, current_tun_support, ensure_tun_runtime_supported,
+    IpPacket, TransportProtocol, TunConfig, TunPlatformSupport, TunRuntime, UdpNatTable,
 };
 pub use v2rayquic::{accepted_quic_stream, quic_connect, quic_server_endpoint, QuicStream};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};

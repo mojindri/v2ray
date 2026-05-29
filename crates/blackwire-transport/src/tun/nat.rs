@@ -228,7 +228,11 @@ fn build_response_packet(
         protocol: TransportProtocol::Udp,
         header_len: 0,
         payload_offset: 0,
+        transport_offset: 0,
         payload_len: 0,
+        tcp_seq: None,
+        tcp_ack: None,
+        tcp_flags: None,
     };
     build_udp_response_packet(&fake_request, payload)
 }

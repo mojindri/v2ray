@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 /// Transport protocol extracted from an IP packet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -28,8 +28,16 @@ pub struct IpPacket {
     pub header_len: usize,
     /// Byte offset where transport payload starts.
     pub payload_offset: usize,
+    /// Byte offset where the transport header starts.
+    pub transport_offset: usize,
     /// Payload length in bytes.
     pub payload_len: usize,
+    /// TCP sequence number when `protocol` is TCP.
+    pub tcp_seq: Option<u32>,
+    /// TCP acknowledgement number when `protocol` is TCP.
+    pub tcp_ack: Option<u32>,
+    /// TCP flags byte when `protocol` is TCP.
+    pub tcp_flags: Option<u8>,
 }
 
 impl IpPacket {
@@ -70,11 +78,28 @@ fn parse_ipv4(buf: &[u8]) -> Option<IpPacket> {
     }
     let proto = buf[9];
     let transport_len = total_length.checked_sub(ihl)?;
+    let transport_offset = ihl;
+    let mut tcp_seq = None;
+    let mut tcp_ack = None;
+    let mut tcp_flags = None;
     let payload_offset = match proto {
         6 => {
             if transport_len < 20 {
                 return None;
             }
+            tcp_seq = Some(u32::from_be_bytes([
+                buf[ihl + 4],
+                buf[ihl + 5],
+                buf[ihl + 6],
+                buf[ihl + 7],
+            ]));
+            tcp_ack = Some(u32::from_be_bytes([
+                buf[ihl + 8],
+                buf[ihl + 9],
+                buf[ihl + 10],
+                buf[ihl + 11],
+            ]));
+            tcp_flags = Some(buf[ihl + 13]);
             let data_offset = ((buf[ihl + 12] >> 4) as usize) * 4;
             if data_offset < 20 || transport_len < data_offset {
                 return None;
@@ -109,7 +134,11 @@ fn parse_ipv4(buf: &[u8]) -> Option<IpPacket> {
         },
         header_len: ihl,
         payload_offset,
+        transport_offset,
         payload_len: total_length.saturating_sub(payload_offset),
+        tcp_seq,
+        tcp_ack,
+        tcp_flags,
     })
 }
 
@@ -160,18 +189,39 @@ fn parse_ipv6(buf: &[u8]) -> Option<IpPacket> {
                     protocol: TransportProtocol::Other(other),
                     header_len: 40,
                     payload_offset: offset,
+                    transport_offset: offset,
                     payload_len: total_length.saturating_sub(offset),
+                    tcp_seq: None,
+                    tcp_ack: None,
+                    tcp_flags: None,
                 });
             }
         }
     }
 
     let transport_len = total_length.saturating_sub(offset);
+    let transport_offset = offset;
+    let mut tcp_seq = None;
+    let mut tcp_ack = None;
+    let mut tcp_flags = None;
     let payload_offset = match next_hdr {
         6 => {
             if transport_len < 20 || offset + 13 > buf.len() {
                 return None;
             }
+            tcp_seq = Some(u32::from_be_bytes([
+                buf[offset + 4],
+                buf[offset + 5],
+                buf[offset + 6],
+                buf[offset + 7],
+            ]));
+            tcp_ack = Some(u32::from_be_bytes([
+                buf[offset + 8],
+                buf[offset + 9],
+                buf[offset + 10],
+                buf[offset + 11],
+            ]));
+            tcp_flags = Some(buf[offset + 13]);
             let data_offset = ((buf[offset + 12] >> 4) as usize) * 4;
             if data_offset < 20 || transport_len < data_offset {
                 return None;
@@ -209,7 +259,11 @@ fn parse_ipv6(buf: &[u8]) -> Option<IpPacket> {
         },
         header_len: 40,
         payload_offset,
+        transport_offset,
         payload_len: total_length.saturating_sub(payload_offset),
+        tcp_seq,
+        tcp_ack,
+        tcp_flags,
     })
 }
 
@@ -284,6 +338,119 @@ fn build_ipv6_tcp_rst(
     out[53] = 0x04; // RST
     let tcp_csum = tcp_checksum_ipv6(src, dst, &out[40..]);
     out[56..58].copy_from_slice(&tcp_csum.to_be_bytes());
+    Some(out)
+}
+
+/// Build a TCP packet with explicit sequence/ack numbers, flags, and payload.
+pub fn build_tcp_packet(
+    src: SocketAddr,
+    dst: SocketAddr,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: &[u8],
+) -> Option<Vec<u8>> {
+    match (src, dst) {
+        (SocketAddr::V4(src), SocketAddr::V4(dst)) => build_ipv4_tcp_packet(
+            *src.ip(),
+            *dst.ip(),
+            src.port(),
+            dst.port(),
+            seq,
+            ack,
+            flags,
+            payload,
+        ),
+        (SocketAddr::V6(src), SocketAddr::V6(dst)) => build_ipv6_tcp_packet(
+            *src.ip(),
+            *dst.ip(),
+            src.port(),
+            dst.port(),
+            seq,
+            ack,
+            flags,
+            payload,
+        ),
+        _ => None,
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_ipv4_tcp_packet(
+    src: Ipv4Addr,
+    dst: Ipv4Addr,
+    src_port: u16,
+    dst_port: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: &[u8],
+) -> Option<Vec<u8>> {
+    let tcp_len = 20usize.checked_add(payload.len())?;
+    let total_len = 20usize.checked_add(tcp_len)?;
+    if total_len > u16::MAX as usize || tcp_len > u16::MAX as usize {
+        return None;
+    }
+
+    let mut out = vec![0u8; total_len];
+    out[0] = 0x45;
+    out[2..4].copy_from_slice(&(total_len as u16).to_be_bytes());
+    out[8] = 64;
+    out[9] = 6;
+    out[12..16].copy_from_slice(&src.octets());
+    out[16..20].copy_from_slice(&dst.octets());
+    let ip_csum = internet_checksum(&out[..20]);
+    out[10..12].copy_from_slice(&ip_csum.to_be_bytes());
+
+    let tcp = 20;
+    out[tcp..tcp + 2].copy_from_slice(&src_port.to_be_bytes());
+    out[tcp + 2..tcp + 4].copy_from_slice(&dst_port.to_be_bytes());
+    out[tcp + 4..tcp + 8].copy_from_slice(&seq.to_be_bytes());
+    out[tcp + 8..tcp + 12].copy_from_slice(&ack.to_be_bytes());
+    out[tcp + 12] = 0x50;
+    out[tcp + 13] = flags;
+    out[tcp + 14..tcp + 16].copy_from_slice(&65535u16.to_be_bytes());
+    out[tcp + 20..].copy_from_slice(payload);
+    let tcp_csum = tcp_checksum_ipv4(src, dst, &out[tcp..]);
+    out[tcp + 16..tcp + 18].copy_from_slice(&tcp_csum.to_be_bytes());
+    Some(out)
+}
+
+#[allow(clippy::too_many_arguments)]
+fn build_ipv6_tcp_packet(
+    src: Ipv6Addr,
+    dst: Ipv6Addr,
+    src_port: u16,
+    dst_port: u16,
+    seq: u32,
+    ack: u32,
+    flags: u8,
+    payload: &[u8],
+) -> Option<Vec<u8>> {
+    let tcp_len = 20usize.checked_add(payload.len())?;
+    if tcp_len > u16::MAX as usize {
+        return None;
+    }
+
+    let mut out = vec![0u8; 40 + tcp_len];
+    out[0] = 0x60;
+    out[4..6].copy_from_slice(&(tcp_len as u16).to_be_bytes());
+    out[6] = 6;
+    out[7] = 64;
+    out[8..24].copy_from_slice(&src.octets());
+    out[24..40].copy_from_slice(&dst.octets());
+
+    let tcp = 40;
+    out[tcp..tcp + 2].copy_from_slice(&src_port.to_be_bytes());
+    out[tcp + 2..tcp + 4].copy_from_slice(&dst_port.to_be_bytes());
+    out[tcp + 4..tcp + 8].copy_from_slice(&seq.to_be_bytes());
+    out[tcp + 8..tcp + 12].copy_from_slice(&ack.to_be_bytes());
+    out[tcp + 12] = 0x50;
+    out[tcp + 13] = flags;
+    out[tcp + 14..tcp + 16].copy_from_slice(&65535u16.to_be_bytes());
+    out[tcp + 20..].copy_from_slice(payload);
+    let tcp_csum = tcp_checksum_ipv6(src, dst, &out[tcp..]);
+    out[tcp + 16..tcp + 18].copy_from_slice(&tcp_csum.to_be_bytes());
     Some(out)
 }
 
@@ -454,6 +621,10 @@ mod tests {
         assert_eq!(parsed.dst_port, 443);
         assert_eq!(parsed.protocol, TransportProtocol::Tcp);
         assert_eq!(parsed.payload_offset, 40);
+        assert_eq!(parsed.transport_offset, 20);
+        assert_eq!(parsed.tcp_seq, Some(0));
+        assert_eq!(parsed.tcp_ack, Some(0));
+        assert_eq!(parsed.tcp_flags, Some(0));
     }
 
     #[test]
@@ -503,6 +674,23 @@ mod tests {
         .unwrap();
         let request = parse_ip_packet(&request_bytes).unwrap();
         assert!(build_tcp_rst(&request).is_none());
+    }
+
+    #[test]
+    fn build_tcp_packet_preserves_sequence_ack_flags_and_payload() {
+        let src: SocketAddr = "5.6.7.8:443".parse().unwrap();
+        let dst: SocketAddr = "1.2.3.4:50000".parse().unwrap();
+        let packet = build_tcp_packet(src, dst, 10, 20, 0x18, b"hello").unwrap();
+        let parsed = parse_ip_packet(&packet).unwrap();
+
+        assert_eq!(parsed.src, src.ip());
+        assert_eq!(parsed.dst, dst.ip());
+        assert_eq!(parsed.src_port, src.port());
+        assert_eq!(parsed.dst_port, dst.port());
+        assert_eq!(parsed.tcp_seq, Some(10));
+        assert_eq!(parsed.tcp_ack, Some(20));
+        assert_eq!(parsed.tcp_flags, Some(0x18));
+        assert_eq!(parsed.payload(&packet).unwrap(), b"hello");
     }
 
     #[test]

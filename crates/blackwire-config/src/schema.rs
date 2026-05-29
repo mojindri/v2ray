@@ -59,10 +59,10 @@ pub struct Config {
 
     /// TUN interception settings.
     ///
-    /// Linux and macOS have active full-device runtimes today. Windows Wintun
-    /// device creation and split-route setup are wired, and Windows can point
-    /// at an explicit `wintun.dll`, but full runtime startup fails early until
-    /// a native TCP redirection backend is implemented.
+    /// Linux, macOS, and Windows have active full-device runtimes today.
+    /// Windows uses Wintun split routes plus a packet-level TCP bridge to the
+    /// local SOCKS listener because Windows does not provide an iptables/PF
+    /// equivalent for arbitrary original-destination redirects.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 

@@ -65,7 +65,16 @@ fn tun_platform_support_contract_matches_current_target() {
         ensure_tun_runtime_supported().expect("macOS TUN runtime should be supported");
     }
 
-    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
+    #[cfg(target_os = "windows")]
+    {
+        assert_eq!(support.backend, "windows-wintun");
+        assert!(support.device_backend);
+        assert!(support.full_device_runtime);
+        assert!(support.tcp_redirection);
+        ensure_tun_runtime_supported().expect("Windows Wintun runtime should be supported");
+    }
+
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
     {
         assert!(!support.full_device_runtime);
         assert!(!support.tcp_redirection);
