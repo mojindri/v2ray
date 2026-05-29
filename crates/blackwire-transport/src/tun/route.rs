@@ -1,18 +1,18 @@
-#[cfg(any(test, target_os = "macos"))]
+#[cfg(any(test, target_os = "macos", target_os = "windows"))]
 use anyhow::bail;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use anyhow::Context as _;
 use anyhow::Result;
 
 #[cfg(target_os = "macos")]
 use std::{fs, path::PathBuf};
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::process::Command;
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tracing::{info, warn};
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use super::backend::ensure_tun_runtime_supported;
 use super::device::TunConfig;
 
@@ -76,12 +76,22 @@ async fn cleanup_platform_routes(config: &TunConfig) {
     cleanup_macos_routes(config).await;
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(target_os = "windows")]
+async fn setup_platform_routes(config: &TunConfig) -> Result<()> {
+    setup_windows_routes(config).await
+}
+
+#[cfg(target_os = "windows")]
+async fn cleanup_platform_routes(config: &TunConfig) {
+    cleanup_windows_routes(config).await;
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 async fn setup_platform_routes(_config: &TunConfig) -> Result<()> {
     ensure_tun_runtime_supported()
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 async fn cleanup_platform_routes(_config: &TunConfig) {}
 
 /// Applies Linux policy routing and iptables rules that redirect all
@@ -602,16 +612,153 @@ fn parse_macos_pf_token(output: &str) -> Option<String> {
         .map(ToOwned::to_owned)
 }
 
+/// Applies Windows Wintun split-default route state.
+///
+/// This sends IPv4 traffic into the Wintun adapter. It deliberately does not
+/// claim TCP redirection: Windows still needs a WFP/WinDivert redirect backend
+/// or a packet-level TCP proxy before the platform contract can be promoted.
+#[cfg(target_os = "windows")]
+pub async fn setup_windows_routes(config: &TunConfig) -> Result<()> {
+    validate_windows_runtime_config(config)?;
+
+    let mut rb = RollbackList::default();
+    let route_pairs = windows_route_command_pairs(&config.name);
+    for pair in &route_pairs {
+        let setup = pair.setup_refs();
+        let undo = pair.undo_refs();
+        must(&setup, &undo, &mut rb, pair.label.as_str()).await?;
+    }
+
+    info!(tun_name = %config.name, "Windows Wintun routes installed");
+    Ok(())
+}
+
+/// Removes Windows Wintun route state installed by [`setup_windows_routes`].
+#[cfg(target_os = "windows")]
+pub async fn cleanup_windows_routes(config: &TunConfig) {
+    for cmd in windows_route_delete_commands(&config.name) {
+        let args = cmd.as_refs();
+        if let Err(e) = run(&args).await {
+            warn!(cmd = %cmd.args.join(" "), error = %e, "Windows TUN cleanup step failed (ignored)");
+        }
+    }
+    info!(tun_name = %config.name, "Windows Wintun routes removed");
+}
+
+#[cfg(target_os = "windows")]
+fn validate_windows_runtime_config(config: &TunConfig) -> Result<()> {
+    if !is_safe_windows_interface_name(&config.name) {
+        bail!("invalid Windows TUN interface name: {}", config.name);
+    }
+    Ok(())
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WindowsRouteCommand {
+    args: Vec<String>,
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[cfg_attr(test, allow(dead_code))]
+impl WindowsRouteCommand {
+    fn as_refs(&self) -> Vec<&str> {
+        self.args.iter().map(String::as_str).collect()
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[derive(Debug, Clone)]
+struct WindowsRouteCommandPair {
+    #[cfg_attr(test, allow(dead_code))]
+    label: String,
+    setup: WindowsRouteCommand,
+    undo: WindowsRouteCommand,
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[cfg_attr(test, allow(dead_code))]
+impl WindowsRouteCommandPair {
+    fn setup_refs(&self) -> Vec<&str> {
+        self.setup.as_refs()
+    }
+
+    fn undo_refs(&self) -> Vec<&str> {
+        self.undo.as_refs()
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_route_command_pairs(interface_name: &str) -> Vec<WindowsRouteCommandPair> {
+    ["0.0.0.0/1", "128.0.0.0/1"]
+        .into_iter()
+        .map(|prefix| WindowsRouteCommandPair {
+            label: format!("add Windows split default route {prefix} via Wintun"),
+            setup: windows_route_add_command(interface_name, prefix),
+            undo: windows_route_delete_command(interface_name, prefix),
+        })
+        .collect()
+}
+
+#[cfg(any(test, target_os = "windows"))]
+#[cfg_attr(test, allow(dead_code))]
+fn windows_route_delete_commands(interface_name: &str) -> Vec<WindowsRouteCommand> {
+    ["0.0.0.0/1", "128.0.0.0/1"]
+        .into_iter()
+        .map(|prefix| windows_route_delete_command(interface_name, prefix))
+        .collect()
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_route_add_command(interface_name: &str, prefix: &str) -> WindowsRouteCommand {
+    WindowsRouteCommand {
+        args: vec![
+            "netsh".into(),
+            "interface".into(),
+            "ipv4".into(),
+            "add".into(),
+            "route".into(),
+            format!("prefix={prefix}"),
+            format!("interface={interface_name}"),
+            "nexthop=0.0.0.0".into(),
+            "metric=1".into(),
+            "store=active".into(),
+        ],
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn windows_route_delete_command(interface_name: &str, prefix: &str) -> WindowsRouteCommand {
+    WindowsRouteCommand {
+        args: vec![
+            "netsh".into(),
+            "interface".into(),
+            "ipv4".into(),
+            "delete".into(),
+            "route".into(),
+            format!("prefix={prefix}"),
+            format!("interface={interface_name}"),
+            "nexthop=0.0.0.0".into(),
+            "store=active".into(),
+        ],
+    }
+}
+
+#[cfg(any(test, target_os = "windows"))]
+fn is_safe_windows_interface_name(name: &str) -> bool {
+    !name.is_empty() && !name.contains(['\0', '\r', '\n']) && name.len() <= 256
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 /// Accumulated undo commands for partial-failure rollback.
 #[derive(Default)]
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 struct RollbackList {
     undos: Vec<Vec<String>>,
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 impl RollbackList {
     async fn rollback(self) {
         for undo in self.undos.into_iter().rev() {
@@ -624,7 +771,7 @@ impl RollbackList {
 }
 
 /// Run a mandatory setup command. On failure, roll back all previous steps.
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 async fn must(setup: &[&str], undo: &[&str], rb: &mut RollbackList, ctx: &str) -> Result<()> {
     if let Err(e) = run(setup).await.with_context(|| ctx.to_string()) {
         // Take the list so we can call rollback (consumes self).
@@ -644,7 +791,7 @@ async fn try_best_effort(cmd: &[&str], label: &str) {
     }
 }
 
-#[cfg(any(target_os = "linux", target_os = "macos"))]
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 async fn run(args: &[&str]) -> Result<()> {
     let (prog, rest) = args.split_first().expect("non-empty command");
     let status = Command::new(prog)
@@ -704,5 +851,47 @@ mod tests {
     fn macos_pf_token_parser_extracts_reference_token() {
         let output = "Token : 1234567890\n";
         assert_eq!(parse_macos_pf_token(output).as_deref(), Some("1234567890"));
+    }
+
+    #[test]
+    fn windows_route_commands_install_split_default_routes() {
+        let pairs = windows_route_command_pairs("Blackwire Wintun");
+
+        assert_eq!(pairs.len(), 2);
+        assert_eq!(
+            pairs[0].setup.args,
+            vec![
+                "netsh",
+                "interface",
+                "ipv4",
+                "add",
+                "route",
+                "prefix=0.0.0.0/1",
+                "interface=Blackwire Wintun",
+                "nexthop=0.0.0.0",
+                "metric=1",
+                "store=active"
+            ]
+        );
+        assert_eq!(
+            pairs[1].undo.args,
+            vec![
+                "netsh",
+                "interface",
+                "ipv4",
+                "delete",
+                "route",
+                "prefix=128.0.0.0/1",
+                "interface=Blackwire Wintun",
+                "nexthop=0.0.0.0",
+                "store=active"
+            ]
+        );
+    }
+
+    #[test]
+    fn windows_interface_name_rejects_newline_injection() {
+        assert!(!is_safe_windows_interface_name("tun\r\nnetsh bad"));
+        assert!(is_safe_windows_interface_name("Blackwire Wintun"));
     }
 }

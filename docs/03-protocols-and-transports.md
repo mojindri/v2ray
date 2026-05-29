@@ -377,10 +377,11 @@ default routes through the OS-assigned utun interface, loads a scoped PF anchor
 for TCP/DNS redirection, and uses
 `tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets
 so proxy egress does not re-enter the utun capture path. Windows Wintun device
-creation is wired through the native `tun` crate backend, and Windows can use
-`tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`. Windows
-still fails early through the explicit TUN platform support contract when
-`config.tun` asks for a full-device runtime.
+creation and split-route setup are wired through the native `tun` crate backend,
+and Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled
+`wintun.dll`. Windows still fails early through the explicit TUN platform
+support contract when `config.tun` asks for a full-device runtime because a
+native TCP redirection backend is still required.
 
 ## ShadowTLS
 
