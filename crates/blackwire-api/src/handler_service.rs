@@ -6,13 +6,10 @@
 //! - `GetInboundUsersCount` — count of VLESS users on a named inbound
 //! - `GetInboundUsers` — list VLESS users on a named inbound
 //! - `AlterInbound` — add or remove a VLESS user via `AddUserOperation` / `RemoveUserOperation`
-//!
-//! ## Unsupported operations (return UNIMPLEMENTED)
-//! - `AddInbound` — requires a listener rebind; edit config and reload instead
-//! - `RemoveInbound` — requires an instance restart
-//! - `AddOutbound` — requires an instance restart
-//! - `RemoveOutbound` — requires an instance restart
-//! - `AlterOutbound` — not implemented
+//! - `AddInbound` / `RemoveInbound` — structural runtime changes through the
+//!   CLI control-plane handle
+//! - `AddOutbound` / `RemoveOutbound` / `AlterOutbound` — structural runtime
+//!   changes through the CLI control-plane handle
 
 use prost::Message;
 use tonic::{Request, Response, Status};
@@ -28,6 +25,7 @@ use crate::handler_proto::{
     TypedMessage, User,
 };
 use crate::management::ManagementHandle;
+use crate::management::NativeEndpointConfig;
 use crate::vless_account_proto::Account;
 
 const ADD_USER_TYPE: &str = "xray.app.proxyman.command.AddUserOperation";
@@ -64,6 +62,53 @@ fn parse_vless_uuid_from_user(user: &User) -> Result<String, String> {
     Err("could not parse VLESS UUID from user.account".into())
 }
 
+fn endpoint_json_from_typed_message(
+    tag: &str,
+    typed: Option<TypedMessage>,
+    kind: &str,
+) -> Result<NativeEndpointConfig, Status> {
+    let typed = typed.ok_or_else(|| {
+        Status::invalid_argument(format!(
+            "{kind} config must include proxy_settings containing native blackwire JSON"
+        ))
+    })?;
+    let raw = std::str::from_utf8(&typed.value)
+        .map_err(|e| Status::invalid_argument(format!("{kind} config is not UTF-8 JSON: {e}")))?;
+    let mut value: serde_json::Value = serde_json::from_str(raw)
+        .map_err(|e| Status::invalid_argument(format!("{kind} config JSON decode: {e}")))?;
+    let obj = value
+        .as_object_mut()
+        .ok_or_else(|| Status::invalid_argument(format!("{kind} config JSON must be an object")))?;
+
+    match obj.get("tag").and_then(|v| v.as_str()) {
+        Some(existing) if !tag.is_empty() && existing != tag => Err(Status::invalid_argument(
+            format!("{kind} tag mismatch: request tag '{tag}' != JSON tag '{existing}'"),
+        )),
+        Some(existing) => Ok(NativeEndpointConfig {
+            tag: existing.to_string(),
+            config: value,
+        }),
+        None if !tag.is_empty() => {
+            obj.insert("tag".into(), serde_json::Value::String(tag.to_string()));
+            Ok(NativeEndpointConfig {
+                tag: tag.to_string(),
+                config: value,
+            })
+        }
+        None => Err(Status::invalid_argument(format!(
+            "{kind} config JSON must include tag when request tag is empty"
+        ))),
+    }
+}
+
+fn native_inbound_config(cfg: InboundHandlerConfig) -> Result<NativeEndpointConfig, Status> {
+    endpoint_json_from_typed_message(&cfg.tag, cfg.proxy_settings, "inbound")
+}
+
+fn native_outbound_config(cfg: OutboundHandlerConfig) -> Result<NativeEndpointConfig, Status> {
+    endpoint_json_from_typed_message(&cfg.tag, cfg.proxy_settings, "outbound")
+}
+
 #[tonic::async_trait]
 impl HandlerService for HandlerServiceImpl {
     async fn list_inbounds(
@@ -74,8 +119,13 @@ impl HandlerService for HandlerServiceImpl {
         let inbounds = self
             .management
             .list_inbound_tags()
+            .await
             .into_iter()
-            .map(|tag| InboundHandlerConfig { tag })
+            .map(|tag| InboundHandlerConfig {
+                tag,
+                receiver_settings: None,
+                proxy_settings: None,
+            })
             .collect();
         Ok(Response::new(ListInboundsResponse { inbounds }))
     }
@@ -88,6 +138,7 @@ impl HandlerService for HandlerServiceImpl {
         let count = self
             .management
             .vless_user_count(&req.tag)
+            .await
             .ok_or_else(|| Status::not_found(format!("inbound '{}' not found", req.tag)))?;
         Ok(Response::new(GetInboundUsersCountResponse { count }))
     }
@@ -100,6 +151,7 @@ impl HandlerService for HandlerServiceImpl {
         let records = self
             .management
             .list_vless_users(&req.tag, &req.email)
+            .await
             .map_err(Status::failed_precondition)?;
         let users = records
             .into_iter()
@@ -149,6 +201,7 @@ impl HandlerService for HandlerServiceImpl {
             let uuid = parse_vless_uuid_from_user(&user).map_err(Status::invalid_argument)?;
             self.management
                 .add_vless_user(&tag, &email, &uuid, &flow)
+                .await
                 .map_err(Status::failed_precondition)?;
             return Ok(Response::new(AlterInboundResponse {}));
         }
@@ -159,6 +212,7 @@ impl HandlerService for HandlerServiceImpl {
             })?;
             self.management
                 .remove_vless_user(&tag, &remove.email)
+                .await
                 .map_err(Status::not_found)?;
             return Ok(Response::new(AlterInboundResponse {}));
         }
@@ -176,52 +230,100 @@ impl HandlerService for HandlerServiceImpl {
         let outbounds = self
             .management
             .list_outbound_tags()
+            .await
             .into_iter()
-            .map(|tag| OutboundHandlerConfig { tag })
+            .map(|tag| OutboundHandlerConfig {
+                tag,
+                sender_settings: None,
+                proxy_settings: None,
+                expire: 0,
+                comment: String::new(),
+            })
             .collect();
         Ok(Response::new(ListOutboundsResponse { outbounds }))
     }
 
     async fn add_inbound(
         &self,
-        _request: Request<AddInboundRequest>,
+        request: Request<AddInboundRequest>,
     ) -> Result<Response<AddInboundResponse>, Status> {
-        Err(Status::unimplemented(
-            "AddInbound requires listener rebind; edit config.json and reload",
-        ))
+        let req = request.into_inner();
+        let cfg = req
+            .inbound
+            .ok_or_else(|| Status::invalid_argument("AddInboundRequest.inbound is required"))
+            .and_then(native_inbound_config)?;
+        self.management
+            .add_inbound(cfg)
+            .await
+            .map_err(Status::failed_precondition)?;
+        Ok(Response::new(AddInboundResponse {}))
     }
 
     async fn remove_inbound(
         &self,
-        _request: Request<RemoveInboundRequest>,
+        request: Request<RemoveInboundRequest>,
     ) -> Result<Response<RemoveInboundResponse>, Status> {
-        Err(Status::unimplemented(
-            "RemoveInbound requires instance restart",
-        ))
+        let req = request.into_inner();
+        if req.tag.is_empty() {
+            return Err(Status::invalid_argument(
+                "RemoveInboundRequest.tag is required",
+            ));
+        }
+        self.management
+            .remove_inbound(&req.tag)
+            .await
+            .map_err(Status::not_found)?;
+        Ok(Response::new(RemoveInboundResponse {}))
     }
 
     async fn add_outbound(
         &self,
-        _request: Request<AddOutboundRequest>,
+        request: Request<AddOutboundRequest>,
     ) -> Result<Response<AddOutboundResponse>, Status> {
-        Err(Status::unimplemented(
-            "AddOutbound requires instance restart",
-        ))
+        let req = request.into_inner();
+        let cfg = req
+            .outbound
+            .ok_or_else(|| Status::invalid_argument("AddOutboundRequest.outbound is required"))
+            .and_then(native_outbound_config)?;
+        self.management
+            .add_outbound(cfg)
+            .await
+            .map_err(Status::failed_precondition)?;
+        Ok(Response::new(AddOutboundResponse {}))
     }
 
     async fn remove_outbound(
         &self,
-        _request: Request<RemoveOutboundRequest>,
+        request: Request<RemoveOutboundRequest>,
     ) -> Result<Response<RemoveOutboundResponse>, Status> {
-        Err(Status::unimplemented(
-            "RemoveOutbound requires instance restart",
-        ))
+        let req = request.into_inner();
+        if req.tag.is_empty() {
+            return Err(Status::invalid_argument(
+                "RemoveOutboundRequest.tag is required",
+            ));
+        }
+        self.management
+            .remove_outbound(&req.tag)
+            .await
+            .map_err(Status::not_found)?;
+        Ok(Response::new(RemoveOutboundResponse {}))
     }
 
     async fn alter_outbound(
         &self,
-        _request: Request<AlterOutboundRequest>,
+        request: Request<AlterOutboundRequest>,
     ) -> Result<Response<AlterOutboundResponse>, Status> {
-        Err(Status::unimplemented("AlterOutbound not implemented"))
+        let req = request.into_inner();
+        if req.tag.is_empty() {
+            return Err(Status::invalid_argument(
+                "AlterOutboundRequest.tag is required",
+            ));
+        }
+        let cfg = endpoint_json_from_typed_message(&req.tag, req.operation, "outbound")?;
+        self.management
+            .alter_outbound(cfg)
+            .await
+            .map_err(Status::failed_precondition)?;
+        Ok(Response::new(AlterOutboundResponse {}))
     }
 }

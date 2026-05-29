@@ -39,7 +39,7 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 | HTTPUpgrade + lab row                                                              | Done                                                                      |
 | QUIC server; matrix Xray SKIP / sing-box PASS                                      | Done                                                                      |
 | **SplitHTTP / xHTTP stream-one** (HTTP/2 via ALPN h2)                              | **matrix `vless-splithttp` Xray+sing-box PASS**                           |
-| XTLS Vision + `vless-vision`                                                       | Experimental (splice TBD)                                                 |
+| XTLS Vision + `vless-vision`                                                       | Supported: direct-copy negotiation hands raw TCP flows into splice/adaptive splice |
 | Hot-reload routing/users                                                           | Done                                                                      |
 | Stats + Handler gRPC (VLESS user ops)                                              | Done                                                                      |
 | VPS matrix script aligned with Docker                                              | Done                                                                      |
@@ -56,11 +56,7 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 
 ## In progress (wire in tree ≠ Supported)
 
-
-| Focus                          | Upstream alignment               | Next gate                                       |
-| ------------------------------ | -------------------------------- | ----------------------------------------------- |
-| SplitHTTP packet-up extras (Xmux, padding, `downloadSettings`) | Xray / hiddify-sing-box `v2rayxhttp` | Optional follow-up; not required for P2 closure |
-
+No active optional xHTTP parity item remains in the roadmap. `xmux`, x-padding, `downloadSettings`, and packet-up stream-up GET-with-`seq` are covered by native config parsing and SplitHTTP transport tests.
 
 ---
 
