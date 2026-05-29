@@ -44,6 +44,7 @@ use blackwire_app::features::{ConnectionHandler, InboundHandler, OutboundHandler
 use blackwire_app::health::HealthChecker;
 use blackwire_app::router::LiveRouter;
 use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE_MIN_BYTES};
+use blackwire_common::{clear_outbound_bypass_mark, set_outbound_bypass_mark};
 use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
@@ -114,6 +115,8 @@ pub struct Instance {
     /// If a TUN runtime is active, sending `true` here triggers graceful
     /// shutdown (which runs `cleanup_routes` before the task exits).
     shutdown_tx: Option<tokio::sync::watch::Sender<bool>>,
+    /// Process-wide outbound bypass mark configured for this TUN instance.
+    outbound_bypass_mark: Option<u32>,
     /// Hot-reload state shared with the config watcher.
     pub reload: ReloadState,
 }
@@ -144,10 +147,12 @@ impl Instance {
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
         let mut tasks = Vec::new();
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
+        let mut outbound_bypass_mark = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
         if let Some(tun_cfg) = &config.tun {
             ensure_tun_runtime_supported()?;
+            outbound_bypass_mark = Some(tun_cfg.bypass_mark);
 
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
@@ -658,9 +663,14 @@ impl Instance {
             tasks.push(handle);
         }
 
+        if let Some(mark) = outbound_bypass_mark {
+            set_outbound_bypass_mark(mark);
+        }
+
         Ok(Self {
             tasks,
             shutdown_tx,
+            outbound_bypass_mark,
             reload,
         })
     }
@@ -702,6 +712,9 @@ impl Drop for Instance {
         // iptables rules before we abort the task.
         if let Some(tx) = self.shutdown_tx.take() {
             let _ = tx.send(true);
+        }
+        if self.outbound_bypass_mark.take().is_some() {
+            clear_outbound_bypass_mark();
         }
         for task in &self.tasks {
             task.abort();
