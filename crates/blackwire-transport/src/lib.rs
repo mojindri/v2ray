@@ -39,7 +39,6 @@ mod splithttp_packet_up;
 pub mod splithttp;
 
 /// TUN transport runtime and packet helpers for full-device proxying.
-#[cfg(target_os = "linux")]
 pub mod tun;
 
 // gRPC transport
@@ -89,9 +88,9 @@ pub use tls::{
     cached_client_config as tls_cached_client_config, tls_accept, tls_accept_tls13,
     tls_accept_with_acceptor, tls_connect, tls_connect_with_config,
 };
-#[cfg(target_os = "linux")]
 pub use tun::{
-    build_tcp_rst, create_tun, IpPacket, TransportProtocol, TunConfig, TunRuntime, UdpNatTable,
+    build_tcp_rst, create_tun, current_tun_support, ensure_tun_runtime_supported, IpPacket,
+    TransportProtocol, TunConfig, TunPlatformSupport, TunRuntime, UdpNatTable,
 };
 pub use v2rayquic::{accepted_quic_stream, quic_connect, quic_server_endpoint, QuicStream};
 pub use ws::{ws_accept, ws_connect, WsConnectConfig};

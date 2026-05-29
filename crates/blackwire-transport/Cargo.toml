@@ -63,7 +63,9 @@ hex.workspace               = true
 base64.workspace            = true
 subtle.workspace            = true
 
+[target.'cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))'.dependencies]
+tun.workspace               = true
+
 [target.'cfg(target_os = "linux")'.dependencies]
 libc.workspace              = true
 nix.workspace               = true
-tun.workspace               = true

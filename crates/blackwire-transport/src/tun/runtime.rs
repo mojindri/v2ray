@@ -1,26 +1,39 @@
+#[cfg(target_os = "linux")]
 use std::time::Duration;
 
 #[cfg(target_os = "linux")]
 use anyhow::Context as _;
 use anyhow::Result;
+#[cfg(target_os = "linux")]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(target_os = "linux"))]
+use tokio::sync::watch;
+#[cfg(target_os = "linux")]
 use tokio::sync::{mpsc, watch};
+#[cfg(target_os = "linux")]
 use tracing::{debug, info, warn};
 
-use super::device::TunConfig;
+#[cfg(not(target_os = "linux"))]
+use super::backend::ensure_tun_runtime_supported;
+use super::device::{TunConfig, TunDevice};
+#[cfg(target_os = "linux")]
 use super::nat::{TunTx, UdpNatTable};
+#[cfg(target_os = "linux")]
 use super::packet::{parse_ip_packet, TransportProtocol};
 
 #[cfg(target_os = "linux")]
 use super::route::{cleanup_routes, setup_routes};
 
 /// How often to sweep idle NAT entries.
+#[cfg(target_os = "linux")]
 const EVICT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Idle timeout for UDP NAT flows.
+#[cfg(target_os = "linux")]
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Depth of the internal TUN-write channel.
+#[cfg(target_os = "linux")]
 const WRITE_CHAN_CAP: usize = 1024;
 
 /// The TUN packet processing runtime.
@@ -34,6 +47,7 @@ const WRITE_CHAN_CAP: usize = 1024;
 /// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries via
 /// `setup_routes` (see `tun/route.rs`) before entering the loop and removes them on exit.
 pub struct TunRuntime {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TunConfig,
 }
 
@@ -47,12 +61,12 @@ impl TunRuntime {
     ///
     /// On Linux, routing rules are installed before the loop and cleaned up
     /// unconditionally on exit (even if the loop returns an error).
-    pub async fn run(
-        self,
-        device: tun::AsyncDevice,
-        shutdown: watch::Receiver<bool>,
-    ) -> Result<()> {
-        #[cfg(target_os = "linux")]
+    pub async fn run(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
+        self.run_platform(device, shutdown).await
+    }
+
+    #[cfg(target_os = "linux")]
+    async fn run_platform(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
         setup_routes(
             &self.config.name,
             self.config.bypass_mark,
@@ -76,9 +90,20 @@ impl TunRuntime {
         result
     }
 
+    #[cfg(not(target_os = "linux"))]
+    async fn run_platform(
+        self,
+        _device: TunDevice,
+        _shutdown: watch::Receiver<bool>,
+    ) -> Result<()> {
+        let _ = self;
+        ensure_tun_runtime_supported()
+    }
+
+    #[cfg(target_os = "linux")]
     async fn packet_loop(
         &self,
-        device: tun::AsyncDevice,
+        device: TunDevice,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
         let (mut reader, mut writer) = tokio::io::split(device);
@@ -140,6 +165,7 @@ impl TunRuntime {
         Ok(())
     }
 
+    #[cfg(target_os = "linux")]
     async fn dispatch(&self, raw: &[u8], nat: &mut UdpNatTable, tun_tx: TunTx) {
         let Some(packet) = parse_ip_packet(raw) else {
             return;

@@ -48,8 +48,7 @@ use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
 use blackwire_transport::mkcp_accept_sessions;
-#[cfg(target_os = "linux")]
-use blackwire_transport::TunRuntime;
+use blackwire_transport::{create_tun, ensure_tun_runtime_supported, TunConfig, TunRuntime};
 use tokio::net::UdpSocket as TokioUdpSocket;
 
 use crate::http::build_http_inbound;
@@ -144,15 +143,12 @@ impl Instance {
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
         let mut tasks = Vec::new();
-        #[cfg(target_os = "linux")]
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
-        #[cfg(not(target_os = "linux"))]
-        let shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
-        #[cfg(target_os = "linux")]
         if let Some(tun_cfg) = &config.tun {
-            use blackwire_transport::TunConfig;
+            ensure_tun_runtime_supported()?;
+
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
                 address: tun_cfg
@@ -168,8 +164,8 @@ impl Instance {
                 redirect_port: tun_cfg.redirect_port,
                 dns_port: tun_cfg.dns_port,
             };
-            let device = blackwire_transport::create_tun(&tc)
-                .context("TUN device creation failed (are we running as root?)")?;
+            let device =
+                create_tun(&tc).context("TUN device creation failed (are we running as root?)")?;
             let (tx, rx) = tokio::sync::watch::channel(false);
             shutdown_tx = Some(tx);
             let runtime = TunRuntime::new(tc);

@@ -4,6 +4,8 @@
 //! an OS TUN device: device creation, packet parsing, UDP NAT, runtime loop,
 //! and optional Linux route helpers.
 
+/// Platform support contract for the TUN runtime.
+pub mod backend;
 /// TUN device creation and configuration.
 pub mod device;
 /// UDP NAT table used by the runtime.
@@ -18,7 +20,8 @@ pub mod runtime;
 /// Session/flow tracking helpers.
 pub mod session;
 
-pub use device::{create_tun, TunConfig};
+pub use backend::{current_tun_support, ensure_tun_runtime_supported, TunPlatformSupport};
+pub use device::{create_tun, TunConfig, TunDevice};
 pub use nat::UdpNatTable;
 pub use packet::{
     build_tcp_rst, build_udp_response_packet, parse_ip_packet, IpPacket, TransportProtocol,

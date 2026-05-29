@@ -368,12 +368,17 @@ It is an operating-system-level traffic capture/redirect mechanism.
 
 ### Repo Status
 
-The repo can start a top-level `tun` runtime and has Linux helpers for device
+The repo can start a top-level `tun` runtime on Linux and has helpers for device
 creation, route installation, cleanup, IP packet parsing, UDP response packet
-synthesis, and flow/NAT session tracking. The current runtime is still
-Linux/root-oriented and focused on the existing privileged packet loop, UDP NAT,
-and REDIRECT-based TCP handoff, so treat it as an advanced path rather than a
-general cross-platform feature.
+synthesis, and flow/NAT session tracking. Packet parsing, UDP response
+synthesis, and flow/NAT session tracking are shared cross-platform APIs. The
+full-device runtime backend is Linux/root-oriented today. macOS utun and Windows
+Wintun device creation are wired through the native `tun` crate backend, but
+macOS/Windows still fail early through the explicit TUN platform support
+contract when `config.tun` asks for a full-device runtime. That contract keeps
+packet/NAT/session helpers portable while preventing macOS/Windows from silently
+accepting a `tun` config before their native routing, TCP redirection, and
+Windows DLL packaging paths exist.
 
 ## ShadowTLS
 

@@ -57,7 +57,12 @@ pub struct Config {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub routing: Option<RoutingConfig>,
 
-    /// Linux TUN interception settings.
+    /// TUN interception settings.
+    ///
+    /// Linux has the active full-device runtime today. macOS utun and Windows
+    /// Wintun device creation compile through the native backend, but full
+    /// runtime startup fails early until native routing, TCP redirection, and
+    /// packaging paths are implemented.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tun: Option<TunConfig>,
 
@@ -140,7 +145,7 @@ pub struct LimitsConfig {
     pub max_idle_seconds: Option<u64>,
 }
 
-/// Top-level Linux TUN interception settings.
+/// Top-level TUN interception settings.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TunConfig {
     /// TUN interface name (e.g. `"tun0"`).
