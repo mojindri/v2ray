@@ -27,6 +27,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: ${{ matrix.command }}
+      - name: Check TUN device support
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo modprobe tun || true
+          test -c /dev/net/tun
+      - name: Run privileged TUN tests
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv -- --include-ignored
 
   test-arm64:
     name: Test (linux-arm64)
@@ -37,38 +46,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --workspace --locked
-
-  tun-platform-contract:
-    name: TUN platform contract (${{ matrix.os }})
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo test -p blackwire-transport --test production_readiness --locked tun_platform_support_contract_matches_current_target -- --exact
-
-  tun-privileged:
-    name: TUN privileged (linux)
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          save-if: "false"
-      - name: Check TUN device support
-        run: |
-          sudo modprobe tun || true
-          test -c /dev/net/tun
-      - name: Run privileged TUN tests
-        run: |
-          sudo -E env "PATH=$PATH" cargo test -p blackwire-transport --features priv-test --test tun_priv -- --include-ignored
 
   docker:
     name: Docker
