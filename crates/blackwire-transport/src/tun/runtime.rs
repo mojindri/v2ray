@@ -13,6 +13,8 @@ use tracing::{debug, info, warn};
 
 #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
 use super::backend::ensure_tun_runtime_supported;
+#[cfg(target_os = "macos")]
+use super::device::tun_device_name;
 use super::device::{TunConfig, TunDevice};
 #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use super::nat::{TunTx, UdpNatTable};
@@ -42,8 +44,8 @@ const WRITE_CHAN_CAP: usize = 1024;
 ///      by iptables REDIRECT → the proxy's TCP listener).
 ///   3. Writes synthesized response packets back into the TUN device.
 ///
-/// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries through
-/// the platform route backend before entering the loop and removes them on exit.
+/// On Linux/macOS, `TunRuntime::run` also installs platform route/redirection
+/// state before entering the loop and removes it on exit.
 pub struct TunRuntime {
     #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TunConfig,
@@ -57,14 +59,23 @@ impl TunRuntime {
 
     /// Run the packet loop until `shutdown` fires or the TUN device closes.
     ///
-    /// On Linux, routing rules are installed before the loop and cleaned up
+    /// Platform routing rules are installed before the loop and cleaned up
     /// unconditionally on exit (even if the loop returns an error).
     pub async fn run(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
         self.run_platform(device, shutdown).await
     }
 
     #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
-    async fn run_platform(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
+    async fn run_platform(
+        mut self,
+        device: TunDevice,
+        shutdown: watch::Receiver<bool>,
+    ) -> Result<()> {
+        #[cfg(target_os = "macos")]
+        {
+            self.config.name = tun_device_name(&device)?;
+        }
+
         let routes = setup_runtime_routes(&self.config).await?;
 
         let result = self.packet_loop(device, shutdown).await;

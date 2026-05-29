@@ -43,11 +43,11 @@ pub fn current_tun_support() -> TunPlatformSupport {
             backend: "macos-utun",
             packet_api: true,
             device_backend: true,
-            full_device_runtime: false,
-            tcp_redirection: false,
+            full_device_runtime: true,
+            tcp_redirection: true,
             udp_nat: true,
             requires_privileges: true,
-            note: "macOS utun device creation and protected outbound interface binding are wired, but full runtime requires native routing and TCP redirection before it can be supported",
+            note: "macOS utun runtime with split default routes, PF TCP/DNS redirection, protected outbound interface binding, and UDP NAT",
         }
     }
 
