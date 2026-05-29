@@ -41,7 +41,6 @@ h3-quinn.workspace              = true
 rustls-native-certs.workspace   = true
 pin-project-lite.workspace      = true
 socket2.workspace           = true
-nix.workspace               = true
 libc.workspace              = true
 async-trait.workspace       = true
 thiserror.workspace         = true
@@ -63,5 +62,8 @@ rand.workspace              = true
 rand_core.workspace         = true
 hex.workspace               = true
 base64.workspace            = true
-tun.workspace               = true
 subtle.workspace            = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix.workspace               = true
+tun.workspace               = true

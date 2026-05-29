@@ -47,7 +47,9 @@ use blackwire_app::{Balancer, ADAPTIVE_SPLICE_LONG_STREAM_AFTER, ADAPTIVE_SPLICE
 use blackwire_config::schema::{Config, FastPoolPolicy, ProfileMode, Protocol};
 use blackwire_protocol::freedom::{FreedomOutbound, PoolConfig};
 use blackwire_protocol::socks::Socks5Inbound;
-use blackwire_transport::{mkcp_accept_sessions, TunRuntime};
+use blackwire_transport::mkcp_accept_sessions;
+#[cfg(target_os = "linux")]
+use blackwire_transport::TunRuntime;
 use tokio::net::UdpSocket as TokioUdpSocket;
 
 use crate::http::build_http_inbound;
@@ -145,6 +147,7 @@ impl Instance {
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
 
         // ── Optional: TUN transparent-proxy runtime ──────────────────────────
+        #[cfg(target_os = "linux")]
         if let Some(tun_cfg) = &config.tun {
             use blackwire_transport::TunConfig;
             let tc = TunConfig {
