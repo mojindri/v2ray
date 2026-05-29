@@ -201,14 +201,16 @@ async fn routing_rule_cannot_bypass_intended_outbound() {
 
     s.write_all(b"should-not-echo").await.expect("write");
     let mut buf = [0u8; 4];
-    let n = tokio::time::timeout(Duration::from_secs(2), s.read(&mut buf))
-        .await
-        .expect("timeout")
-        .unwrap_or(0);
-    assert_eq!(
-        n, 0,
-        "traffic unexpectedly bypassed intended outbound and reached direct echo"
-    );
+    match tokio::time::timeout(Duration::from_secs(2), s.read(&mut buf)).await {
+        Ok(Ok(n)) => assert_eq!(
+            n, 0,
+            "traffic unexpectedly bypassed intended outbound and reached direct echo"
+        ),
+        Ok(Err(_)) | Err(_) => {
+            // Reset/EOF/no data are all acceptable here. The security property
+            // is that the direct echo server is not reached.
+        }
+    }
 }
 
 #[cfg(target_os = "linux")]

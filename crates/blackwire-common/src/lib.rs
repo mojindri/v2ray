@@ -25,7 +25,12 @@ pub mod stream;
 // `use blackwire_common::Address` instead of `use blackwire_common::address::Address`.
 pub use address::{Address, Network};
 pub use buf::BufferPool;
-pub use connect::{tcp_connect, tcp_connect_to, TCP_CONNECT_TIMEOUT};
+pub use connect::{
+    clear_outbound_bypass_mark, clear_outbound_interface_index, outbound_bypass_mark,
+    outbound_interface_index, protect_udp_socket, protect_udp_socket_with_bypass_mark,
+    set_outbound_bypass_mark, set_outbound_interface_index, set_outbound_interface_name,
+    tcp_connect, tcp_connect_to, TCP_CONNECT_TIMEOUT,
+};
 pub use error::ProxyError;
 pub use relay::{
     copy_bidirectional_with_idle, domain_wire_len, with_handshake_timeout, CONNECTION_IDLE_TIMEOUT,

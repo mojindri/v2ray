@@ -132,7 +132,11 @@ mod tests {
             protocol,
             header_len: 20,
             payload_offset: 28,
+            transport_offset: 20,
             payload_len: 0,
+            tcp_seq: None,
+            tcp_ack: None,
+            tcp_flags: None,
         }
     }
 

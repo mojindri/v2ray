@@ -1,39 +1,59 @@
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use std::time::Duration;
 
-#[cfg(target_os = "linux")]
-use anyhow::Context as _;
 use anyhow::Result;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+use tokio::sync::watch;
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tokio::sync::{mpsc, watch};
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use tracing::{debug, info, warn};
 
-use super::device::TunConfig;
+#[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+use super::backend::ensure_tun_runtime_supported;
+#[cfg(target_os = "macos")]
+use super::device::tun_device_name;
+use super::device::{TunConfig, TunDevice};
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use super::nat::{TunTx, UdpNatTable};
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 use super::packet::{parse_ip_packet, TransportProtocol};
+#[cfg(target_os = "windows")]
+use super::tcp::TcpBridgeTable;
 
-#[cfg(target_os = "linux")]
-use super::route::{cleanup_routes, setup_routes};
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+use super::route::setup_runtime_routes;
 
 /// How often to sweep idle NAT entries.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 const EVICT_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Idle timeout for UDP NAT flows.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 const UDP_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 
+/// Idle timeout for Windows packet-level TCP bridge flows.
+#[cfg(target_os = "windows")]
+const TCP_IDLE_TIMEOUT: Duration = Duration::from_secs(120);
+
 /// Depth of the internal TUN-write channel.
+#[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
 const WRITE_CHAN_CAP: usize = 1024;
 
 /// The TUN packet processing runtime.
 ///
 /// Owns the event loop that:
 ///   1. Reads raw IP packets from the TUN device.
-///   2. Dispatches UDP flows via [`UdpNatTable`] (TCP is handled transparently
-///      by iptables REDIRECT → the proxy's TCP listener).
+///   2. Dispatches UDP flows via [`UdpNatTable`]. Linux/macOS redirect TCP in
+///      the OS; Windows bridges TCP packets to the local SOCKS listener.
 ///   3. Writes synthesized response packets back into the TUN device.
 ///
-/// On Linux, `TunRuntime::run` also installs iptables/ip-rule entries via
-/// `setup_routes` (see `tun/route.rs`) before entering the loop and removes them on exit.
+/// On Linux/macOS, `TunRuntime::run` also installs platform route/redirection
+/// state before entering the loop and removes it on exit.
 pub struct TunRuntime {
+    #[cfg_attr(not(target_os = "linux"), allow(dead_code))]
     config: TunConfig,
 }
 
@@ -45,45 +65,53 @@ impl TunRuntime {
 
     /// Run the packet loop until `shutdown` fires or the TUN device closes.
     ///
-    /// On Linux, routing rules are installed before the loop and cleaned up
+    /// Platform routing rules are installed before the loop and cleaned up
     /// unconditionally on exit (even if the loop returns an error).
-    pub async fn run(
-        self,
-        device: tun::AsyncDevice,
+    pub async fn run(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
+        self.run_platform(device, shutdown).await
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    async fn run_platform(
+        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))] mut self,
+        device: TunDevice,
         shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
-        #[cfg(target_os = "linux")]
-        setup_routes(
-            &self.config.name,
-            self.config.bypass_mark,
-            self.config.dns_port,
-            self.config.redirect_port,
-        )
-        .await
-        .context("TUN: route setup failed")?;
+        #[cfg(target_os = "macos")]
+        {
+            self.config.name = tun_device_name(&device)?;
+        }
+
+        let routes = setup_runtime_routes(&self.config).await?;
 
         let result = self.packet_loop(device, shutdown).await;
 
-        #[cfg(target_os = "linux")]
-        cleanup_routes(
-            &self.config.name,
-            self.config.bypass_mark,
-            self.config.dns_port,
-            self.config.redirect_port,
-        )
-        .await;
+        routes.cleanup().await;
 
         result
     }
 
+    #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
+    async fn run_platform(
+        self,
+        _device: TunDevice,
+        _shutdown: watch::Receiver<bool>,
+    ) -> Result<()> {
+        let _ = self;
+        ensure_tun_runtime_supported()
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
     async fn packet_loop(
         &self,
-        device: tun::AsyncDevice,
+        device: TunDevice,
         mut shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
         let (mut reader, mut writer) = tokio::io::split(device);
         let (tun_tx, mut tun_rx) = mpsc::channel::<Vec<u8>>(WRITE_CHAN_CAP);
         let mut nat = UdpNatTable::with_defaults(self.config.bypass_mark, UDP_IDLE_TIMEOUT);
+        #[cfg(target_os = "windows")]
+        let mut tcp = TcpBridgeTable::with_defaults(self.config.redirect_port, TCP_IDLE_TIMEOUT);
         let mut read_buf = vec![0u8; 65536];
         let mut evict_tick = tokio::time::interval(EVICT_INTERVAL);
         // Skip the immediate first tick so eviction doesn't run before any
@@ -102,7 +130,13 @@ impl TunRuntime {
                             break;
                         }
                         Ok(n) => {
-                            self.dispatch(&read_buf[..n], &mut nat, tun_tx.clone()).await;
+                            self.dispatch(
+                                &read_buf[..n],
+                                &mut nat,
+                                #[cfg(target_os = "windows")]
+                                &mut tcp,
+                                tun_tx.clone(),
+                            ).await;
                         }
                         Err(e) => {
                             warn!(%e, "TUN device read error; stopping");
@@ -124,6 +158,13 @@ impl TunRuntime {
                     if n > 0 {
                         debug!(evicted = n, "removed idle UDP NAT flows");
                     }
+                    #[cfg(target_os = "windows")]
+                    {
+                        let n = tcp.evict_idle();
+                        if n > 0 {
+                            debug!(evicted = n, "removed idle TCP bridge flows");
+                        }
+                    }
                 }
 
                 // ── Graceful shutdown ─────────────────────────────────────────
@@ -140,21 +181,38 @@ impl TunRuntime {
         Ok(())
     }
 
-    async fn dispatch(&self, raw: &[u8], nat: &mut UdpNatTable, tun_tx: TunTx) {
+    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    async fn dispatch(
+        &self,
+        raw: &[u8],
+        nat: &mut UdpNatTable,
+        #[cfg(target_os = "windows")] tcp: &mut TcpBridgeTable,
+        tun_tx: TunTx,
+    ) {
         let Some(packet) = parse_ip_packet(raw) else {
             return;
         };
 
-        if packet.protocol == TransportProtocol::Udp {
-            // Port-53 DNS is redirected by iptables to the proxy's DNS
-            // listener; the TUN device should not see it, but skip just
-            // in case the kernel sends it before the iptables rule lands.
-            if packet.dst_port == 53 {
-                return;
+        match packet.protocol {
+            TransportProtocol::Udp => {
+                // Port-53 DNS is redirected by iptables/PF to the proxy's DNS
+                // listener; the TUN device should not see it, but skip just
+                // in case the kernel sends it before the redirect rule lands.
+                if packet.dst_port == 53 {
+                    return;
+                }
+                if let Err(e) = nat.forward(&packet, raw, tun_tx).await {
+                    debug!(%e, src = %packet.src, dst = %packet.dst, "UDP NAT forward failed");
+                }
             }
-            if let Err(e) = nat.forward(&packet, raw, tun_tx).await {
-                debug!(%e, src = %packet.src, dst = %packet.dst, "UDP NAT forward failed");
+            TransportProtocol::Tcp =>
+            {
+                #[cfg(target_os = "windows")]
+                if let Err(e) = tcp.forward(&packet, raw, tun_tx).await {
+                    debug!(%e, src = %packet.src, dst = %packet.dst, "TCP bridge forward failed");
+                }
             }
+            TransportProtocol::Other(_) => {}
         }
     }
 }

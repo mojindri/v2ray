@@ -368,12 +368,21 @@ It is an operating-system-level traffic capture/redirect mechanism.
 
 ### Repo Status
 
-The repo can start a top-level `tun` runtime and has Linux helpers for device
+The repo can start a top-level `tun` runtime on Linux and has helpers for device
 creation, route installation, cleanup, IP packet parsing, UDP response packet
-synthesis, and flow/NAT session tracking. The current runtime is still
-Linux/root-oriented and focused on the existing privileged packet loop, UDP NAT,
-and REDIRECT-based TCP handoff, so treat it as an advanced path rather than a
-general cross-platform feature.
+synthesis, and flow/NAT session tracking. Packet parsing, UDP response
+synthesis, flow/NAT session tracking, and the runtime packet loop are shared
+cross-platform APIs. Linux outbound sockets use `SO_MARK`; macOS installs split
+default routes through the OS-assigned utun interface, loads a scoped PF anchor
+for TCP/DNS redirection, and uses
+`tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets
+so proxy egress does not re-enter the utun capture path. Windows Wintun device
+creation, split-route setup, protected outbound interface binding, and
+packet-level TCP bridging are wired through the native `tun` crate backend, and
+Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled
+`wintun.dll`. The Windows TCP bridge terminates TCP packets from Wintun and
+opens SOCKS5 CONNECT requests to the local proxy listener configured by
+`tun.redirect_port`.
 
 ## ShadowTLS
 

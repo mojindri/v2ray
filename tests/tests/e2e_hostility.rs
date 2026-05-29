@@ -276,6 +276,8 @@ fn vmess_grpc_client(socks: u16, server: u16) -> Arc<blackwire_config::schema::C
 }
 
 fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<blackwire_config::schema::Config> {
+    let cert_json = serde_json::to_string(cert).expect("serialize cert path");
+    let key_json = serde_json::to_string(key).expect("serialize key path");
     parse_config(format!(
         r#"{{
         "inbounds": [{{
@@ -283,8 +285,8 @@ fn trojan_tls_server(port: u16, cert: &str, key: &str) -> Arc<blackwire_config::
             "listen": "127.0.0.1", "port": {port},
             "settings": {{"clients": [{{"password": "{PASSWORD}"}}]}},
             "streamSettings": {{"network": "tcp", "security": "tls",
-                                "tlsSettings": {{"certificateFile": "{cert}",
-                                                 "keyFile": "{key}"}}}}
+                                "tlsSettings": {{"certificateFile": {cert_json},
+                                                 "keyFile": {key_json}}}}}
         }}],
         "outbounds": [{{"tag": "freedom", "protocol": "freedom"}}]
     }}"#
