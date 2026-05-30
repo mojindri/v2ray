@@ -411,6 +411,19 @@ sing-box-client `1k` keepalive. Do not reintroduce generic relay-buffer growth
 without a stronger classifier, such as per-direction observed frame/body size or
 a transport-specific path that avoids small keepalive growth.
 
+Additional local-only rejected WS micro-candidates:
+
+- Tungstenite eager writes via `WebSocketConfig::write_buffer_size(0)`:
+  `vless_ws bulk_relay/chunk_65536` regressed roughly `-10%` throughput in
+  Criterion quick mode. Rejected before VPS.
+- Replacing `Bytes::split_to` with `Bytes::advance` on WS reads:
+  local quick rows regressed for both bulk and mixed-small paths. Rejected
+  before VPS.
+- Keeping the small WS write buffer allocation across flushes with
+  `Bytes::copy_from_slice` plus `BytesMut::clear`: some larger mixed-small rows
+  moved positive, but the bulk row regressed roughly `-18%`. Rejected before
+  VPS.
+
 ## Latest serial quick verification (2026-05-26)
 
 Command shape:
