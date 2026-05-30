@@ -10,6 +10,10 @@
 #   local-full        all local variants, longer duration
 #   xray-compare      Xray client vs Xray server, BW Compat, BW Fast (requires xray in PATH)
 #   singbox-compare   sing-box client vs sing-box server, BW Compat, BW Fast (requires sing-box in PATH)
+#   fast-only         Xray->BW Fast + sing-box->BW Fast targeted check
+#   fast-only-matrix  fast-only over BENCH_PAYLOADS and BENCH_KEEPALIVE_MODES
+#   ws-compare        Xray/sing-box WS baselines plus Blackwire WS server rows
+#   ws-matrix         ws-compare rows over BENCH_PAYLOADS and BENCH_KEEPALIVE_MODES
 #   compare-all       local-smoke + xray-compare + singbox-compare
 #
 # Environment:
@@ -219,6 +223,138 @@ case "$SCENARIO" in
     bench "singbox-bw-fast-tcp"
     ;;
 
+  fast-only)
+    log "scenario: fast-only (${BENCH_DURATION}s × ${BENCH_CONC} conc)"
+    command -v "$XRAY_BIN" >/dev/null 2>&1 || { echo "ERROR: '$XRAY_BIN' not found. Set XRAY_BIN or install xray."; exit 1; }
+    command -v "$SINGBOX_BIN" >/dev/null 2>&1 || { echo "ERROR: '$SINGBOX_BIN' not found. Set SINGBOX_BIN or install sing-box."; exit 1; }
+    XRAY_CMD="$XRAY_BIN run -config"
+    SB_CMD="$SINGBOX_BIN run -c"
+
+    # Xray client -> Blackwire Fast server
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-tcp.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench "xray-bw-fast-tcp"
+
+    # sing-box client -> Blackwire Fast server
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-tcp.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench "singbox-bw-fast-tcp"
+    ;;
+
+  fast-only-matrix)
+    log "scenario: fast-only-matrix (${BENCH_DURATION}s measure, ${BENCH_WARMUP}s warmup, ${BENCH_CONC} conc)"
+    log "payloads: $BENCH_PAYLOADS; keepalive: $BENCH_KEEPALIVE_MODES"
+    command -v "$XRAY_BIN" >/dev/null 2>&1 || { echo "ERROR: '$XRAY_BIN' not found. Set XRAY_BIN or install xray."; exit 1; }
+    command -v "$SINGBOX_BIN" >/dev/null 2>&1 || { echo "ERROR: '$SINGBOX_BIN' not found. Set SINGBOX_BIN or install sing-box."; exit 1; }
+    XRAY_CMD="$XRAY_BIN run -config"
+    SB_CMD="$SINGBOX_BIN run -c"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-tcp.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_matrix "xray-bw-fast-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-tcp.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_matrix "singbox-bw-fast-tcp"
+    ;;
+
+  ws-compare)
+    log "scenario: ws-compare (${BENCH_DURATION}s × ${BENCH_CONC} conc)"
+    command -v "$XRAY_BIN" >/dev/null 2>&1 || { echo "ERROR: '$XRAY_BIN' not found. Set XRAY_BIN or install xray."; exit 1; }
+    command -v "$SINGBOX_BIN" >/dev/null 2>&1 || { echo "ERROR: '$SINGBOX_BIN' not found. Set SINGBOX_BIN or install sing-box."; exit 1; }
+    XRAY_CMD="$XRAY_BIN run -config"
+    SB_CMD="$SINGBOX_BIN run -c"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10085 \
+    SERVER_CMD="$XRAY_CMD" CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/xray-server-ws.json" SERVER_PORT=10085 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench "xray-xray-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench "xray-bw-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10086 \
+    SERVER_CMD="$SB_CMD" CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/singbox-server-ws.json" SERVER_PORT=10086 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench "singbox-singbox-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench "singbox-bw-ws"
+    ;;
+
+  ws-matrix)
+    log "scenario: ws-matrix (${BENCH_DURATION}s measure, ${BENCH_WARMUP}s warmup, ${BENCH_CONC} conc)"
+    log "payloads: $BENCH_PAYLOADS; keepalive: $BENCH_KEEPALIVE_MODES"
+    command -v "$XRAY_BIN" >/dev/null 2>&1 || { echo "ERROR: '$XRAY_BIN' not found. Set XRAY_BIN or install xray."; exit 1; }
+    command -v "$SINGBOX_BIN" >/dev/null 2>&1 || { echo "ERROR: '$SINGBOX_BIN' not found. Set SINGBOX_BIN or install sing-box."; exit 1; }
+    XRAY_CMD="$XRAY_BIN run -config"
+    SB_CMD="$SINGBOX_BIN run -c"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10085 \
+    SERVER_CMD="$XRAY_CMD" CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/xray-server-ws.json" SERVER_PORT=10085 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_matrix "xray-xray-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_matrix "xray-bw-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10086 \
+    SERVER_CMD="$SB_CMD" CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/singbox-server-ws.json" SERVER_PORT=10086 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_matrix "singbox-singbox-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_matrix "singbox-bw-ws"
+    ;;
+
   compare-all)
     log "scenario: compare-all"
     bash "$0" local-smoke
@@ -287,7 +423,7 @@ case "$SCENARIO" in
 
   *)
     echo "Unknown scenario: $SCENARIO"
-    echo "Known: local-smoke, local-smoke-matrix, local-full, xray-compare, singbox-compare, compare-all, gate-matrix"
+    echo "Known: local-smoke, local-smoke-matrix, local-full, xray-compare, singbox-compare, fast-only, fast-only-matrix, ws-compare, ws-matrix, compare-all, gate-matrix"
     exit 1
     ;;
 esac

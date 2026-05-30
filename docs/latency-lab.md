@@ -50,9 +50,21 @@ make latency-local-dry
 | `local-full` | local-smoke with longer duration and higher concurrency |
 | `xray-compare` | Xray client vs Xray server, BW Compat, BW Fast (same-client fairness) |
 | `singbox-compare` | sing-box client vs sing-box server, BW Compat, BW Fast |
+| `fast-only` | Xray->BW Fast + sing-box->BW Fast targeted check |
+| `fast-only-matrix` | `fast-only` over `BENCH_PAYLOADS` and `BENCH_KEEPALIVE_MODES` |
+| `ws-compare` | Xray/sing-box WebSocket baselines plus Blackwire WS server rows |
+| `ws-matrix` | `ws-compare` over `BENCH_PAYLOADS` and `BENCH_KEEPALIVE_MODES` |
 | `compare-all` | local-smoke + xray-compare + singbox-compare |
 
 **Same-client fairness**: Xray-series variants all use the same Xray client process. Only the server changes. This ensures client-side differences don't pollute server conclusions.
+
+Use `fast-only` and `fast-only-matrix` for iteration after a clean competitor
+baseline exists. Use `xray-compare` and `singbox-compare` for acceptance
+checkpoints because they include same-client competitor baselines.
+
+Keepalive-off rows are intentionally harsher: they include repeated connection
+setup and are expected to run far below keepalive-on rows. Treat keepalive-off
+losses as connection setup signal, not as bulk relay throughput.
 
 ---
 
@@ -103,6 +115,21 @@ make latency-report-html        # HTML to latency/reports/report.html
 
 make latency-compare            # all local variants (xray + singbox required in PATH)
 make latency-compare BENCH_DURATION=60 BENCH_CONC=256
+
+# Faster optimization loop: run only BW Fast rows for both external clients
+BENCH_DURATION=15 BENCH_CONC=32 \
+  bash latency/scripts/compare.sh fast-only
+
+# Matrix run for payload/keepalive sweeps on BW Fast rows only
+BENCH_PAYLOADS="1k 4k 16k 64k" BENCH_KEEPALIVE_MODES="on off" \
+  BENCH_DURATION=15 BENCH_CONC=32 \
+  bash latency/scripts/compare.sh fast-only-matrix
+
+# WebSocket transport comparison rows. Blackwire WS uses Compat profile because
+# Fast Profile intentionally rejects WS as a production fast-profile transport.
+BENCH_PAYLOADS="1k 4k 16k 64k" BENCH_KEEPALIVE_MODES="on off" \
+  BENCH_DURATION=10 BENCH_CONC=32 \
+  bash latency/scripts/compare.sh ws-matrix
 
 make latency-vps \
   VPS_CLIENT_HOST=client.example.com \

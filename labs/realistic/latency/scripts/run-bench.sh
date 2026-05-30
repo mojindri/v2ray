@@ -94,7 +94,7 @@ maybe_envsubst() {
         return
     fi
     command -v envsubst >/dev/null 2>&1 || { echo "ERROR: envsubst not found (install gettext)"; exit 1; }
-    local tmp; tmp="$(mktemp /tmp/bw-cfg-XXXXXX.json)"
+    local tmp; tmp="$(mktemp "${TMPDIR:-/tmp}/bw-cfg-XXXXXX").json"
     _TMPFILES+=("$tmp")
     envsubst < "$cfg" > "$tmp"
     echo "$tmp"

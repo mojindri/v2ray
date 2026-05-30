@@ -1,0 +1,33 @@
+{
+  "profile": "compat",
+  "log": { "level": "warn" },
+  "metricsAddr": "127.0.0.1:9091",
+  "inbounds": [
+    {
+      "tag": "vless-ws-in",
+      "protocol": "vless",
+      "listen": "127.0.0.1",
+      "port": 10084,
+      "settings": {
+        "clients": [{ "id": "00000000-0000-4000-8000-000000000001" }]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/bench" }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom",
+      "settings": {
+        "pool": {
+          "mode": "adaptive",
+          "minHotnessForPool": 4
+        }
+      }
+    }
+  ]
+}
