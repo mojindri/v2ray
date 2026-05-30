@@ -368,6 +368,79 @@ improvement rather than a broad WS parity fix. At higher concurrency and longer
 duration Blackwire WS still trails sing-box WS keepalive/bulk rows. Blackwire
 WS is competitive with Xray no-keepalive rows and remains error-free.
 
+## Strict Native Server Gate Bootstrap (2026-05-30)
+
+Purpose: first run of the strict native server gate added for broad server
+performance work. This validates the gate/reporting path before selecting the
+next optimization candidate. Private host/IP values are intentionally omitted.
+
+Environment:
+
+- Native Blackwire/Xray/sing-box/hey on the client VPS.
+- Native nginx upstream on a separate VPS, listening on `:18080`.
+- Docker and Python were not traffic participants; Python was used only for
+  local report rendering.
+- nginx preflight verified `/1k`, `/4k`, `/16k`, and `/64k` exact byte sizes.
+
+Setup notes:
+
+- Both VPS hosts had native nginx configured with fixed-size payload files.
+- UFW was active and initially blocked `:18080`; opening `18080/tcp` was
+  required before the strict preflight could pass.
+- The passing benchmark direction was used for the gate; the reverse direction
+  remained unavailable and was not used for performance claims.
+
+Smoke gate:
+
+```bash
+BENCH_DURATION=5 BENCH_CONC=32 BENCH_CONCS=32 \
+BENCH_PAYLOADS="1k 64k" BENCH_KEEPALIVE_MODES="on off" \
+VPS_SCENARIO=server-gate-smoke make -C labs/realistic latency-vps
+```
+
+- Rows produced: `40/40`.
+- Upstream label: `native-nginx`.
+- Invalid/noisy rows were correctly marked `FAIL` by the report due to request
+  errors or `hey` total duration far beyond the requested window.
+- The invalid set was mostly no-keepalive and WS rows; do not optimize against
+  those rows until they repeat cleanly.
+
+Targeted repeat:
+
+```bash
+BENCH_DURATION=15 BENCH_CONC=32 BENCH_CONCS=32 \
+BENCH_PAYLOADS=1k BENCH_KEEPALIVE_MODES=on \
+VPS_SCENARIO=server-gate-smoke make -C labs/realistic latency-vps
+```
+
+All repeated `1k` keepalive rows completed with `0` errors and `0` non-200
+responses:
+
+| Variant | req/s | p50 | p95 | p99 | Decision |
+|---|---:|---:|---:|---:|---|
+| `xray-xray-tcp-1k-ka` | 19,294 | 1.60 ms | 2.70 ms | 3.50 ms | baseline |
+| `xray-bw-compat-tcp-1k-ka` | 16,543 | 1.90 ms | 3.00 ms | 3.80 ms | gap: -14.3% req/s, +8.6% p99 |
+| `xray-bw-fast-tcp-1k-ka` | 21,821 | 1.40 ms | 2.40 ms | 3.10 ms | win/no repeat concern |
+| `singbox-singbox-tcp-1k-ka` | 18,631 | 1.70 ms | 2.80 ms | 3.50 ms | baseline |
+| `singbox-bw-compat-tcp-1k-ka` | 13,920 | 2.20 ms | 3.50 ms | 4.50 ms | gap: -25.3% req/s, +28.6% p99 |
+| `singbox-bw-fast-tcp-1k-ka` | 19,179 | 1.60 ms | 2.70 ms | 3.50 ms | near parity / needs repeat |
+| `xray-xray-ws-1k-ka` | 18,074 | 1.70 ms | 2.90 ms | 3.70 ms | baseline |
+| `xray-bw-ws-1k-ka` | 17,083 | 1.80 ms | 3.00 ms | 3.80 ms | small gap |
+| `singbox-singbox-ws-1k-ka` | 19,357 | 1.60 ms | 2.70 ms | 3.50 ms | baseline |
+| `singbox-bw-ws-1k-ka` | 17,711 | 1.80 ms | 2.80 ms | 3.60 ms | small gap |
+
+Decision:
+
+- Do not treat the short 5s no-keepalive and failing WS rows as optimization
+  truth yet.
+- The strongest clean server gap is **Compat TCP 1k keepalive**, especially
+  `singbox-bw-compat-tcp-1k-ka`.
+- Fast TCP is not the immediate target for `1k` keepalive; it matched or beat
+  same-client baselines in this repeat.
+- Next candidate should inspect shared Compat overhead before outbound relay:
+  accept/dispatch/config path differences between Compat and Fast, connection
+  setup instrumentation, and any Compat-only observability or wrapper cost.
+
 ## Rejected WS Relay Buffer Growth Candidate (2026-05-30)
 
 Candidate: grow the shared pooled relay buffer from `16 KiB` to `64 KiB` after
