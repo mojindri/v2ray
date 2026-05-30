@@ -368,6 +368,49 @@ improvement rather than a broad WS parity fix. At higher concurrency and longer
 duration Blackwire WS still trails sing-box WS keepalive/bulk rows. Blackwire
 WS is competitive with Xray no-keepalive rows and remains error-free.
 
+## Rejected WS Relay Buffer Growth Candidate (2026-05-30)
+
+Candidate: grow the shared pooled relay buffer from `16 KiB` to `64 KiB` after
+repeated large reads, so framed transports can emit larger WebSocket frames on
+bulk flows without changing protocol wire format.
+
+Local quick filter:
+
+- `vless_ws bulk_relay/chunk_65536`: throughput improved by roughly `+22%`
+  in Criterion quick mode.
+- `vless_ws mixed_small_writes`: no statistically significant regression in
+  quick mode; several rows moved positive.
+
+VPS A/B gate:
+
+- Environment: native Blackwire/Xray/sing-box processes with native nginx
+  upstream. Host values redacted.
+- Control: committed baseline `a817df7`.
+- Candidate logs:
+  - `labs/realistic/latency/reports/ws-relay-control-vps-20260530.log`
+  - `labs/realistic/latency/reports/ws-relay-largeread-vps-20260530.log`
+- Matrix: `1k`, `64k`; keepalive on/off; `5s x 32`.
+- All rows completed with `0` errors and `0` non-200 responses.
+
+Blackwire-server A/B rows:
+
+| Row | Control req/s | Candidate req/s | Req/s change | Control p99 | Candidate p99 | Decision |
+|---|---:|---:|---:|---:|---:|---|
+| `xray-bw-ws 1k ka` | 17,203 | 17,961 | +4.4% | 0.0041 | 0.0036 | better |
+| `xray-bw-ws 1k noka` | 2,207 | 2,301 | +4.3% | 0.0266 | 0.0249 | better |
+| `xray-bw-ws 64k ka` | 5,267 | 6,060 | +15.0% | 0.0125 | 0.0110 | better |
+| `xray-bw-ws 64k noka` | 2,027 | 1,588 | -21.7% | 0.0266 | 0.0350 | reject |
+| `singbox-bw-ws 1k ka` | 17,811 | 13,564 | -23.8% | 0.0037 | 0.0049 | reject |
+| `singbox-bw-ws 1k noka` | 2,270 | 2,164 | -4.7% | 0.0229 | 0.0238 | worse |
+| `singbox-bw-ws 64k ka` | 6,557 | 7,386 | +12.6% | 0.0101 | 0.0093 | better |
+| `singbox-bw-ws 64k noka` | 1,889 | 1,878 | -0.6% | 0.0273 | 0.0278 | neutral/slightly worse |
+
+Decision: rejected. The bulk keepalive wins are real, but the candidate fails
+the no-regression gate because it hurts Xray-client `64k` no-keepalive and
+sing-box-client `1k` keepalive. Do not reintroduce generic relay-buffer growth
+without a stronger classifier, such as per-direction observed frame/body size or
+a transport-specific path that avoids small keepalive growth.
+
 ## Latest serial quick verification (2026-05-26)
 
 Command shape:
