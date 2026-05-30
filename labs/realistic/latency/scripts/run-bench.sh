@@ -18,6 +18,7 @@
 #   REPORT_DIR     Where to write <variant>.json (default ./reports)
 #   DRY_RUN        Set to 1 to print commands without running them
 #   BW_BIN         Path to blackwire binary (default: blackwire in PATH)
+#   BENCH_UPSTREAM Upstream identity label for reports, e.g. native-nginx
 #   SERVER_CMD     Full command to start server, e.g. "xray run -config"
 #                  (default: "$BW_BIN run -c")
 #   CLIENT_CMD     Full command to start client (default: "$BW_BIN run -c")
@@ -42,13 +43,15 @@ CLIENT_CONFIG="${CLIENT_CONFIG:-}"
 CLIENT_PORT="${CLIENT_PORT:-}"
 BENCH_DISABLE_KEEPALIVE="${BENCH_DISABLE_KEEPALIVE:-0}"
 CONFIG_ENVSUBST="${CONFIG_ENVSUBST:-0}"
+BENCH_UPSTREAM="${BENCH_UPSTREAM:-}"
 
 _DEFAULT_CMD="${BW_BIN:-blackwire} run -c"
 SERVER_CMD="${SERVER_CMD:-$_DEFAULT_CMD}"
 CLIENT_CMD="${CLIENT_CMD:-$_DEFAULT_CMD}"
 
 TS="$(date -u +%Y%m%dT%H%M%SZ)"
-REPORT_FILE="$REPORT_DIR/${VARIANT}-${TS}.json"
+REPORT_STEM="${VARIANT}-c${BENCH_CONC}-${TS}"
+REPORT_FILE="$REPORT_DIR/${REPORT_STEM}.json"
 mkdir -p "$REPORT_DIR"
 
 _run() {
@@ -64,6 +67,14 @@ log() { echo "  [run-bench] $*"; }
 json_file_or_null() {
     if [ -n "${1:-}" ]; then
         printf '"%s"' "$(basename "$1")"
+    else
+        printf 'null'
+    fi
+}
+
+json_string_or_null() {
+    if [ -n "${1:-}" ]; then
+        printf '"%s"' "$1"
     else
         printf 'null'
     fi
@@ -182,6 +193,7 @@ if [ "$DRY_RUN" = "1" ]; then
   "timestamp": "$TS",
   "dry_run": true,
   "target": "$TARGET",
+  "upstream": $(json_string_or_null "$BENCH_UPSTREAM"),
   "payload": "$BENCH_PAYLOAD",
   "duration_s": $BENCH_DURATION,
   "warmup_s": $BENCH_WARMUP,
@@ -207,22 +219,23 @@ fi
 
 RAW="$(hey "${HEY_ARGS[@]}" "$TARGET" 2>&1)"
 echo "$RAW"
-RAW_FILE="$REPORT_DIR/${VARIANT}-${TS}.hey.txt"
+RAW_FILE="$REPORT_DIR/${REPORT_STEM}.hey.txt"
 printf '%s\n' "$RAW" > "$RAW_FILE"
 
 SERVER_LOG_FILE=""
 CLIENT_LOG_FILE=""
 if [ -f "/tmp/bw-server-$VARIANT.log" ]; then
-    SERVER_LOG_FILE="$REPORT_DIR/${VARIANT}-${TS}.server.log"
+    SERVER_LOG_FILE="$REPORT_DIR/${REPORT_STEM}.server.log"
     tail -200 "/tmp/bw-server-$VARIANT.log" > "$SERVER_LOG_FILE" || true
 fi
 if [ -f "/tmp/bw-client-$VARIANT.log" ]; then
-    CLIENT_LOG_FILE="$REPORT_DIR/${VARIANT}-${TS}.client.log"
+    CLIENT_LOG_FILE="$REPORT_DIR/${REPORT_STEM}.client.log"
     tail -200 "/tmp/bw-client-$VARIANT.log" > "$CLIENT_LOG_FILE" || true
 fi
 RAW_FILE_JSON="$(json_file_or_null "$RAW_FILE")"
 SERVER_LOG_FILE_JSON="$(json_file_or_null "$SERVER_LOG_FILE")"
 CLIENT_LOG_FILE_JSON="$(json_file_or_null "$CLIENT_LOG_FILE")"
+BENCH_UPSTREAM_JSON="$(json_string_or_null "$BENCH_UPSTREAM")"
 
 # ── Parse hey output → JSON ───────────────────────────────────────────────────
 
@@ -308,6 +321,7 @@ cat > "$REPORT_FILE" <<EOF
   "variant": "$VARIANT",
   "timestamp": "$TS",
   "target": "$TARGET",
+  "upstream": $BENCH_UPSTREAM_JSON,
   "payload": "$BENCH_PAYLOAD",
   "duration_s": $BENCH_DURATION,
   "warmup_s": $BENCH_WARMUP,

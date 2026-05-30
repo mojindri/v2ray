@@ -8,10 +8,12 @@
 LATENCY_DIR     := $(dir $(lastword $(MAKEFILE_LIST)))
 LATENCY_SCRIPTS := $(LATENCY_DIR)scripts
 LATENCY_REPORTS := $(LATENCY_DIR)reports
+LATENCY_BASELINE_DIR ?=
 _BENCH_ROOT     := $(abspath $(LATENCY_DIR)../../..)
 
 BENCH_DURATION ?= 30
 BENCH_CONC     ?= 32
+BENCH_CONCS    ?=
 DRY_RUN        ?= 0
 BW_BIN         ?= blackwire
 
@@ -66,7 +68,11 @@ latency-local-dry: ## Dry-run latency-local (prints commands, writes stub JSON, 
 	 bash "$(LATENCY_SCRIPTS)/compare.sh" local-smoke
 
 latency-report: ## Render latest results as Markdown (stdout)
-	@python3 "$(LATENCY_SCRIPTS)/report.py" --dir "$(LATENCY_REPORTS)"
+	@if [ -n "$(LATENCY_BASELINE_DIR)" ]; then \
+	    python3 "$(LATENCY_SCRIPTS)/report.py" --dir "$(LATENCY_REPORTS)" --baseline-dir "$(LATENCY_BASELINE_DIR)"; \
+	else \
+	    python3 "$(LATENCY_SCRIPTS)/report.py" --dir "$(LATENCY_REPORTS)"; \
+	fi
 
 latency-report-html: ## Render latest results as HTML → latency/reports/report.html
 	@python3 "$(LATENCY_SCRIPTS)/report.py" --format html \
@@ -148,6 +154,7 @@ latency-vps: ## Run latency benchmark on remote VPS pair and pull results (VPS_C
 	 VPS_REPO_PATH="$(VPS_REPO_PATH)" \
 	 BENCH_DURATION="$(BENCH_DURATION)" \
 	 BENCH_CONC="$(BENCH_CONC)" \
+	 BENCH_CONCS="$(BENCH_CONCS)" \
 	 REPORT_DIR="$(abspath $(LATENCY_REPORTS))" \
 	 BW_BIN="$(BW_BIN)" \
 	 bash "$(LATENCY_SCRIPTS)/run-vps.sh" "$(VPS_SCENARIO)"
