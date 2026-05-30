@@ -107,6 +107,7 @@ ufw allow 8443/tcp  # VLESS WS+TLS
 ufw allow 8444/tcp  # VMess gRPC+TLS
 ufw allow 8445/tcp  # Trojan TLS
 ufw allow 8388/tcp  # SS2022
+ufw allow 8389/udp  # SS2022 UDP
 ufw allow 4433/udp  # Hysteria2 QUIC
 ufw allow 8446/tcp  # VLESS HTTPUpgrade
 ufw allow 8447/udp  # VLESS QUIC

@@ -18,6 +18,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context as TaskContext, Poll};
+use std::time::Duration;
 
 use anyhow::Result;
 use blackwire_app::context::Context;
@@ -26,6 +27,7 @@ use blackwire_app::features::OutboundHandler;
 use blackwire_common::{Address, BoxedStream, ProxyError, ReunionStream};
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Semaphore;
+use tokio::time::timeout;
 use tracing::{info, warn};
 
 /// Maximum concurrent QUIC connections on a single Hysteria2 server.
@@ -33,6 +35,8 @@ use tracing::{info, warn};
 /// The official hysteria2 server defaults to `maxIncomingConnections: 1024`.
 /// sing-quic has no cap, but we follow the reference implementation.
 const MAX_HYSTERIA2_CONNECTIONS: usize = 1024;
+const CLIENT_AUTH_TIMEOUT: Duration = Duration::from_secs(5);
+const CLIENT_OPEN_STREAM_TIMEOUT: Duration = Duration::from_secs(5);
 
 use crate::quic::{build_hysteria2_server_endpoint, ensure_crypto_provider, BrutalCCFactory};
 
@@ -188,11 +192,13 @@ impl Hysteria2Client {
             .await
             .map_err(|e| ProxyError::Transport(format!("QUIC handshake: {e}")))?;
 
-        client_h3_auth(&conn, &self.config.password, rx_bps).await?;
-
-        let (mut send, mut recv) = conn
-            .open_bi()
+        timeout(CLIENT_AUTH_TIMEOUT, client_h3_auth(&conn, &self.config.password, rx_bps))
             .await
+            .map_err(|_| ProxyError::Timeout)??;
+
+        let (mut send, mut recv) = timeout(CLIENT_OPEN_STREAM_TIMEOUT, conn.open_bi())
+            .await
+            .map_err(|_| ProxyError::Timeout)?
             .map_err(|e| ProxyError::Transport(format!("open proxy stream: {e}")))?;
 
         tcp::client_write_request(&mut send, dest).await?;

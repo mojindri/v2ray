@@ -348,8 +348,9 @@ Useful for hostile or lossy links, but not a beginner-friendly first read.
 ### Repo Status
 
 The runtime has a UDP listener with per-peer KCP sessions, idle cleanup, and
-local VLESS-over-mKCP e2e coverage. It still needs realistic loss/latency lab
-validation before being treated as production-ready.
+local VLESS-over-mKCP e2e coverage. In the external-client matrix this row is
+an intentional client SKIP (upstream client-model limits), so support is
+tracked as server-path supported with documented SKIP caveats.
 
 ## TUN
 
@@ -396,7 +397,8 @@ Advanced transport area, not the first thing to learn. Current runtime support
 implements ShadowTLS v3 ClientHello SessionID authentication, backend TLS
 ApplicationData tainting, switch detection, and rolling-HMAC data frames for
 VLESS/Trojan/VMess-style byte streams. It has local e2e coverage; external
-interop against sing-box/shadow-tls deployments still needs realistic lab proof.
+matrix rows are intentionally SKIP due upstream client-model mismatch, so
+support is tracked as server-path supported with documented SKIP caveats.
 
 ## Common Combinations
 

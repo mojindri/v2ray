@@ -75,24 +75,94 @@ use helpers::{
     select_balancer_outbounds, InboundConnectionHandler,
 };
 
+fn as_usize(value: Option<&serde_json::Value>) -> Option<usize> {
+    value.and_then(serde_json::Value::as_u64).map(|v| v as usize)
+}
+
+fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
+    value.and_then(serde_json::Value::as_u64)
+}
+
+fn as_pool_mode(value: Option<&serde_json::Value>) -> Option<String> {
+    value
+        .and_then(serde_json::Value::as_str)
+        .map(|s| s.trim().to_ascii_lowercase())
+}
+
+fn apply_pool_overrides(mut cfg: PoolConfig, source: &serde_json::Value) -> PoolConfig {
+    if let Some(v) = as_usize(source.get("maxPerDest").or_else(|| source.get("max_per_dest"))) {
+        cfg.max_per_dest = v.max(1);
+    }
+    if let Some(v) = as_usize(
+        source
+            .get("maxGlobalIdle")
+            .or_else(|| source.get("max_global_idle")),
+    ) {
+        cfg.max_global_idle = v.max(1);
+    }
+    if let Some(v) = as_usize(source.get("maxDests").or_else(|| source.get("max_dests"))) {
+        cfg.max_dests = v.max(1);
+    }
+    if let Some(ms) = as_u64(source.get("idleTtlMs").or_else(|| source.get("idle_ttl_ms"))) {
+        cfg.idle_ttl = std::time::Duration::from_millis(ms.max(1));
+    }
+    if let Some(ms) = as_u64(
+        source
+            .get("hotnessWindowMs")
+            .or_else(|| source.get("hotness_window_ms")),
+    ) {
+        cfg.hotness_window = std::time::Duration::from_millis(ms.max(1));
+    }
+    if let Some(v) = as_u64(
+        source
+            .get("minHotnessForPool")
+            .or_else(|| source.get("min_hotness_for_pool")),
+    ) {
+        cfg.min_hotness_for_pool = v.max(1);
+    }
+    cfg
+}
+
+fn pool_config_from_mode(mode: &str) -> Option<PoolConfig> {
+    match mode {
+        "adaptive" => Some(PoolConfig::fast_profile()),
+        "disabled" | "off" | "none" => None,
+        "fixed" => Some(PoolConfig::fixed(8)),
+        _ => None,
+    }
+}
+
 fn freedom_pool_config(config: &Config, settings: &serde_json::Value) -> Option<PoolConfig> {
+    if let Some(pool) = settings.get("pool") {
+        if pool.is_null() {
+            return None;
+        }
+        if let Some(mode) = as_pool_mode(Some(pool)) {
+            return pool_config_from_mode(&mode);
+        }
+        if let Some(pool_obj) = pool.as_object() {
+            let mode = as_pool_mode(pool_obj.get("mode")).unwrap_or_else(|| "adaptive".into());
+            let base = pool_config_from_mode(&mode)?;
+            return Some(apply_pool_overrides(base, pool));
+        }
+    }
+
     if let Some(value) = settings.get("poolSize") {
         if value.is_null() {
             return None;
         }
         {
             if let Some(size) = value.as_u64() {
-                return (size > 0).then(|| PoolConfig::fixed(size as usize));
+                return Some(PoolConfig::fixed((size as usize).max(1)));
             }
             if let Some(policy) = value.as_str() {
-                return match policy.to_ascii_lowercase().as_str() {
-                    "adaptive" => Some(PoolConfig::default()),
-                    "disabled" | "off" | "none" => None,
-                    "fixed" => Some(PoolConfig::fixed(8)),
-                    _ => None,
-                };
+                return pool_config_from_mode(&policy.to_ascii_lowercase());
             }
         }
+    }
+
+    if settings.get("poolEnabled").and_then(serde_json::Value::as_bool) == Some(false) {
+        return None;
     }
 
     if config.profile != ProfileMode::Fast {
@@ -100,7 +170,7 @@ fn freedom_pool_config(config: &Config, settings: &serde_json::Value) -> Option<
     }
 
     match config.fast.as_ref().map(|f| f.pool).unwrap_or_default() {
-        FastPoolPolicy::Adaptive => Some(PoolConfig::default()),
+        FastPoolPolicy::Adaptive => Some(PoolConfig::fast_profile()),
         FastPoolPolicy::Disabled => None,
         FastPoolPolicy::Fixed => Some(PoolConfig::fixed(8)),
     }

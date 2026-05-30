@@ -78,6 +78,20 @@ SSH_CLIENT=5.6.7.8 SSH_KEY=~/.ssh/id_hetzner make vps-test
 SSH_SERVER=1.2.3.4 SSH_KEY=~/.ssh/id_hetzner make vps-tun
 ```
 
+### Sensitive host values
+
+Keep `configs/matrix.env` generic in git (no real IPs or hostnames).
+Use shell overrides or a private local env file for real VPS values:
+
+```sh
+source ./configs/matrix.private.env
+SSH_SERVER="$MY_SERVER_HOST" SSH_CLIENT="$MY_CLIENT_HOST" \
+  make -C labs/realistic interop-server-vps
+```
+
+`configs/matrix.private.env` should stay untracked and contain values like
+`SERVER_HOST`, `TEST_DOMAIN`, and `SHADOWTLS_DEST`.
+
 Optional: `SSH_USER`, `SSH_PORT`, `SSH_EXTRA_OPTS`, or `make vm-pack`.
 
 ## Why this lab reuses existing tests

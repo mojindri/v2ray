@@ -1,1 +1,1 @@
-vless://1791A4CD-09E3-4A29-A36D-FEA98300C845@203.0.113.10:10443?encryption=none&security=reality&type=tcp&sni=www.microsoft.com&fp=chrome&pbk=loYSsUliNDpTJ_ISdh6Q3A3fMc7TnaQfuDlpS-K46Wo&sid=aabbccdd00000001#blackwire-vless-reality
+vless://1791A4CD-09E3-4A29-A36D-FEA98300C845@proxy.example.com:10443?encryption=none&security=reality&type=tcp&sni=www.microsoft.com&fp=chrome&pbk=loYSsUliNDpTJ_ISdh6Q3A3fMc7TnaQfuDlpS-K46Wo&sid=aabbccdd00000001#blackwire-vless-reality
