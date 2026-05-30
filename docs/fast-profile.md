@@ -72,6 +72,11 @@ Accepted `pool.mode` values:
 
 Legacy `poolSize` is still supported for lab/debug compatibility.
 
+Latency lab profiles may lower `minHotnessForPool` to start pooling earlier in
+short benchmark windows. Current VPS measurements use `minHotnessForPool: 4` as
+the balanced lab setting; lower values can help warm keepalive-heavy runs but
+were less stable under high concurrency and no-keepalive sweeps.
+
 ---
 
 ## Validation rules

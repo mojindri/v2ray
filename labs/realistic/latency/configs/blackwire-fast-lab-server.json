@@ -18,7 +18,12 @@
     {
       "tag": "freedom",
       "protocol": "freedom",
-      "settings": { "poolSize": "adaptive" }
+      "settings": {
+        "pool": {
+          "mode": "adaptive",
+          "minHotnessForPool": 4
+        }
+      }
     }
   ]
 }
