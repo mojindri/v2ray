@@ -489,6 +489,48 @@ Decision: accepted. This narrows the clean Compat TCP gap without errors or
 non-200s. Do not claim a WS improvement from this change; wrapped WS rows do
 not use raw TCP splice and observed WS movement is treated as run noise.
 
+Post-commit subset gate:
+
+```bash
+BENCH_DURATION=5 BENCH_CONC=32 BENCH_CONCS="1 8 128" \
+BENCH_PAYLOADS="1k 64k" BENCH_KEEPALIVE_MODES="on off" \
+VPS_SCENARIO=server-gate-smoke make -C labs/realistic latency-vps
+```
+
+- Rows produced: `120/120`.
+- Invalid/noisy rows: `7`, including competitor baseline rows with request
+  errors or `hey` total duration far beyond the requested window. These rows
+  were not used for acceptance.
+- Scope note: this is the candidate subset gate, not the full 320-row gate.
+
+Valid TCP Compat subset summary:
+
+| Row | Result |
+|---|---|
+| Xray `1k ka`, concurrency `1/8/128` | win / near parity / win |
+| Xray `1k noka`, concurrency `1/8/128` | win / mixed / mixed |
+| Xray `64k ka`, concurrency `1/8/128` | win / mixed / win |
+| Xray `64k noka`, concurrency `1/8/128` | win / win / mixed |
+| sing-box `1k ka`, concurrency `1/8/128` | mixed / win / win |
+| sing-box `1k noka`, concurrency `1/8/128` | skipped: competitor baseline invalid |
+| sing-box `64k ka`, concurrency `1/8/128` | skipped invalid baseline at `1`; win / win at `8/128` |
+| sing-box `64k noka`, concurrency `1/8/128` | skipped invalid baseline at `1`; win at `8`; gap at `128` |
+
+Notable valid rows:
+
+| Row | Blackwire Compat | Same-client baseline | Decision |
+|---|---:|---:|---|
+| `xray-bw-compat-tcp-1k-ka c128` | 23,046 req/s, 12.4 ms p99 | 16,870 req/s, 16.9 ms p99 | win |
+| `xray-bw-compat-tcp-64k-noka c8` | 2,310 req/s, 6.3 ms p99 | 1,627 req/s, 9.8 ms p99 | win |
+| `singbox-bw-compat-tcp-1k-ka c128` | 20,562 req/s, 13.8 ms p99 | 17,610 req/s, 16.1 ms p99 | win |
+| `singbox-bw-compat-tcp-64k-noka c128` | 2,384 req/s, 91.8 ms p99 | 2,527 req/s, 91.5 ms p99 | remaining gap |
+
+Decision after subset: keep the adaptive-splice Compat change. It improves or
+matches most valid TCP Compat subset rows and has one remaining valid gap at
+`singbox-bw-compat-tcp-64k-noka c128`. That row should be monitored in the full
+gate, but it does not outweigh the repeated clean `1k` keepalive win and broad
+Xray Compat improvements.
+
 ## Rejected WS Relay Buffer Growth Candidate (2026-05-30)
 
 Candidate: grow the shared pooled relay buffer from `16 KiB` to `64 KiB` after
