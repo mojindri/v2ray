@@ -531,6 +531,79 @@ matches most valid TCP Compat subset rows and has one remaining valid gap at
 gate, but it does not outweigh the repeated clean `1k` keepalive win and broad
 Xray Compat improvements.
 
+Follow-up repeat for the remaining `singbox-bw-compat-tcp-64k-noka c128` gap:
+
+```bash
+BENCH_DURATION=15 BENCH_CONC=128 BENCH_CONCS=128 \
+BENCH_PAYLOADS=64k BENCH_KEEPALIVE_MODES=off \
+VPS_SCENARIO=server-gate-smoke make -C labs/realistic latency-vps
+```
+
+- The row did not repeat cleanly.
+- sing-box native TCP baseline failed with `229` request errors.
+- sing-box to Blackwire Compat TCP failed with `129` request errors.
+- sing-box to Blackwire Fast TCP failed with `12` request errors.
+- Xray TCP rows in the same repeat stayed clean; `xray-bw-compat-tcp-64k-noka
+  c128` beat `xray-xray-tcp-64k-noka c128` on req/s and p99 in that repeat.
+
+Decision: mark the sing-box TCP `64k` no-keepalive concurrency `128` row
+`NEEDS_REPEAT`/invalid for now. Do not optimize against it until the client
+baseline is stable.
+
+Rejected candidate: raise the TCP listener backlog from `128` to `1024`.
+
+- Targeted native VPS subset: `64k`, no keepalive, concurrency `128`, `15s`.
+- It did not clear the high-concurrency Fast Profile failures.
+- `xray-bw-fast-tcp-64k-noka c128` still had request timeouts.
+- `singbox-bw-fast-tcp-64k-noka c128` improved to zero errors in this run, but
+  `singbox-bw-compat-tcp-64k-noka c128` still had request errors and the
+  sing-box native TCP baseline was invalid with timeouts.
+
+Decision: rejected. Do not accept a mixed backlog-only change; continue with
+Fast Profile pool isolation because the failure shape is specific to Fast TCP
+under bursty no-keepalive load.
+
+Accepted candidate: make Fast Profile Freedom preconnect pooling opt-in and
+disable it in the default Fast latency-lab server.
+
+Config-only isolation changed the Fast lab server from adaptive Freedom pooling
+to `pool: disabled` while keeping adaptive splice:
+
+```bash
+BENCH_DURATION=15 BENCH_CONC=128 BENCH_PAYLOADS=64k \
+BENCH_KEEPALIVE_MODES=off VPS_SCENARIO=fast-only-matrix \
+make -C labs/realistic latency-vps
+```
+
+Targeted native VPS result for `64k` no-keepalive concurrency `128`:
+
+| Row | With adaptive pool | Pool disabled | Decision |
+|---|---:|---:|---|
+| `xray-bw-fast-tcp-64k-noka c128` | 767 req/s, 104.5 ms p99, 24 errors | 2,752 req/s, 81.6 ms p99, 0 errors | accept |
+| `singbox-bw-fast-tcp-64k-noka c128` | 2,351 req/s, 91.8 ms p99, 0 errors | 2,895 req/s, 77.3 ms p99, 0 errors | accept |
+
+Follow-up Fast-only subset at concurrency `32` with payloads `1k 64k` and
+keepalive on/off also stayed clean with zero errors/timeouts/non-200s:
+
+| Row | Pool disabled |
+|---|---:|
+| `xray-bw-fast-tcp-1k-ka c32` | 19,731 req/s, 3.5 ms p99 |
+| `singbox-bw-fast-tcp-1k-ka c32` | 21,004 req/s, 3.3 ms p99 |
+| `xray-bw-fast-tcp-64k-noka c32` | 2,282 req/s, 25.7 ms p99 |
+| `singbox-bw-fast-tcp-64k-noka c32` | 2,735 req/s, 20.2 ms p99 |
+
+Decision: accept. Pooling remains available through explicit config and
+`blackwire-fast-lab-server-pooled.json`, but the default Fast Profile and the
+trusted Fast lab gate no longer enable it until a future pool-specific change
+can prove stable cold/warm/stale behavior.
+
+Post-change verification of the exact patch on the same native VPS subset:
+
+| Row | Result |
+|---|---:|
+| `xray-bw-fast-tcp-64k-noka c128` | 2,763 req/s, 79.9 ms p99, 0 errors |
+| `singbox-bw-fast-tcp-64k-noka c128` | 2,604 req/s, 82.0 ms p99, 0 errors |
+
 ## Rejected WS Relay Buffer Growth Candidate (2026-05-30)
 
 Candidate: grow the shared pooled relay buffer from `16 KiB` to `64 KiB` after

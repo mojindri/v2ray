@@ -166,7 +166,8 @@ All configs are in `labs/realistic/latency/configs/`. Lab configs use loopback (
 | File | Purpose |
 |---|---|
 | `blackwire-socks-direct.json` | SOCKS5 inbound (1080) → Freedom |
-| `blackwire-fast-lab-server.json` | VLESS inbound (10080), Fast Profile, security=none |
+| `blackwire-fast-lab-server.json` | VLESS inbound (10080), Fast Profile, security=none, Freedom pool disabled |
+| `blackwire-fast-lab-server-pooled.json` | VLESS inbound (10080), Fast Profile with explicit pooled Freedom outbound for targeted pool experiments |
 | `blackwire-fast-lab-client.json` | SOCKS5 inbound (1081) → VLESS to :10080 |
 | `blackwire-compat-server-tcp.json` | VLESS inbound (10083), no Fast Profile |
 | `xray-server-tcp.json` | Xray VLESS server (10081) |

@@ -49,8 +49,8 @@ pub struct FastConfig {
 
     /// TCP preconnect pooling policy for Freedom outbounds.
     ///
-    /// `adaptive` starts conservative and enables pooling only for hot
-    /// destinations. `disabled` avoids preconnect pooling entirely. `fixed`
+    /// `disabled` avoids preconnect pooling entirely. `adaptive` starts
+    /// conservative and enables pooling only for hot destinations. `fixed`
     /// keeps legacy numeric `poolSize` behavior for lab/debug configs.
     #[serde(default)]
     pub pool: FastPoolPolicy,
@@ -82,10 +82,10 @@ impl Default for FastConfig {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum FastPoolPolicy {
-    /// Ramp pool size based on destination hotness (default).
-    #[default]
+    /// Ramp pool size based on destination hotness.
     Adaptive,
-    /// Disable pooling entirely.
+    /// Disable pooling entirely (default).
+    #[default]
     Disabled,
     /// Use a fixed pool size set by `poolSize`.
     Fixed,
