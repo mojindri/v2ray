@@ -14,12 +14,15 @@
 #   fast-only-matrix  fast-only over BENCH_PAYLOADS and BENCH_KEEPALIVE_MODES
 #   ws-compare        Xray/sing-box WS baselines plus Blackwire WS server rows
 #   ws-matrix         ws-compare rows over BENCH_PAYLOADS and BENCH_KEEPALIVE_MODES
+#   server-gate-smoke strict native TCP+WS server gate, small matrix
+#   server-gate-full  strict native TCP+WS server gate, full matrix
 #   compare-all       local-smoke + xray-compare + singbox-compare
 #
 # Environment:
 #   BENCH_DURATION  seconds per variant (default 30)
 #   BENCH_WARMUP    warmup seconds discarded before measurement (default 0)
 #   BENCH_CONC      concurrency (default 32)
+#   BENCH_CONCS     space-separated concurrency matrix for server gates
 #   BENCH_PAYLOADS  space-separated payload matrix (default: BENCH_PAYLOAD or 1k)
 #   BENCH_KEEPALIVE_MODES  space-separated keepalive matrix: on off (default: on)
 #   REPORT_DIR      output directory (default ./reports)
@@ -37,8 +40,12 @@ CONFIGS_DIR="$LAB_DIR/configs"
 BENCH_DURATION="${BENCH_DURATION:-30}"
 BENCH_WARMUP="${BENCH_WARMUP:-0}"
 BENCH_CONC="${BENCH_CONC:-32}"
+BENCH_PAYLOADS_WAS_SET="${BENCH_PAYLOADS+x}"
+BENCH_KEEPALIVE_MODES_WAS_SET="${BENCH_KEEPALIVE_MODES+x}"
+BENCH_CONCS_WAS_SET="${BENCH_CONCS+x}"
 BENCH_PAYLOADS="${BENCH_PAYLOADS:-${BENCH_PAYLOAD:-1k}}"
 BENCH_KEEPALIVE_MODES="${BENCH_KEEPALIVE_MODES:-on}"
+BENCH_CONCS="${BENCH_CONCS:-$BENCH_CONC}"
 REPORT_DIR="${REPORT_DIR:-$LAB_DIR/reports}"
 TARGET_URL="${TARGET_URL:-}"
 UPSTREAM_BASE_URL="${UPSTREAM_BASE_URL:-http://127.0.0.1:18080}"
@@ -104,6 +111,112 @@ bench_matrix() {
                 bash "$SCRIPTS_DIR/run-bench.sh" "${variant}-${payload}-${suffix}" "$target" "$@"
         done
     done
+}
+
+bench_concurrency_matrix() {
+    local variant="$1"; shift
+    local original_conc="$BENCH_CONC"
+    local conc
+    for conc in $BENCH_CONCS; do
+        BENCH_CONC="$conc" bench_matrix "$variant" "$@"
+    done
+    BENCH_CONC="$original_conc"
+}
+
+require_native_tools() {
+    if [ "$DRY_RUN" = "1" ]; then
+        XRAY_CMD="$XRAY_BIN run -config"
+        SB_CMD="$SINGBOX_BIN run -c"
+        return
+    fi
+    command -v "$XRAY_BIN" >/dev/null 2>&1 || { echo "ERROR: '$XRAY_BIN' not found. Set XRAY_BIN or install xray."; exit 1; }
+    command -v "$SINGBOX_BIN" >/dev/null 2>&1 || { echo "ERROR: '$SINGBOX_BIN' not found. Set SINGBOX_BIN or install sing-box."; exit 1; }
+    XRAY_CMD="$XRAY_BIN run -config"
+    SB_CMD="$SINGBOX_BIN run -c"
+}
+
+run_server_gate_rows() {
+    require_native_tools
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10081 \
+    SERVER_CMD="$XRAY_CMD" CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/xray-server-tcp.json" SERVER_PORT=10081 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-tcp.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_concurrency_matrix "xray-xray-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10083 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-compat-server-tcp.json" SERVER_PORT=10083 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-tcp.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_concurrency_matrix "xray-bw-compat-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-tcp.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_concurrency_matrix "xray-bw-fast-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10082 \
+    SERVER_CMD="$SB_CMD" CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/singbox-server-tcp.json" SERVER_PORT=10082 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-tcp.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_concurrency_matrix "singbox-singbox-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10083 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-compat-server-tcp.json" SERVER_PORT=10083 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-tcp.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_concurrency_matrix "singbox-bw-compat-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10080 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-fast-lab-server.json" SERVER_PORT=10080 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-tcp.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_concurrency_matrix "singbox-bw-fast-tcp"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10085 \
+    SERVER_CMD="$XRAY_CMD" CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/xray-server-ws.json" SERVER_PORT=10085 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_concurrency_matrix "xray-xray-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$XRAY_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/xray-client-ws.json" CLIENT_PORT=1082 \
+    PROXY_ADDR="127.0.0.1:1082" \
+    bench_concurrency_matrix "xray-bw-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10086 \
+    SERVER_CMD="$SB_CMD" CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/singbox-server-ws.json" SERVER_PORT=10086 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_concurrency_matrix "singbox-singbox-ws"
+
+    CONFIG_ENVSUBST=1 \
+    SERVER_ADDR=127.0.0.1 SERVER_PORT=10084 \
+    CLIENT_CMD="$SB_CMD" \
+    SERVER_CONFIG="$CONFIGS_DIR/blackwire-ws-lab-server.json" SERVER_PORT=10084 \
+    CLIENT_CONFIG="$CONFIGS_DIR/singbox-client-ws.json" CLIENT_PORT=1083 \
+    PROXY_ADDR="127.0.0.1:1083" \
+    bench_concurrency_matrix "singbox-bw-ws"
 }
 
 case "$SCENARIO" in
@@ -421,9 +534,29 @@ case "$SCENARIO" in
     bench_matrix "singbox-bw-compat-tcp"
     ;;
 
+  server-gate-smoke)
+    [ -z "$BENCH_PAYLOADS_WAS_SET" ] && BENCH_PAYLOADS="1k 64k"
+    [ -z "$BENCH_KEEPALIVE_MODES_WAS_SET" ] && BENCH_KEEPALIVE_MODES="on off"
+    [ -z "$BENCH_CONCS_WAS_SET" ] && BENCH_CONCS="$BENCH_CONC"
+    [ "${BENCH_DURATION:-30}" = "30" ] && BENCH_DURATION=5
+    log "scenario: server-gate-smoke (${BENCH_DURATION}s measure, concs: $BENCH_CONCS)"
+    log "payloads: $BENCH_PAYLOADS; keepalive: $BENCH_KEEPALIVE_MODES"
+    run_server_gate_rows
+    ;;
+
+  server-gate-full)
+    [ -z "$BENCH_PAYLOADS_WAS_SET" ] && BENCH_PAYLOADS="1k 4k 16k 64k"
+    [ -z "$BENCH_KEEPALIVE_MODES_WAS_SET" ] && BENCH_KEEPALIVE_MODES="on off"
+    [ -z "$BENCH_CONCS_WAS_SET" ] && BENCH_CONCS="1 8 32 128"
+    [ "${BENCH_DURATION:-30}" = "30" ] && BENCH_DURATION=15
+    log "scenario: server-gate-full (${BENCH_DURATION}s measure, concs: $BENCH_CONCS)"
+    log "payloads: $BENCH_PAYLOADS; keepalive: $BENCH_KEEPALIVE_MODES"
+    run_server_gate_rows
+    ;;
+
   *)
     echo "Unknown scenario: $SCENARIO"
-    echo "Known: local-smoke, local-smoke-matrix, local-full, xray-compare, singbox-compare, fast-only, fast-only-matrix, ws-compare, ws-matrix, compare-all, gate-matrix"
+    echo "Known: local-smoke, local-smoke-matrix, local-full, xray-compare, singbox-compare, fast-only, fast-only-matrix, ws-compare, ws-matrix, compare-all, gate-matrix, server-gate-smoke, server-gate-full"
     exit 1
     ;;
 esac
