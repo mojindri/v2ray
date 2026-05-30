@@ -52,7 +52,8 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 /// The first-use guard needs client bytes so it can retry with a fresh dial if
 /// a pooled socket is stale. Server-first protocols do not send client bytes
 /// immediately, so this guard must be bounded to avoid blocking the relay.
-const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(5);
+const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(2);
+const POOLED_FIRST_WRITE_GUARD_BUF_SIZE: usize = 2048;
 
 use std::collections::HashMap;
 
@@ -347,7 +348,8 @@ impl DefaultDispatcher {
         let (mut outbound, pool_tag, peer_addr) = pooled.into_metadata_parts();
         let pool_label = pool_tag.as_deref().unwrap_or("unknown");
 
-        let mut first = vec![0u8; 16 * 1024];
+        // Keep this small to avoid a per-connection heap allocation here.
+        let mut first = [0u8; POOLED_FIRST_WRITE_GUARD_BUF_SIZE];
         let n = match tokio::time::timeout(
             POOLED_FIRST_WRITE_GUARD_TIMEOUT,
             inbound_stream.read(&mut first),

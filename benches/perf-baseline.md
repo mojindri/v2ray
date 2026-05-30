@@ -673,3 +673,32 @@ BENCH_QUICK=1 BENCH_BULK_ONLY=1 BENCH_ITER_TIMEOUT_MS=20000 BENCH_IO_TIMEOUT_MS=
 - `vmess_grpc`: time `[2.3214 ms 2.3412 ms 2.3461 ms]`, thrpt `[26.639 MiB/s 26.696 MiB/s 26.924 MiB/s]`
 
 Both paths completed without relay stalls after stream progress fixes.
+
+## Shared-path batch (2026-05-31)
+
+Commit scope:
+
+- `crates/blackwire-transport/src/tcp.rs`
+  - move listener buffer sizing to bind path (inherited by accepted sockets)
+  - enforce connection-limit admission before per-connection socket tuning
+- `crates/blackwire-app/src/dispatcher.rs`
+  - reduce pooled first-write guard timeout `5ms -> 2ms`
+  - replace per-connection heap guard buffer with fixed small stack buffer
+- `crates/blackwire-protocol/src/freedom.rs`
+  - remove duplicate hotness lock/estimate in pooled connect path
+
+VPS median gate (3 runs, `gate-matrix`, `BENCH_DURATION=5`, `BENCH_CONCS=32`,
+payloads `1k 64k`, keepalive `on off`, upstream `native nginx` on localhost):
+
+- `xray-bw-fast-tcp-1k-ka`: `16291.3 req/s` vs `xray-xray-tcp-1k-ka` `15083.1` (`+8.0%`)
+- `xray-bw-fast-tcp-1k-noka`: `2949.0` vs `575.6` (`+412.3%`)
+- `xray-bw-fast-tcp-64k-ka`: `8861.1` vs `8533.6` (`+3.8%`)
+- `xray-bw-fast-tcp-64k-noka`: `2281.5` vs `2064.7` (`+10.5%`)
+- xray rows median errors: `0`
+
+Known instability remained in sing-box no-keepalive baselines on this VPS
+(`singbox->singbox` showed median errors), so sing-box noka rows are kept as
+`NEEDS_REPEAT` for cross-client final claims.
+
+Decision: accepted for shared-path progression under xray-focused gate; keep
+sing-box noka as a separate stability follow-up.

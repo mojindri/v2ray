@@ -248,10 +248,10 @@ impl DestPool {
         })
     }
 
-    /// Record one connection and return the current effective pool capacity.
-    fn record_and_cap(&self, max: usize, min_hotness_for_pool: u64) -> usize {
+    /// Record one connection and return `(effective_capacity, hotness_count)`.
+    fn record_and_cap(&self, max: usize, min_hotness_for_pool: u64) -> (usize, u64) {
         let count = self.hotness.lock().record_and_get();
-        tier_from_count(count, max, min_hotness_for_pool)
+        (tier_from_count(count, max, min_hotness_for_pool), count)
     }
 
     /// Return the current effective capacity without recording a hit.
@@ -576,7 +576,8 @@ impl OutboundHandler for FreedomOutbound {
             let dest_pool = pool.get_or_create(addr);
 
             // Record this connection, get current adaptive capacity tier.
-            let cap = dest_pool.record_and_cap(pool.max_per_dest, pool.min_hotness_for_pool);
+            let (cap, hotness) =
+                dest_pool.record_and_cap(pool.max_per_dest, pool.min_hotness_for_pool);
             metrics::gauge!(
                 "freedom_pool_capacity",
                 "outbound" => pool.tag.clone()
@@ -586,7 +587,7 @@ impl OutboundHandler for FreedomOutbound {
                 "freedom_pool_hotness",
                 "outbound" => pool.tag.clone()
             )
-            .set(dest_pool.hotness.lock().estimate() as f64);
+            .set(hotness as f64);
 
             let (taken, stale) = dest_pool.try_take(pool.idle_ttl);
 
