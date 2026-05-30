@@ -42,6 +42,36 @@ The CLI flag wins over the config field. This allows using an existing config wi
 |---|---|---|
 | `strictProduction` | `true` | Rejects `security = none`. Set to `false` only for local benchmarking labs. |
 
+### Freedom pool tuning (optional)
+
+Fast Profile uses adaptive Freedom TCP pooling by default. You can tune it per
+outbound in `settings`:
+
+```json
+{
+  "tag": "freedom",
+  "protocol": "freedom",
+  "settings": {
+    "pool": {
+      "mode": "adaptive",
+      "maxPerDest": 8,
+      "maxGlobalIdle": 256,
+      "maxDests": 512,
+      "idleTtlMs": 8000,
+      "hotnessWindowMs": 12000,
+      "minHotnessForPool": 8
+    }
+  }
+}
+```
+
+Accepted `pool.mode` values:
+- `adaptive` (default in Fast Profile)
+- `fixed` (uses fixed per-destination capacity)
+- `disabled` / `off` / `none`
+
+Legacy `poolSize` is still supported for lab/debug compatibility.
+
 ---
 
 ## Validation rules

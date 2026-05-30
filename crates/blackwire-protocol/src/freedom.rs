@@ -65,6 +65,21 @@ impl Default for PoolConfig {
 }
 
 impl PoolConfig {
+    /// Adaptive defaults for Fast Profile production traffic.
+    ///
+    /// Compared to `Default`, this ramps to a higher steady-state capacity and
+    /// starts pooling earlier so short benchmark windows can reach warm behavior.
+    pub fn fast_profile() -> Self {
+        Self {
+            max_per_dest: 8,
+            max_global_idle: 256,
+            max_dests: 512,
+            idle_ttl: Duration::from_secs(8),
+            hotness_window: Duration::from_secs(12),
+            min_hotness_for_pool: 8,
+        }
+    }
+
     /// Explicit numeric `poolSize` override for lab/debug configs.
     ///
     /// Unlike adaptive defaults, this starts pooling immediately so controlled
@@ -74,7 +89,7 @@ impl PoolConfig {
             max_per_dest,
             max_global_idle: max_per_dest.saturating_mul(64).max(max_per_dest),
             min_hotness_for_pool: 1,
-            ..Self::default()
+            ..Self::fast_profile()
         }
     }
 }

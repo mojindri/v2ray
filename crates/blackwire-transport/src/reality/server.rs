@@ -8,6 +8,7 @@ use anyhow::Result;
 use hkdf::Hkdf;
 use sha2::Sha256;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::time::timeout;
 use tracing::{debug, warn};
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -18,6 +19,8 @@ use blackwire_common::{
 
 use super::parser::{parse_client_hello, reality_auth_peer_public_keys, ClientHelloFields};
 use super::{MAX_TIME_DIFF_SECS, REALITY_HKDF_INFO, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY};
+
+const REALITY_RECORD_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// Stream ready for TLS after successful REALITY authentication.
 pub struct RealityAccepted {
@@ -99,7 +102,13 @@ impl RealityServer {
         replay_mode: ReplayMode,
     ) -> Result<(BoxedStream, [u8; 32]), ProxyError> {
         let mut record_header = [0u8; 5];
-        stream.read_exact(&mut record_header).await?;
+        timeout(
+            REALITY_RECORD_READ_TIMEOUT,
+            stream.read_exact(&mut record_header),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout)?
+        .map_err(ProxyError::from)?;
 
         if record_header[0] != 0x16 {
             debug!(
@@ -116,7 +125,13 @@ impl RealityServer {
         }
 
         let mut handshake_body = vec![0u8; record_len];
-        stream.read_exact(&mut handshake_body).await?;
+        timeout(
+            REALITY_RECORD_READ_TIMEOUT,
+            stream.read_exact(&mut handshake_body),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout)?
+        .map_err(ProxyError::from)?;
 
         let fields = match parse_client_hello(&handshake_body) {
             Ok(f) => f,

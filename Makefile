@@ -19,6 +19,7 @@ include make/aliases.mk
 	clean clean-generated clean-all-generated clean-reports clean-pcaps clean-lima-artifacts clean-bench \
 	bench bench-build bench-xray bench-singbox bench-smoke \
 	bench-protocol bench-protocol-quick bench-flamegraph \
+	shared-path-local-gate \
 	help help-compat help-internal bench-vm-smoke bench-vm-total bench-vps-smoke bench-vps-total \
 	perf perf-vps lima-stop lima-browser-baseline lima-fingerprint-total \
 	local-load local-slowloris local-pcap local-fingerprint-compare local-netem local-hostility \
@@ -244,6 +245,10 @@ bench-protocol-quick:
 ## bench-flamegraph: Profile one path (PROTO=vless_tcp SCENARIO=bulk).
 bench-flamegraph:
 	bash benches/scripts/flamegraph-protocol.sh "$(PROTO)" "$(SCENARIO)"
+
+## shared-path-local-gate: Local shared-path performance gate (tests + quick benches).
+shared-path-local-gate:
+	bash tools/perf/shared_path_local_gate.sh
 
 
 # lab / VM convenience wrappers (internal; see make help-internal)

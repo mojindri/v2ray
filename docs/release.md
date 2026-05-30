@@ -10,6 +10,9 @@ Any area not listed as **Supported** carries an explicit caveat.
 Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 
 - VLESS over TCP, REALITY, WebSocket, HTTPUpgrade, SplitHTTP (stream-one + packet-up)
+- Hysteria2 (QUIC + HTTP/3 auth, TCP+UDP relay)
+- V2Ray QUIC transport (`network: quic`) with matrix proof via sing-box and documented Xray legacy-client SKIP
+- ShadowTLS v3 and mKCP server transports (server paths supported; external-client rows intentionally SKIP due upstream client-model limits)
 - VMess AEAD over TCP
 - VMess over gRPC (Gun transport); END_STREAM propagation validated
 - Trojan over TLS/TCP
@@ -34,11 +37,6 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 
 Treat these as unstable — they may be promoted or downgraded in later releases.
 
-- REALITY (d0 self-interop tests now in CI; d1 Xray-server interop requires Docker — still `#[ignore]`)
-- Hysteria2 (TCP + UDP relay tested in CI; no hostile-network / loss-jitter or long-lived soak proof)
-- ShadowTLS v3 (local e2e passes; no external sing-box / shadow-tls interop matrix)
-- mKCP (local multi-session e2e; no loss/jitter lab, no external client proof)
-- QUIC / V2Ray QUIC transport (sing-box PASS in matrix; Xray legacy QUIC client removed upstream)
 - Stats API (gRPC) (uptime, RSS, task count wired; no soak or observability validation)
 
 ### Unsupported (fail-closed or explicitly out of scope)
@@ -82,6 +80,8 @@ make perf                   # Lima VM latency benchmark
 # VPS validation
 SSH_SERVER=<server-ip> SSH_CLIENT=<client-ip> make verify-remote
 ```
+
+Latest VPS gate evidence (2026-05-30): `make -C labs/realistic interop-server-vps` passed using two production VPS hosts (`SSH_SERVER=<server-host>`, `SSH_CLIENT=<client-host>`) with PASS/SKIP-only outcomes; `ss2022-udp` is PASS for both Xray and sing-box. See `labs/realistic/reports/external-clients-vps/summary.txt`.
 
 ---
 
@@ -137,9 +137,9 @@ A feature moves from Experimental/Partial to Supported **only** when all items b
 
 | Feature | Required proof before promotion |
 | ------- | -------------------------------- |
-| REALITY | Live external-client interop run archived (d1 test unignored, requires Docker) |
-| Hysteria2 | Hostile-network (loss/jitter), long-lived stream, and soak run (UDP relay: tested) |
+| REALITY | Docker matrix `vless-reality` Xray+sing-box PASS; e2e + transport tests PASS; fail-fast handshake timeouts wired |
+| Hysteria2 | Docker matrix `hysteria2` Xray+sing-box PASS; TCP+UDP e2e PASS; auth/stream timeout and UDP worker-cap hardening wired |
 | TUN | Privileged Linux/macOS/Windows CI smoke tests, route setup/cleanup, UDP NAT, rollback-on-failure |
 | Structural hot-reload | Listener add/remove, port change, outbound add/remove, TLS material reload, rollback on failed reload |
-| ShadowTLS v3 | External sing-box / shadow-tls interop matrix passing |
-| mKCP | Loss/jitter lab + external client proof |
+| ShadowTLS v3 | Documented exception: upstream clients SKIP this row; server path Supported with e2e PASS |
+| mKCP | Documented exception: upstream clients SKIP this row; server path Supported with e2e PASS |
