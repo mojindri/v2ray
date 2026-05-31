@@ -6,7 +6,7 @@ This project is pre-1.0. The support contract is owned by
 [docs/release.md](docs/release.md), and detailed feature evidence is owned by
 [docs/feature-matrix.md](docs/feature-matrix.md).
 
-## Unreleased
+## 0.1.0 - 2026-05-31
 
 ### Added
 
