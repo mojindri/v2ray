@@ -72,6 +72,7 @@ mod linux {
     // Using a larger pipe reduces the number of splice calls needed for
     // big transfers. 256 KiB is a good balance between memory and throughput.
     const PIPE_CAPACITY: usize = 256 * 1024;
+    const EPOLL_SPLICE_YIELD_INTERVAL: u64 = 1024 * 1024;
     const PEER_DRAIN: Duration = Duration::from_millis(250);
 
     /// A pair of anonymous kernel pipe file descriptors.
@@ -646,10 +647,11 @@ mod linux {
                     Err(e) => return Err(e),
                 }
             }
-            // Yield every 64 KiB so relay tasks don't starve new-connection tasks,
-            // but skip the yield for small payloads (e.g. HTTP keep-alive) where
-            // the mandatory readable().await in Phase A already yields the task.
-            if total % (64 * 1024) < in_bytes as u64 {
+            // Yield periodically on sustained bulk streams so relay tasks don't
+            // monopolize the worker. The readable/writeable awaits already yield
+            // for small or backpressured streams; keep the explicit yield coarse
+            // to avoid adding scheduler overhead to hot splice loops.
+            if total % EPOLL_SPLICE_YIELD_INTERVAL < in_bytes as u64 {
                 tokio::task::yield_now().await;
             }
         }
