@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { Inbound, ManagedUser, Settings } from "../../lib/types";
 import { copyText } from "../../lib/clipboard";
 import { formatBytes, formatDate } from "../../lib/format";
+import { subscriptionUrl } from "../../lib/subscription";
 import { Badge } from "../atoms/Badge";
 import { Button } from "../atoms/Button";
 import { IconButton } from "../atoms/IconButton";
@@ -98,7 +99,7 @@ export function UserTable({
           <tbody>
             {users.map((user) => {
               const inbound = inboundById.get(user.inboundId);
-              const subUrl = `${settings?.publicBaseUrl ?? ""}/sub/${user.subToken}`;
+              const subUrl = subscriptionUrl(settings, user.subToken);
               return (
                 <tr key={user.id} className={selectedIds.has(user.id) ? "row-selected" : ""}>
                   <td className="check-cell">

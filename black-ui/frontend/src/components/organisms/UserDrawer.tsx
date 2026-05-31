@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import type { Inbound, ManagedUser, Settings, UserInput } from "../../lib/types";
 import { copyText } from "../../lib/clipboard";
 import { formatBytes, fromInputDateTime, toInputDateTime } from "../../lib/format";
+import { subscriptionUrl } from "../../lib/subscription";
 import { Button } from "../atoms/Button";
 import { IconButton } from "../atoms/IconButton";
 import { Input, Select, Textarea } from "../atoms/Input";
@@ -51,7 +52,7 @@ export function UserDrawer({
   const [expiryLocal, setExpiryLocal] = useState("");
   const [credentialText, setCredentialText] = useState("{}");
   const [copyFeedback, setCopyFeedback] = useState("");
-  const subUrl = useMemo(() => (user && settings ? `${settings.publicBaseUrl}/sub/${user.subToken}` : ""), [settings, user]);
+  const subUrl = useMemo(() => subscriptionUrl(settings, user?.subToken ?? ""), [settings, user]);
 
   useEffect(() => {
     if (user) {
