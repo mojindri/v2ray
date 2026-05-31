@@ -1,3 +1,5 @@
+//! Black UI server — management panel backend for Blackwire.
+
 mod app;
 mod auth;
 mod capabilities;
