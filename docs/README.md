@@ -8,6 +8,7 @@ place: duplicate summaries drift quickly.
 | Question | Canonical doc |
 | --- | --- |
 | What is supported, experimental, or unsupported for release? | [release.md](release.md) |
+| What changed between release-facing snapshots? | [../CHANGELOG.md](../CHANGELOG.md) |
 | What is the detailed feature status and evidence? | [feature-matrix.md](feature-matrix.md) |
 | Which tests/gates should be run? | [11-testing.md](11-testing.md) |
 | Which `make` command should I use day to day? | [test-workflows.md](test-workflows.md) |
