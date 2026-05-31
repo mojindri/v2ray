@@ -3,6 +3,7 @@ set -euo pipefail
 
 REPO="${BLACKWIRE_REPO:-mojindri/v2ray}"
 VERSION="${VERSION:-latest}"
+DOWNLOAD_BASE="${BLACKWIRE_DOWNLOAD_BASE:-}"
 PREFIX="${PREFIX:-/usr/local}"
 CONFIG_DIR="${CONFIG_DIR:-/etc/blackwire}"
 STATE_DIR="${STATE_DIR:-/var/lib/blackwire}"
@@ -46,7 +47,9 @@ detect_asset() {
 
 download_url() {
     asset="$1"
-    if [ "$VERSION" = "latest" ]; then
+    if [ -n "$DOWNLOAD_BASE" ]; then
+        echo "${DOWNLOAD_BASE%/}/${asset}"
+    elif [ "$VERSION" = "latest" ]; then
         echo "https://github.com/${REPO}/releases/latest/download/${asset}"
     else
         echo "https://github.com/${REPO}/releases/download/${VERSION}/${asset}"
@@ -120,7 +123,8 @@ main() {
 
     (
         cd "$workdir"
-        sha256sum -c "$asset.sha256"
+        awk -v asset="$asset" '{ print $1 "  " asset }' "$asset.sha256" > "$asset.sha256.local"
+        sha256sum -c "$asset.sha256.local"
         tar -xzf "$asset"
     )
 

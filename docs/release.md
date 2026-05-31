@@ -162,6 +162,8 @@ curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/main/scripts/install
 
 By default, the installer does not start the service. To start immediately after
 installing, create `/etc/blackwire/config.json` first and set `START_SERVICE=1`.
+For mirrors or installer tests, set `BLACKWIRE_DOWNLOAD_BASE` to a directory URL
+that contains the archive and matching `.sha256` file.
 
 ## Package Repositories
 
