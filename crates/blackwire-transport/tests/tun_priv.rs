@@ -236,7 +236,7 @@ async fn macos_tun_runtime_privileged_smoke() {
         wintun_file: None,
     };
     let device = create_tun(&cfg).expect("macOS utun creation failed");
-    run_runtime_briefly(cfg, device).await;
+    run_macos_runtime_with_route_asserts(cfg, device).await;
 }
 
 /// Starts the Windows Wintun runtime long enough to create the adapter, install
@@ -250,27 +250,34 @@ async fn macos_tun_runtime_privileged_smoke() {
 async fn windows_tun_runtime_privileged_smoke() {
     let wintun_file =
         std::env::var("WINTUN_FILE").expect("WINTUN_FILE must point to wintun.dll for CI smoke");
+    let outbound_interface = std::env::var("TUN_OUTBOUND_INTERFACE")
+        .expect("TUN_OUTBOUND_INTERFACE must point to the physical egress interface name");
     let cfg = TunConfig {
         name: "Blackwire CI Wintun".into(),
         address: "198.19.11.1".parse().unwrap(),
         netmask: "255.255.0.0".parse().unwrap(),
         mtu: 1500,
         bypass_mark: 0,
-        outbound_interface: None,
+        outbound_interface: Some(outbound_interface),
         redirect_port: 17894,
         dns_port: 15304,
         wintun_file: Some(wintun_file),
     };
     let device = create_tun(&cfg).expect("Windows Wintun creation failed");
-    run_runtime_briefly(cfg, device).await;
+    run_windows_runtime_with_route_asserts(cfg, device).await;
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-async fn run_runtime_briefly(cfg: TunConfig, device: blackwire_transport::tun::TunDevice) {
+#[cfg(target_os = "macos")]
+async fn run_macos_runtime_with_route_asserts(
+    cfg: TunConfig,
+    device: blackwire_transport::tun::TunDevice,
+) {
+    let iface = cfg.name.clone();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handle = tokio::spawn(async move { TunRuntime::new(cfg).run(device, shutdown_rx).await });
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_for_macos_runtime_state(&iface, true).await;
+
     shutdown_tx
         .send(true)
         .expect("runtime shutdown receiver dropped before signal");
@@ -280,6 +287,129 @@ async fn run_runtime_briefly(cfg: TunConfig, device: blackwire_transport::tun::T
         .expect("TUN runtime smoke timed out")
         .expect("TUN runtime task panicked")
         .expect("TUN runtime returned an error");
+
+    wait_for_macos_runtime_state(&iface, false).await;
+}
+
+#[cfg(target_os = "macos")]
+async fn wait_for_macos_runtime_state(interface_name: &str, should_exist: bool) {
+    let timeout_at = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let routes_ok = macos_split_routes_present(interface_name).await;
+        let pf_ok = macos_pf_anchor_has_rules(interface_name).await;
+        let state_ok = if should_exist {
+            routes_ok && pf_ok
+        } else {
+            !routes_ok && !pf_ok
+        };
+
+        if state_ok {
+            return;
+        }
+
+        if tokio::time::Instant::now() >= timeout_at {
+            assert!(
+                state_ok,
+                "macOS TUN runtime state mismatch for interface `{interface_name}`: routes_ok={routes_ok}, pf_ok={pf_ok}, should_exist={should_exist}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn macos_split_routes_present(interface_name: &str) -> bool {
+    let out_a = tokio::process::Command::new("route")
+        .args(["-n", "get", "1.0.0.1"])
+        .output()
+        .await
+        .expect("route -n get 1.0.0.1 failed");
+    let out_b = tokio::process::Command::new("route")
+        .args(["-n", "get", "129.0.0.1"])
+        .output()
+        .await
+        .expect("route -n get 129.0.0.1 failed");
+    let a = String::from_utf8_lossy(&out_a.stdout);
+    let b = String::from_utf8_lossy(&out_b.stdout);
+    a.lines()
+        .any(|line| line.trim_start().starts_with("interface:") && line.contains(interface_name))
+        && b.lines()
+            .any(|line| line.trim_start().starts_with("interface:") && line.contains(interface_name))
+}
+
+#[cfg(target_os = "macos")]
+async fn macos_pf_anchor_has_rules(interface_name: &str) -> bool {
+    let out = tokio::process::Command::new("pfctl")
+        .args(["-a", "blackwire/tun", "-s", "rules"])
+        .output()
+        .await
+        .expect("pfctl -a blackwire/tun -s rules failed");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    stdout.contains("rdr pass on")
+        && stdout.contains(interface_name)
+        && stdout.contains("port 53")
+}
+
+#[cfg(target_os = "windows")]
+async fn run_windows_runtime_with_route_asserts(
+    cfg: TunConfig,
+    device: blackwire_transport::tun::TunDevice,
+) {
+    let iface = cfg.name.clone();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { TunRuntime::new(cfg).run(device, shutdown_rx).await });
+
+    wait_for_windows_route_state(&iface, true).await;
+
+    shutdown_tx
+        .send(true)
+        .expect("runtime shutdown receiver dropped before signal");
+
+    timeout(Duration::from_secs(10), handle)
+        .await
+        .expect("TUN runtime smoke timed out")
+        .expect("TUN runtime task panicked")
+        .expect("TUN runtime returned an error");
+
+    wait_for_windows_route_state(&iface, false).await;
+}
+
+#[cfg(target_os = "windows")]
+async fn wait_for_windows_route_state(interface_name: &str, should_exist: bool) {
+    let timeout_at = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let has_routes = windows_split_routes_present(interface_name).await;
+        if has_routes == should_exist {
+            return;
+        }
+        if tokio::time::Instant::now() >= timeout_at {
+            assert_eq!(
+                has_routes, should_exist,
+                "Windows split-route state mismatch for interface `{interface_name}`"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn windows_split_routes_present(interface_name: &str) -> bool {
+    let output = tokio::process::Command::new("netsh")
+        .args(["interface", "ipv4", "show", "route"])
+        .output()
+        .await
+        .expect("netsh interface ipv4 show route failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lower = route_row_present(&stdout, "0.0.0.0/1", interface_name);
+    let upper = route_row_present(&stdout, "128.0.0.0/1", interface_name);
+    lower && upper
+}
+
+#[cfg(target_os = "windows")]
+fn route_row_present(routes_output: &str, prefix: &str, interface_name: &str) -> bool {
+    routes_output
+        .lines()
+        .any(|line| line.contains(prefix) && line.contains(interface_name))
 }
 
 #[cfg(target_os = "macos")]
