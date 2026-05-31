@@ -236,17 +236,17 @@ impl TcpServerTransport {
                 None
             };
 
-            // Apply socket options only after we know the connection is admitted.
-            if let Err(e) = Self::apply_socket_opts(&stream) {
-                debug!(error = %e, "failed to set socket options");
-            }
-
             debug!(peer = %peer_addr, "TCP connection accepted");
 
             // Spawn a new task for this connection so the accept loop is not blocked.
             let handler = Arc::clone(&handler);
             tokio::spawn(async move {
                 let _permit = permit;
+                // Apply socket options in the connection task to keep the
+                // accept loop focused on accept/admission under load.
+                if let Err(e) = Self::apply_socket_opts(&stream) {
+                    debug!(error = %e, "failed to set socket options");
+                }
                 let stream: BoxedStream = Box::new(stream);
                 if let Err(e) = handler.handle_connection(stream, peer_addr).await {
                     if !e.is_benign() {
