@@ -1,0 +1,8 @@
+{
+  "max_peak_rss_kb": 26000,
+  "max_peak_fd": 160,
+  "max_peak_threads": 10,
+  "min_requests_per_second": 12000.0,
+  "max_p95_latency_ms": 5.0,
+  "max_p99_latency_ms": 7.0
+}
