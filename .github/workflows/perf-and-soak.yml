@@ -38,8 +38,8 @@ jobs:
         run: cargo bench -p blackwire-benches
       - name: Enforce key benchmark gate
         run: |
-          chmod +x scripts/bench/criterion_gate.sh
-          scripts/bench/criterion_gate.sh target/criterion ci/bench-gate-key-scenarios.txt 0.08
+          chmod +x scripts/bench/criterion_gate.sh scripts/bench/criterion_gate_all.sh
+          scripts/bench/criterion_gate_all.sh target/criterion 0.08
 
   latency-smoke:
     name: Native latency smoke
