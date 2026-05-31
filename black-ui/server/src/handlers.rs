@@ -8,6 +8,7 @@ use base64::{engine::general_purpose, Engine as _};
 use chrono::DateTime;
 use rusqlite::params;
 use serde_json::{json, Value};
+use std::net::SocketAddr;
 use uuid::Uuid;
 
 use crate::{
@@ -1031,9 +1032,83 @@ fn validate_outbound(input: &OutboundInput) -> Result<(), AppError> {
     ) {
         return Err(AppError::bad_request("unsupported outbound protocol"));
     }
-    validate_optional_json("settings", input.settings.as_deref())?;
+    let settings = parse_optional_json("settings", input.settings.as_deref())?;
     validate_optional_json("streamSettings", input.stream_settings.as_deref())?;
+    if !input.enabled {
+        return Ok(());
+    }
+    match input.protocol.as_str() {
+        "freedom" => {}
+        "vless" => {
+            validate_address_port_settings("VLESS", &settings)?;
+            let uuid = settings
+                .pointer("/users/0/id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::bad_request("VLESS outbound requires users[0].id"))?;
+            Uuid::parse_str(uuid.trim())
+                .map_err(|e| AppError::bad_request(format!("invalid VLESS users[0].id: {e}")))?;
+        }
+        "vmess" => {
+            validate_address_port_settings("VMess", &settings)?;
+            let uuid = settings
+                .pointer("/users/0/id")
+                .and_then(Value::as_str)
+                .ok_or_else(|| AppError::bad_request("VMess outbound requires users[0].id"))?;
+            Uuid::parse_str(uuid.trim())
+                .map_err(|e| AppError::bad_request(format!("invalid VMess users[0].id: {e}")))?;
+        }
+        "trojan" => {
+            validate_address_port_settings("Trojan", &settings)?;
+            require_json_string(&settings, "password", "Trojan outbound")?;
+        }
+        "shadowsocks" => {
+            validate_address_port_settings("Shadowsocks outbound", &settings)?;
+            require_json_string(&settings, "password", "Shadowsocks outbound")?;
+        }
+        "hysteria2" => {
+            let server = require_json_string(&settings, "server", "Hysteria2 outbound")?;
+            server.parse::<SocketAddr>().map_err(|e| {
+                AppError::bad_request(format!("invalid Hysteria2 outbound server '{server}': {e}"))
+            })?;
+        }
+        _ => {}
+    }
     Ok(())
+}
+
+fn validate_address_port_settings(label: &str, settings: &Value) -> Result<SocketAddr, AppError> {
+    let address = require_json_string(settings, "address", label)?;
+    let port = settings
+        .get("port")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| AppError::bad_request(format!("{label} requires port")))?;
+    if port == 0 || port > u16::MAX as u64 {
+        return Err(AppError::bad_request(format!(
+            "{label} port must be between 1 and 65535"
+        )));
+    }
+    let endpoint = format!("{address}:{port}");
+    endpoint
+        .parse::<SocketAddr>()
+        .map_err(|e| AppError::bad_request(format!("invalid {label} address '{endpoint}': {e}")))
+}
+
+fn require_json_string<'a>(
+    settings: &'a Value,
+    field: &str,
+    label: &str,
+) -> Result<&'a str, AppError> {
+    let value = settings
+        .get(field)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .ok_or_else(|| AppError::bad_request(format!("{label} requires {field}")))?;
+    if value.is_empty() {
+        return Err(AppError::bad_request(format!(
+            "{label} {field} must not be empty"
+        )));
+    }
+    Ok(value)
 }
 
 fn validate_section(name: &str, input: &ConfigSectionInput) -> Result<(), AppError> {
@@ -1058,13 +1133,18 @@ fn validate_section(name: &str, input: &ConfigSectionInput) -> Result<(), AppErr
 }
 
 fn validate_optional_json(label: &str, raw: Option<&str>) -> Result<(), AppError> {
+    let _ = parse_optional_json(label, raw)?;
+    Ok(())
+}
+
+fn parse_optional_json(label: &str, raw: Option<&str>) -> Result<Value, AppError> {
     if let Some(raw) = raw {
         if !raw.trim().is_empty() {
-            serde_json::from_str::<Value>(raw)
-                .map_err(|e| AppError::bad_request(format!("invalid {label} JSON: {e}")))?;
+            return serde_json::from_str::<Value>(raw)
+                .map_err(|e| AppError::bad_request(format!("invalid {label} JSON: {e}")));
         }
     }
-    Ok(())
+    Ok(json!({}))
 }
 
 fn validate_user(input: &UserInput) -> Result<(), AppError> {
@@ -1083,4 +1163,55 @@ fn validate_user(input: &UserInput) -> Result<(), AppError> {
             .map_err(|e| AppError::bad_request(format!("invalid expiry_at: {e}")))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn outbound(protocol: &str, settings: &str, enabled: bool) -> OutboundInput {
+        OutboundInput {
+            tag: format!("{protocol}-out"),
+            protocol: protocol.into(),
+            enabled,
+            settings: Some(settings.into()),
+            stream_settings: None,
+        }
+    }
+
+    #[test]
+    fn enabled_hysteria2_outbound_requires_server() {
+        assert!(validate_outbound(&outbound("hysteria2", "{}", true)).is_err());
+        assert!(validate_outbound(&outbound("hysteria2", "{}", false)).is_ok());
+        assert!(validate_outbound(&outbound(
+            "hysteria2",
+            r#"{"server":"127.0.0.1:443"}"#,
+            true
+        ))
+        .is_ok());
+    }
+
+    #[test]
+    fn enabled_proxy_outbounds_require_buildable_settings() {
+        let uuid = "459dc0c8-d891-4768-9234-faf11fd26b5d";
+        assert!(validate_outbound(&outbound("vless", "{}", true)).is_err());
+        assert!(validate_outbound(&outbound(
+            "vless",
+            &format!(r#"{{"address":"127.0.0.1","port":443,"users":[{{"id":"{uuid}"}}]}}"#),
+            true
+        ))
+        .is_ok());
+        assert!(validate_outbound(&outbound(
+            "trojan",
+            r#"{"address":"127.0.0.1","port":443}"#,
+            true
+        ))
+        .is_err());
+        assert!(validate_outbound(&outbound(
+            "shadowsocks",
+            r#"{"address":"127.0.0.1","port":443,"password":"secret"}"#,
+            true
+        ))
+        .is_ok());
+    }
 }
