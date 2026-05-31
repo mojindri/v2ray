@@ -1,3 +1,45 @@
+//! REALITY client — builds and sends an authenticated TLS ClientHello.
+//!
+//! # What REALITY does (plain-English version)
+//!
+//! Normally, a proxy connection is detectable because it uses an unusual TLS
+//! certificate or an unknown protocol. REALITY hides the proxy by pretending to
+//! be a real Chrome browser connecting to a real HTTPS website.
+//!
+//! The trick: a standard TLS ClientHello has fields that look completely normal to
+//! network inspectors but can carry hidden authentication data in specific places:
+//!
+//! 1. **`random` field** — 32 bytes that are "random" to observers, but the client
+//!    uses them as an HKDF salt + AES-GCM nonce for the auth token.
+//! 2. **`session_id` field** — 32 bytes normally used for TLS session resumption,
+//!    but here they hold an AES-256-GCM encrypted token that only the server can verify.
+//! 3. **`key_share` extension** — carries the client's X25519 key that the server
+//!    uses to compute a shared secret (ECDH) and recover the auth key.
+//!
+//! # Authentication flow
+//!
+//! 1. Client generates a fresh X25519 key pair.
+//! 2. Client computes `shared_secret = ECDH(client_private, server_public_key)`.
+//! 3. Client derives `auth_key = HKDF-SHA256(shared_secret, salt=random[0..20])`.
+//! 4. Client encrypts a short plaintext token (version + timestamp + short_id) using
+//!    `AES-256-GCM(auth_key, nonce=random[20..32], aad=ClientHello_body)`.
+//! 5. The 32-byte ciphertext is written into the `session_id` slot of the ClientHello.
+//!
+//! # What the server does
+//!
+//! The server parses the incoming ClientHello, extracts the `key_share` and `random`,
+//! computes the same shared secret, derives the same auth_key, and tries to decrypt
+//! the session_id. If decryption succeeds and the token is valid (correct short_id,
+//! timestamp within skew), the connection is authenticated. Otherwise, it is forwarded
+//! to the real cover website so the connection looks normal to a passive observer.
+//!
+//! # After authentication
+//!
+//! Once authenticated, the client and server complete a full TLS 1.3 handshake using
+//! the X25519 key shares from the ClientHello. The resulting TLS session carries the
+//! proxy protocol (VLESS, etc.) over an encrypted channel that looks exactly like a
+//! legitimate TLS 1.3 connection to the cover site's domain.
+
 use std::net::SocketAddr;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -170,12 +212,23 @@ fn make_client_key_shares(server_public_key: [u8; 32]) -> ClientKeyShares {
     }
 }
 
+/// Derive the REALITY authentication key from the ECDH shared secret.
+///
+/// Returns `(random, auth_key)` where:
+/// - `random` is 32 freshly-generated random bytes placed in the TLS ClientHello `random` field.
+///   This looks like normal TLS randomness to an observer, but we split it:
+///     - `random[0..20]`  → HKDF salt (mixed with the shared secret to produce auth_key)
+///     - `random[20..32]` → AES-GCM nonce for encrypting the auth token into session_id
+/// - `auth_key` is the 32-byte key used to encrypt/decrypt the hidden auth token.
 fn derive_auth_key(shared_secret: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), ProxyError> {
-    // REALITY reuses the TLS random field:
-    // random[0..20] is the HKDF salt, random[20..32] is the AES-GCM nonce.
+    // Generate 32 truly random bytes. These go verbatim into the TLS ClientHello
+    // `random` field, making the handshake indistinguishable from a real browser's.
     let mut random = [0u8; 32];
     rand::rng().fill(&mut random[..]);
 
+    // HKDF-SHA256: derive a 32-byte auth key from the ECDH shared secret.
+    // Using random[0..20] as the salt ensures a unique auth_key per connection,
+    // preventing replay attacks even if the same ECDH key pair were reused.
     let hk = Hkdf::<Sha256>::new(Some(&random[..20]), shared_secret);
     let mut auth_key = [0u8; 32];
     hk.expand(REALITY_HKDF_INFO, &mut auth_key)
@@ -184,32 +237,61 @@ fn derive_auth_key(shared_secret: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), Pro
     Ok((random, auth_key))
 }
 
+/// Build and AES-256-GCM-encrypt the REALITY authentication token.
+///
+/// # What is the token?
+/// The token is a short plaintext blob that proves the client knows the server's
+/// private key (because only someone who did the ECDH can derive `auth_key`).
+///
+/// Plaintext layout (matches Xray-core / sing-box — REALITY spec):
+/// ```text
+/// [0..4]   Client version (4 bytes, zeroed — reserved for future use)
+/// [4..8]   Unix timestamp (4 bytes, big-endian) — for replay protection
+/// [8..16]  Short ID (up to 8 bytes, zero-padded) — identifies this client
+/// ```
+///
+/// The plaintext is encrypted using AES-256-GCM:
+/// - Key:   `auth_key` (derived from ECDH shared secret)
+/// - Nonce: `random[20..32]` (12 bytes from the ClientHello random field)
+/// - AAD:   the entire ClientHello body — ensures the token is bound to THIS exact
+///           ClientHello and cannot be copy-pasted into a different connection.
+///
+/// The 16-byte GCM tag is appended, making the output exactly 32 bytes —
+/// exactly the size of the TLS `session_id` field where it will be stored.
 fn encrypt_reality_token(
     short_id: &[u8],
     random: &[u8; 32],
     auth_key: &[u8; 32],
     aad: &[u8],
 ) -> Result<[u8; 32], ProxyError> {
+    // Get the current Unix timestamp (seconds since 1970-01-01 00:00:00 UTC).
+    // The server checks this value is within ±60 seconds of its own clock
+    // to prevent replay attacks using captured ClientHellos.
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as u32;
 
-    // Layout matches Xray-core / sing-box (xtls/reality): 4-byte client version,
-    // 4-byte big-endian Unix timestamp, 8-byte short ID (zero-padded).
+    // Build the 16-byte plaintext token.
+    // Bytes 0-3: client version (left as zero — reserved).
+    // Bytes 4-7: timestamp (big-endian u32).
+    // Bytes 8-15: short ID (zero-padded to 8 bytes if shorter).
     let mut plaintext = [0u8; REALITY_TOKEN_PLAINTEXT_LEN];
     plaintext[4..8].copy_from_slice(&ts.to_be_bytes());
     let sid_len = short_id.len().min(8);
     plaintext[8..8 + sid_len].copy_from_slice(&short_id[..sid_len]);
 
+    // Encrypt the plaintext with AES-256-GCM.
+    // The output is: ciphertext (16 bytes) + GCM auth tag (16 bytes) = 32 bytes total.
+    // These 32 bytes replace the `session_id` field in the TLS ClientHello.
     let cipher = Aes256Gcm::new(Key::<Aes256Gcm>::from_slice(auth_key));
-    let nonce = Nonce::from_slice(&random[20..32]);
+    let nonce = Nonce::from_slice(&random[20..32]); // 12-byte nonce from ClientHello random
     let output = cipher
         .encrypt(
             nonce,
             Payload {
                 msg: &plaintext,
-                aad,
+                aad, // bind the ciphertext to this specific ClientHello
             },
         )
         .map_err(|_| ProxyError::Protocol("REALITY token encryption failed".into()))?;
