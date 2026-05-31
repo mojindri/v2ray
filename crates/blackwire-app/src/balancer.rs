@@ -21,7 +21,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use smallvec::SmallVec;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use blackwire_common::{Address, BoxedStream, ProxyError};
 use blackwire_config::schema::{AdaptiveBalancerConfig, BalancerConfig};
@@ -275,6 +275,7 @@ impl Balancer {
             }
         }
 
+        let previous_current = adaptive.current;
         let selected = if let Some((best_idx, best_score)) = best_available {
             if let Some(current_idx) = adaptive.current {
                 if current_idx < self.members.len()
@@ -309,6 +310,13 @@ impl Balancer {
             if let Some(member) = self.members.get(idx) {
                 metrics::record_adaptive_balancer_cooldown(&self.tag, &member.profile);
                 runtime_stats::increment(&member.stat_cooldowns, 1);
+                warn!(
+                    balancer = %self.tag,
+                    profile = %member.profile,
+                    outbound = %member.outbound_tag,
+                    cooldown_secs = self.adaptive_config.cooldown_secs,
+                    "adaptive balancer profile entered cooldown after health probe failures"
+                );
             }
         }
         for (idx, score) in scores {
@@ -319,6 +327,17 @@ impl Balancer {
         if let Some(member) = self.members.get(selected) {
             metrics::record_adaptive_balancer_selection(&self.tag, &member.profile);
             runtime_stats::increment(&member.stat_selected, 1);
+            if previous_current.is_some_and(|previous| previous != selected) {
+                let previous = previous_current.and_then(|idx| self.members.get(idx));
+                info!(
+                    balancer = %self.tag,
+                    profile = %member.profile,
+                    outbound = %member.outbound_tag,
+                    previous_profile = previous.map(|member| member.profile.as_str()).unwrap_or("unknown"),
+                    switch_margin = self.adaptive_config.switch_margin,
+                    "adaptive balancer switched profile"
+                );
+            }
             debug!(
                 balancer = %self.tag,
                 profile = %member.profile,
@@ -377,6 +396,7 @@ impl Balancer {
         let Some(member) = self.members.get(idx) else {
             return;
         };
+        let mut recovered_from_failures = false;
         let entered_cooldown = {
             let mut adaptive = self.adaptive.lock().expect("adaptive state poisoned");
             let Some(entry) = adaptive.members.get_mut(idx) else {
@@ -385,6 +405,7 @@ impl Balancer {
             entry.attempts = entry.attempts.saturating_add(1);
             if ok {
                 entry.successes = entry.successes.saturating_add(1);
+                recovered_from_failures = entry.consecutive_failures > 0;
                 entry.consecutive_failures = 0;
                 let sample = elapsed.as_secs_f64() * 1000.0;
                 let alpha = self.adaptive_config.ewma_alpha.clamp(0.01, 1.0);
@@ -409,12 +430,35 @@ impl Balancer {
         if ok {
             metrics::record_adaptive_balancer_connect_success(&self.tag, &member.profile);
             runtime_stats::increment(&member.stat_connect_success, 1);
+            if recovered_from_failures {
+                info!(
+                    balancer = %self.tag,
+                    profile = %member.profile,
+                    outbound = %member.outbound_tag,
+                    latency_ms = elapsed.as_millis(),
+                    "adaptive balancer profile recovered after connect failure"
+                );
+            }
         } else {
             metrics::record_adaptive_balancer_connect_failure(&self.tag, &member.profile);
             runtime_stats::increment(&member.stat_connect_failure, 1);
             if entered_cooldown {
                 metrics::record_adaptive_balancer_cooldown(&self.tag, &member.profile);
                 runtime_stats::increment(&member.stat_cooldowns, 1);
+                warn!(
+                    balancer = %self.tag,
+                    profile = %member.profile,
+                    outbound = %member.outbound_tag,
+                    cooldown_secs = self.adaptive_config.cooldown_secs,
+                    "adaptive balancer profile entered cooldown after connect failures"
+                );
+            } else {
+                debug!(
+                    balancer = %self.tag,
+                    profile = %member.profile,
+                    outbound = %member.outbound_tag,
+                    "adaptive balancer connect failed"
+                );
             }
         }
     }
