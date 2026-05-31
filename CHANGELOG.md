@@ -6,7 +6,7 @@ This project is pre-1.0. The support contract is owned by
 [docs/release.md](docs/release.md), and detailed feature evidence is owned by
 [docs/feature-matrix.md](docs/feature-matrix.md).
 
-## 0.1.0-rc.1 - 2026-05-31
+## 0.1.0-rc.2 - 2026-05-31
 
 ### Added
 
@@ -16,6 +16,7 @@ This project is pre-1.0. The support contract is owned by
 - External-client matrix coverage driven by `labs/realistic/external-clients/scenarios.env`.
 - SplitHTTP packet-up, VLESS Vision, VLESS Mux/XUDP, Trojan UDP, SS2022 UDP, Hysteria2 TCP/UDP, QUIC, ShadowTLS v3 transport, and mKCP server-path coverage.
 - Docs ownership map so release status, feature evidence, test tiers, and lab details have clear sources of truth.
+- Release asset workflow for Linux, Linux arm64, macOS, and Windows binaries with SHA256 files.
 
 ### Changed
 

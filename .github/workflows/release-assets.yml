@@ -1,0 +1,134 @@
+name: Release assets
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build and upload assets for"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  prepare-release:
+    name: Prepare release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.release.outputs.tag }}
+    steps:
+      - name: Resolve tag
+        id: release
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            tag="${{ inputs.tag }}"
+          else
+            tag="${GITHUB_REF_NAME}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ steps.release.outputs.tag }}
+
+      - name: Ensure release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+        shell: bash
+        run: |
+          prerelease_args=()
+          if [[ "$TAG" == *-* ]]; then
+            prerelease_args+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            if [[ "$TAG" == *-* ]]; then
+              gh release edit "$TAG" --prerelease
+            fi
+            exit 0
+          fi
+
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file CHANGELOG.md \
+            "${prerelease_args[@]}"
+
+  build:
+    name: Build ${{ matrix.asset }}
+    needs: prepare-release
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: blackwire-linux-x86_64
+            binary: blackwire
+            archive: blackwire-linux-x86_64.tar.gz
+          - os: ubuntu-24.04-arm
+            asset: blackwire-linux-arm64
+            binary: blackwire
+            archive: blackwire-linux-arm64.tar.gz
+          - os: macos-latest
+            asset: blackwire-macos
+            binary: blackwire
+            archive: blackwire-macos.tar.gz
+          - os: windows-latest
+            asset: blackwire-windows-x86_64
+            binary: blackwire.exe
+            archive: blackwire-windows-x86_64.zip
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.prepare-release.outputs.tag }}
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        run: cargo build --release --locked --bin blackwire
+
+      - name: Package Unix asset
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p dist/${{ matrix.asset }}
+          cp target/release/${{ matrix.binary }} dist/${{ matrix.asset }}/
+          chmod +x dist/${{ matrix.asset }}/${{ matrix.binary }}
+          cp README.md CHANGELOG.md dist/${{ matrix.asset }}/
+          tar -C dist -czf dist/${{ matrix.archive }} ${{ matrix.asset }}
+          shasum -a 256 dist/${{ matrix.archive }} > dist/${{ matrix.archive }}.sha256
+
+      - name: Package Windows asset
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path "dist/${{ matrix.asset }}" | Out-Null
+          Copy-Item "target/release/${{ matrix.binary }}" "dist/${{ matrix.asset }}/"
+          Copy-Item README.md,CHANGELOG.md "dist/${{ matrix.asset }}/"
+          Compress-Archive -Path "dist/${{ matrix.asset }}" -DestinationPath "dist/${{ matrix.archive }}" -Force
+          $hash = (Get-FileHash "dist/${{ matrix.archive }}" -Algorithm SHA256).Hash.ToLower()
+          "$hash  ${{ matrix.archive }}" | Out-File -FilePath "dist/${{ matrix.archive }}.sha256" -Encoding ascii
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.prepare-release.outputs.tag }}
+        shell: bash
+        run: |
+          gh release upload "$TAG" \
+            "dist/${{ matrix.archive }}" \
+            "dist/${{ matrix.archive }}.sha256" \
+            --clobber

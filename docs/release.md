@@ -88,6 +88,39 @@ Latest VPS gate evidence (2026-05-30): `make -C labs/realistic interop-server-vp
 
 ---
 
+## Release Assets
+
+GitHub automatically attaches source archives to every release. Final product
+downloads are produced by `.github/workflows/release-assets.yml`.
+
+The workflow runs when a `v*` tag is pushed, or manually through
+`workflow_dispatch` with a tag input. Tags containing `-` are created as
+prereleases.
+
+Expected assets:
+
+- `blackwire-linux-x86_64.tar.gz`
+- `blackwire-linux-arm64.tar.gz`
+- `blackwire-macos.tar.gz`
+- `blackwire-windows-x86_64.zip`
+- one `.sha256` file for each archive
+
+For the current release candidate:
+
+```sh
+git push origin HEAD
+git push origin v0.1.0-rc.2
+```
+
+If the release already exists but only has GitHub source archives, run the
+workflow manually for the tag:
+
+```sh
+gh workflow run release-assets.yml -f tag=v0.1.0-rc.2
+```
+
+---
+
 ## Canary Plan
 
 - Start with 5% traffic for 30 minutes.
