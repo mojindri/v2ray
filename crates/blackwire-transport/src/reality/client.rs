@@ -254,7 +254,7 @@ fn derive_auth_key(shared_secret: &[u8; 32]) -> Result<([u8; 32], [u8; 32]), Pro
 /// - Key:   `auth_key` (derived from ECDH shared secret)
 /// - Nonce: `random[20..32]` (12 bytes from the ClientHello random field)
 /// - AAD:   the entire ClientHello body — ensures the token is bound to THIS exact
-///           ClientHello and cannot be copy-pasted into a different connection.
+///   ClientHello and cannot be copy-pasted into a different connection.
 ///
 /// The 16-byte GCM tag is appended, making the output exactly 32 bytes —
 /// exactly the size of the TLS `session_id` field where it will be stored.
