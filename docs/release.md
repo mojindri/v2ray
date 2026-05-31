@@ -227,11 +227,25 @@ The package installs `/usr/bin/blackwire`, `/etc/blackwire`, `/var/lib/blackwire
 and a systemd unit. It does not generate config; use `scripts/install.sh` for the
 guided VPS setup modes.
 
-## Package Repositories
+## Apt Repository
 
-An apt repository, RPM repo, Arch, Homebrew, Winget, and Chocolatey publishing
-are not automated yet. Keep those for a stable post-`v0.1.0` packaging pass after
-config paths, service behavior, and upgrade policy are settled.
+The release workflow publishes an unsigned static apt repository to GitHub Pages:
+
+```sh
+echo 'deb [trusted=yes] https://mojindri.github.io/v2ray/apt stable main' | \
+  sudo tee /etc/apt/sources.list.d/blackwire.list
+sudo apt update
+sudo apt install blackwire
+```
+
+This repository is unsigned for the release-candidate line. Add GPG signing
+before recommending it as the stable production install path.
+
+## Other Package Repositories
+
+RPM repo, Arch, Homebrew, Winget, and Chocolatey publishing are not automated
+yet. Keep those for a stable post-`v0.1.0` packaging pass after config paths,
+service behavior, and upgrade policy are settled.
 
 ---
 
