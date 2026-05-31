@@ -505,10 +505,13 @@ pub async fn relay_mux_cool(
                             Arc::new(UdpSocket::bind("0.0.0.0:0").await.map_err(|e| {
                                 ProxyError::Transport(format!("mux UDP bind: {e}"))
                             })?);
+                        let upstream = resolve_udp_dest(&dest).await?;
+                        socket.connect(upstream).await.map_err(|e| {
+                            ProxyError::Transport(format!("mux UDP connect: {e}"))
+                        })?;
                         if let Some(ref data) = payload {
                             if !data.is_empty() {
-                                let upstream = resolve_udp_dest(&dest).await?;
-                                socket.send_to(data, upstream).await.map_err(|e| {
+                                socket.send(data).await.map_err(|e| {
                                     ProxyError::Transport(format!("mux UDP send: {e}"))
                                 })?;
                             }
@@ -557,10 +560,16 @@ pub async fn relay_mux_cool(
                         if let Some(session) = udp_sessions.get(&meta.session_id) {
                             if let Some(ref data) = payload {
                                 if !data.is_empty() {
-                                    let upstream = resolve_udp_dest(&dest).await?;
-                                    session.socket.send_to(data, upstream).await.map_err(|e| {
-                                        ProxyError::Transport(format!("mux UDP send: {e}"))
-                                    })?;
+                                    if dest == session.dest {
+                                        session.socket.send(data).await.map_err(|e| {
+                                            ProxyError::Transport(format!("mux UDP send: {e}"))
+                                        })?;
+                                    } else {
+                                        let upstream = resolve_udp_dest(&dest).await?;
+                                        session.socket.send_to(data, upstream).await.map_err(
+                                            |e| ProxyError::Transport(format!("mux UDP send: {e}")),
+                                        )?;
+                                    }
                                 }
                             }
                         }
@@ -577,10 +586,9 @@ pub async fn relay_mux_cool(
                 } else if let Some(session) = udp_sessions.get(&meta.session_id) {
                     if let Some(ref data) = payload {
                         if !data.is_empty() {
-                            let upstream = resolve_udp_dest(&session.dest).await?;
                             session
                                 .socket
-                                .send_to(data, upstream)
+                                .send(data)
                                 .await
                                 .map_err(|e| ProxyError::Transport(format!("mux UDP send: {e}")))?;
                         }
@@ -599,9 +607,7 @@ pub async fn relay_mux_cool(
                             let mut up = session.upstream.lock().await;
                             let _ = up.write_all(data).await;
                         } else if let Some(session) = udp_sessions.get(&meta.session_id) {
-                            if let Ok(upstream) = resolve_udp_dest(&session.dest).await {
-                                let _ = session.socket.send_to(data, upstream).await;
-                            }
+                            let _ = session.socket.send(data).await;
                         }
                     }
                 }
