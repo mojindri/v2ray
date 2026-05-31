@@ -1,6 +1,21 @@
 # Documentation
 
-This folder is the beginner-friendly map of the project.
+This folder is the project documentation map. Keep long-lived facts in one
+place: duplicate summaries drift quickly.
+
+## Sources Of Truth
+
+| Question | Canonical doc |
+| --- | --- |
+| What is supported, experimental, or unsupported for release? | [release.md](release.md) |
+| What is the detailed feature status and evidence? | [feature-matrix.md](feature-matrix.md) |
+| Which tests/gates should be run? | [11-testing.md](11-testing.md) |
+| Which `make` command should I use day to day? | [test-workflows.md](test-workflows.md) |
+| What exact Make targets exist? | [15-make-command-guide.md](15-make-command-guide.md), [make-target-inventory.md](make-target-inventory.md) |
+| What does the external-client matrix prove? | [parity-status.md](parity-status.md), [../labs/realistic/external-clients/README.md](../labs/realistic/external-clients/README.md) |
+
+Guideline: beginner docs should explain concepts and link to these files for
+status. They should not carry independent support matrices or PASS/SKIP counts.
 
 Recommended reading order:
 

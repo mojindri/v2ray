@@ -1,18 +1,17 @@
 # Blackwire
 
-Rust-native proxy **server** implementing **selected wire-compatible server paths**
+Rust-native proxy implementation for **server** and **local proxy** paths,
 validated against Xray-core and sing-box clients.
 
 This repository is organized around two goals:
 
-- implement a practical protocol/transport matrix as a server compatible with Xray-core and sing-box clients
+- implement a practical protocol/transport matrix compatible with Xray-core and sing-box clients
 - prove compatibility with **real upstream clients** — Xray-core and sing-box in
   Docker labs, Lima fingerprint checks, and two-VPS production-style runs
 
 Supported paths are validated against original clients, not only in-process Rust
-tests. External-client automation lives under `labs/realistic/` and currently
-starts with a VLESS REALITY scenario that can be expanded through
-`labs/realistic/external-clients/scenarios.env`.
+tests. External-client automation lives under `labs/realistic/` and drives the
+configured matrix in `labs/realistic/external-clients/scenarios.env`.
 
 The project uses its **own JSON config schema** (not a byte-for-byte Xray/sing-box config
 drop-in). Wire behavior and client interop are the compatibility contract. For
@@ -20,43 +19,15 @@ per-protocol status, see [docs/feature-matrix.md](docs/feature-matrix.md).
 
 ## Release Status
 
-This is a pre-1.0 project. The support contract is explicit:
+This is a pre-1.0 project with an explicit support contract. The canonical
+release contract lives in [docs/release.md](docs/release.md); the detailed
+feature evidence table lives in [docs/feature-matrix.md](docs/feature-matrix.md).
 
-**Release-supported** (CI + e2e + realistic lab):
-- VLESS over TCP, REALITY, WebSocket, HTTPUpgrade, SplitHTTP
-- VMess AEAD over TCP
-- VMess over gRPC (Gun transport) — END_STREAM propagation validated
-- Trojan over TLS
-- Shadowsocks 2022
-- SOCKS5 (TCP CONNECT + UDP ASSOCIATE), HTTP CONNECT
-- DNS resolver (system, DoH/DoT), FakeIP, routing rules, GeoIP/geosite
-- HTTP + TLS + FakeDNS sniffing (`destOverride`, `routeOnly`, `metadataOnly`)
-- Sniffed `protocol` routing rules
-- Prometheus metrics, config hot-reload (routing rules, VLESS users, GeoIP)
-- Structural config reload via automatic CLI instance rebuild with rollback
-- Per-inbound / global `max_connections` limits (TCP, mKCP, QUIC, Hysteria2)
-- Resource-risk smoke coverage in normal CI
-- External-client failure pcaps in CI artifacts
-- TUN transparent proxy on Linux/macOS/Windows, including privileged CI coverage
-- Handler API (gRPC) list/user/structural endpoint operations
-- macOS release artifact build
+High-level summary:
 
-**Experimental** (implemented, lacking hostile-network or soak proof):
-- REALITY
-- Hysteria2
-- ShadowTLS v3
-- mKCP, QUIC (V2Ray QUIC transport)
-- Stats API (gRPC)
-- SplitHTTP extras (Xmux, padding, `downloadSettings`)
-
-**Unsupported** (fail-closed or documented out of scope):
-- `protocol: shadowtls` — fails config validation; use `security: shadowtls` in `streamSettings`
-- V2Ray/Xray JSON config import
-- VMess legacy alterId / non-AEAD
-- DNS/dokodemo/tun as inbound `protocol` values
-- Byte-identical browser TLS fingerprinting
-- Windows, OpenWrt, Android, iOS
-- Standalone client app
+- Supported: core proxy runtime, server mode, local SOCKS/HTTP proxy mode, the documented protocol/transport matrix, Handler API structural operations, and TUN runtime on Linux/macOS/Windows.
+- Experimental: Stats API (gRPC) runtime stats until soak and observability validation are complete.
+- Unsupported: V2Ray/Xray JSON import, VMess legacy alterId/non-AEAD, Xray endpoint protobuf decoding for Handler structural RPCs, OpenWrt/Android/iOS, and a standalone desktop/mobile client app.
 
 ## Start Here
 
@@ -113,25 +84,15 @@ Details: [tests/interop/README.md](tests/interop/README.md),
 
 ## Current Status
 
-**Best-covered server paths today** (Xray/sing-box interop + lab gates):
+The support contract above is the current status. The detailed feature table is
+maintained in [docs/feature-matrix.md](docs/feature-matrix.md), and the
+external-client PASS/SKIP rationale is maintained in
+[docs/parity-status.md](docs/parity-status.md).
 
-- VLESS over TCP, REALITY, WebSocket
-- VMess over gRPC
-- Trojan over TLS
-- Shadowsocks 2022
-- Hysteria2
-
-**Advanced features — implemented, not fully proven in production-like labs:**
-
-| Feature | What works today | What is still missing |
-| --- | --- | --- |
-| **Health checks + outbound failover** | Runtime wiring + in-process e2e | Load/soak under concurrent fault injection (Docker lab optional) |
-| **GeoIP / GeoSite + FakeIP routing** | Config, DNS pool, routing rules load and run in tests | Edge cases in long-running production traffic |
-| **ShadowTLS v3** | Local end-to-end tests (VLESS over ShadowTLS) | Interop against external sing-box / shadow-tls deployments |
-| **mKCP** | Local multi-session tests | Loss, jitter, and hostile-network lab validation |
-| **TUN mode** | Linux TUN runtime, route setup/cleanup, UDP NAT, privileged CI tests; Linux outbound sockets use `SO_MARK`; macOS utun runtime installs split default routes plus a PF anchor for TCP/DNS redirection and uses `tun.outboundInterface`/`tun.outbound_interface` for protected proxy egress; Windows Wintun device creation, split-route setup, packet-level TCP bridging to the local SOCKS listener, and protected outbound interface binding are wired, and Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; runtime support is checked through an explicit platform contract | Broader production soak and external-client TUN lab coverage |
-
-See [docs/feature-matrix.md](docs/feature-matrix.md) for the full support table.
+Some external-client matrix rows intentionally SKIP an upstream client because
+that client no longer exposes a compatible model for the scenario. Those SKIPs
+are documented exceptions, not automatic evidence that the blackwire server path
+is unsupported.
 
 ## Fastest Useful Commands
 

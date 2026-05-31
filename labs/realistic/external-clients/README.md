@@ -31,7 +31,7 @@ invocations.
 
 Tune waits: `MATRIX_PORT_WAIT_TRIES`, `MATRIX_PORT_WAIT_SLEEP`, `MATRIX_SOCKS_WAIT_TRIES`, `MATRIX_SOCKS_WAIT_SLEEP`.
 
-**17 protocols** in `scenarios.env` (68 matrix rows). Some rows **SKIP** when upstream cannot run the client transport (Xray legacy QUIC, SplitHTTP positives, sing-box ShadowTLS on VLESS stream).
+**19 scenario rows** in `scenarios.env`. Each row runs the configured Xray and/or sing-box positive and negative cases. Some client columns are `-`, which means **SKIP** because upstream cannot run that client transport or mode.
 
 Optional failure capture: `MATRIX_PCAP_ON_FAIL=1 make interop-server-docker`.
 
@@ -75,7 +75,7 @@ labs/realistic/reports/external-clients/
 
 The automated matrix is driven by `external-clients/scenarios.env`.
 
-`scenarios.env` drives the matrix (17 protocols including `trojan-udp`, `vless-mux`, ShadowTLS, mKCP, sniffing).
+`scenarios.env` drives the matrix (19 scenario rows including `trojan-udp`, `vless-mux`, ShadowTLS, mKCP, sniffing, and SplitHTTP packet-up).
 
 **Mux.Cool:** `vless-mux` runs **Xray only** (`sing-box` column is `-` — smux is not wire-compatible with Mux.Cool).
 Both Docker and VPS runners read the same file; tune waits with `MATRIX_PORT_WAIT_*`
@@ -101,7 +101,7 @@ blackwire lacks the server transport. See [docs/parity-status.md](../../../docs/
 Hiddify remains a manual validation target using generated import artifacts
 after the automated scenarios pass.
 
-When a case **FAIL**s, follow [docs/external-client-failure-triage.md](../../docs/external-client-failure-triage.md):
+When a case **FAIL**s, follow [docs/external-client-failure-triage.md](../../../docs/external-client-failure-triage.md):
 read `reports/external-clients/logs/*.log`, then compare behavior with
 [Xray-core](https://github.com/XTLS/Xray-core) / [sing-box](https://github.com/SagerNet/sing-box) source — not blackwire comments alone.
 

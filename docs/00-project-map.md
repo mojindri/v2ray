@@ -18,7 +18,7 @@ Everything in the repo exists to implement one piece of that path.
 
 ## What Problem This Repo Solves
 
-A proxy server has to do several different jobs at once:
+A proxy runtime has to do several different jobs at once:
 
 1. Accept a connection from a client.
 2. Understand the protocol the client is speaking.
@@ -86,7 +86,7 @@ The workspace root `Cargo.toml` declares these crates:
   The `blackwire` binary entrypoint.
 
 - `blackwire-api`
-  Planned management/stats API crate. Currently mostly a stub.
+  gRPC management/stats surface (Handler + Stats services) used by runtime control-plane operations.
 
 - `tests`
   Integration tests and interop tests.
@@ -379,4 +379,3 @@ Use this simplified map:
 
 - `blackwire-cli`
   the executable
-

@@ -5,6 +5,10 @@ suite, `labs/realistic/` interop lab, and GitHub Actions (CI + cross-platform).
 
 **Source of truth:** Wire behavior and “Supported” labels are validated against real Xray-core and sing-box clients in the realistic lab — not blackwire’s schema or this table alone. See [parity-status.md](parity-status.md) (matrix **SKIP** ≠ server unsupported).
 
+This file owns detailed feature status and evidence. The release support
+contract is summarized in [release.md](release.md); test command details belong
+in [11-testing.md](11-testing.md) and [test-workflows.md](test-workflows.md).
+
 **Latest VPS evidence (2026-05-30):** `make -C labs/realistic interop-server-vps` passed with two production VPS hosts (`SSH_SERVER=<server-host>`, `SSH_CLIENT=<client-host>`); `ss2022-udp` is now PASS for both Xray and sing-box after opening `8389/udp` in VPS server setup. Summary: `labs/realistic/reports/external-clients-vps/summary.txt`.
 
 **Release posture** (see [release.md](release.md) for the full support contract):
@@ -34,8 +38,8 @@ Evidence shorthand: crate paths use `blackwire-{common,config,app,core,protocol,
 
 ## Product scope
 
-**blackwire** is a Rust-native **proxy server** that implements **selected wire-compatible
-server paths** validated against Xray-core and sing-box clients. Compatibility is
+**blackwire** is a Rust-native proxy implementation for server and local proxy
+paths validated against Xray-core and sing-box clients. Compatibility is
 proved by in-process e2e tests, per-crate `production_readiness` tests, and Docker
 labs with real upstream clients — not spec claims or mock peers alone.
 
@@ -51,7 +55,7 @@ No claim of full Xray/sing-box feature parity is made. See the Unsupported rows 
 | Xray JSON config                                | **Unsupported**  | Interop is wire-level only; configs must be translated                                                                                                                                                                                                        |
 | **Server mode** (listen for clients)            | **Supported**    | Primary product: `blackwire run`                                                                                                                                                                                                                              |
 | **Local proxy mode** (SOCKS/HTTP in → outbound) | **Supported**    | Same `Instance` stack; covered by e2e (`e2e_socks5_vless`, `e2e_http_connect`, etc.)                                                                                                                                                                          |
-| Standalone **client app** (TUN/system proxy UI) | **Unsupported**  | No dedicated client binary or mobile/desktop shell; TUN is server-side transparent path                                                                                                                                                                       |
+| Standalone **client app** (TUN/system proxy UI) | **Unsupported**  | No dedicated mobile/desktop shell or system proxy UI; TUN is a runtime traffic-capture path                                                                                                                                                                   |
 
 
 ---
@@ -200,7 +204,7 @@ Full table: [parity-status.md](parity-status.md). Summary: **SKIP** = no client 
 | `make deny` / `cargo-deny`                        | **Supported**    | `deny.toml` license/advisory policy                                                 |
 | Adversarial integration tests                     | **Supported**    | `tests/tests/adversarial_*.rs` — fragmentation, cancellation, backpressure, etc.    |
 | Leak / resource tests                             | **Supported**    | `resource_smoke.rs` covers bad-auth bursts, FakeIP/DNS pressure, stream churn, mKCP churn, and connection-limit overflow in normal CI; heavier ignored suites remain optional stress tests |
-| External-client Docker lab                        | **Supported**    | `labs/realistic/` — 15 protocols × 4 cases; `run-docker-matrix.sh`                  |
+| External-client Docker lab                        | **Supported**    | `labs/realistic/` — scenario rows from `external-clients/scenarios.env`; `run-docker-matrix.sh` |
 | External-client VPS lab                           | **Supported**    | Same `scenarios.env` as Docker; `run-vps-matrix.sh` (one server start per protocol) |
 | TLS/REALITY byte-level fingerprint diff vs Chrome | **Unsupported**  | Functional interop ≠ identical ClientHello bytes                                    |
 | Packet capture on failure                         | **Supported**    | `interop-smoke.yml` runs the Docker external-client matrix with `MATRIX_PCAP_ON_FAIL=1` and uploads `labs/realistic/reports/` artifacts |
@@ -245,9 +249,8 @@ production certification on all Experimental rows.
 
 - Native JSON schema — not V2Ray/Xray config paste-compatible.
 - VMess legacy non-AEAD / alterId — not implemented.
-- DoH/DoT DNS upstreams — skipped at resolver build.
 - Handler API (gRPC) — structural add/remove/alter RPCs use native blackwire endpoint JSON in `proxy_settings` rather than Xray core endpoint protobufs.
-- Full hot-reload of listeners, outbounds, and TLS material — requires process restart.
+- Structural config changes (listeners/outbounds/TLS material) trigger CLI-driven instance rebuild with rollback; not in-place listener mutation.
 
 ---
 
@@ -259,7 +262,7 @@ production certification on all Experimental rows.
 | Stable integration  | `make -C labs/realistic stable`                  | In-process protocol matrix                                                            |
 | Advanced smoke      | `make -C labs/realistic advanced-features-smoke` | ShadowTLS, mKCP, QUIC/SplitHTTP e2e, health guards + failover runtime                 |
 | Health failover lab | `make -C labs/realistic health-failover`         | In-process failover e2e + optional Docker probe/echo services                         |
-| External clients    | `make -C labs/realistic interop-server-docker`   | Xray/sing-box/hiddify → blackwire (**56 PASS / 8 SKIP** on 16 rows + packet-up wired) |
+| External clients    | `make -C labs/realistic interop-server-docker`   | Xray/sing-box → blackwire using the configured `external-clients/scenarios.env` rows |
 | Full finalize       | `make -C labs/realistic finalize`                | All of the above                                                                      |
 
 

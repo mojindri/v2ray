@@ -28,7 +28,7 @@ use std::net::{Ipv4Addr, Ipv6Addr};
 
 use anyhow::{Context as _, Result};
 
-/// Destination inside a UDP datagram (legacy binary layout; not yet wired to server).
+/// Destination inside a UDP datagram using Hysteria2's compact binary address layout.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Destination {
     /// IPv4 destination and port.

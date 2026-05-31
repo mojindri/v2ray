@@ -18,9 +18,9 @@ loss or unstable latency. The example keeps the protocol as VLESS and swaps the
 transport from plain TCP/WebSocket/gRPC to `network: "kcp"`.
 
 Current status: the runtime path accepts multiple peers on one UDP listener and
-cleans up idle sessions. Loss/latency behavior and packet capture validation
-still belong in the realistic Docker/VPS lab before this is promoted to the
-mandatory production matrix.
+cleans up idle sessions. The server path is supported with local e2e proof;
+external client matrix rows intentionally SKIP because upstream clients do not
+currently provide a compatible mKCP client row.
 
 Validate:
 

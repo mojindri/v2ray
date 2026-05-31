@@ -18,9 +18,9 @@ to `shadowTlsSettings.dest`, verifies the tainted backend ApplicationData proof,
 then switches to ShadowTLS v3 rolling-HMAC ApplicationData frames before passing
 bytes to the inner VLESS protocol.
 
-Current caveat: local e2e coverage exists, but external interop against
-sing-box/shadow-tls deployments still needs production-realistic lab proof
-before this feature is promoted into the mandatory Docker/VPS matrix.
+Current caveat: the server path is supported with local e2e proof. External
+client matrix rows intentionally SKIP because upstream clients do not expose a
+compatible VLESS-over-ShadowTLS client model.
 
 Validate:
 

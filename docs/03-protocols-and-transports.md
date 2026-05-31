@@ -369,9 +369,9 @@ It is an operating-system-level traffic capture/redirect mechanism.
 
 ### Repo Status
 
-The repo can start a top-level `tun` runtime on Linux and has helpers for device
-creation, route installation, cleanup, IP packet parsing, UDP response packet
-synthesis, and flow/NAT session tracking. Packet parsing, UDP response
+The repo can start a top-level `tun` runtime on Linux, macOS, and Windows, with
+helpers for device creation, route installation, cleanup, IP packet parsing,
+UDP response packet synthesis, and flow/NAT session tracking. Packet parsing, UDP response
 synthesis, flow/NAT session tracking, and the runtime packet loop are shared
 cross-platform APIs. Linux outbound sockets use `SO_MARK`; macOS installs split
 default routes through the OS-assigned utun interface, loads a scoped PF anchor
@@ -399,7 +399,7 @@ implements ShadowTLS v3 ClientHello SessionID authentication, backend TLS
 ApplicationData tainting, switch detection, and rolling-HMAC data frames for
 VLESS/Trojan/VMess-style byte streams. It has local e2e coverage; external
 matrix rows are intentionally SKIP due upstream client-model mismatch, so
-support is tracked as server-path supported with documented SKIP caveats.
+support is tracked as supported with documented SKIP caveats.
 
 ## Common Combinations
 
