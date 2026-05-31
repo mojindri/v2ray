@@ -1,0 +1,25 @@
+[Unit]
+Description=blackwire proxy runtime
+Documentation=https://github.com/mojindri/v2ray
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=nobody
+Group=nogroup
+ExecStart=/usr/bin/blackwire run -c /etc/blackwire/config.json
+ExecReload=/bin/kill -HUP $MAINPID
+WorkingDirectory=/var/lib/blackwire
+Restart=on-failure
+RestartSec=5s
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/blackwire /run/blackwire
+PrivateTmp=true
+NoNewPrivileges=true
+Environment=RUST_LOG=info
+
+[Install]
+WantedBy=multi-user.target

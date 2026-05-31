@@ -70,7 +70,7 @@ live in [docs/16-environment-cheatsheet.md](docs/16-environment-cheatsheet.md).
 Linux release candidates can be installed from GitHub Releases:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 bash
 ```
 
@@ -79,17 +79,20 @@ The installer downloads the Linux release archive, verifies its `.sha256`, puts
 systemd unit when systemd is available. It does not start the service unless
 `START_SERVICE=1` is set.
 
+Installed command usage, service control, uninstall, config edits, and examples
+are documented in [docs/installed-command-guide.md](docs/installed-command-guide.md).
+
 To install and validate a config in the same step:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
 ```
 
 For a generated Linux VPS config:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 SETUP=reality PUBLIC_HOST=example.com bash
 ```
 
@@ -97,7 +100,7 @@ For the standard domain setup, point DNS at the VPS first and make sure ports 80
 and 443 are open:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
 ```
 

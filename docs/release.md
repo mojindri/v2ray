@@ -101,6 +101,8 @@ Expected assets:
 
 - `blackwire-linux-x86_64.tar.gz`
 - `blackwire-linux-arm64.tar.gz`
+- `blackwire_<version>_amd64.deb`
+- `blackwire_<version>_arm64.deb`
 - `blackwire-macos.tar.gz`
 - `blackwire-windows-x86_64.zip`
 - one `.sha256` file for each archive
@@ -147,17 +149,20 @@ supports `linux/amd64` and `linux/arm64`, verifies the release `.sha256`, instal
 the binary to `/usr/local/bin/blackwire`, creates `/etc/blackwire`, and installs
 a systemd unit when systemd is available.
 
+Installed command usage, service control, uninstall, config edits, and examples
+are documented in [installed-command-guide.md](installed-command-guide.md).
+
 Prerelease install:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 bash
 ```
 
 Stable install, after a stable release is marked latest:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/main/scripts/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/main/scripts/install.sh | bash
 ```
 
 By default, the installer does not start the service. To start immediately after
@@ -168,7 +173,7 @@ that contains the archive and matching `.sha256` file.
 Config-aware install:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
 ```
 
@@ -179,7 +184,7 @@ the config. `START_SERVICE=1` is rejected unless a config is present and valid.
 Generated Linux VPS config:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 SETUP=reality PUBLIC_HOST=example.com bash
 ```
 
@@ -192,7 +197,7 @@ firewall/log/start commands.
 Standard domain setup:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
 ```
 
@@ -209,11 +214,38 @@ Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the binary, systemd unit,
 config, and state directories. `INIT_SERVER=...` remains available as an
 internal compatibility escape hatch, but release docs should prefer `SETUP`.
 
-## Package Repositories
+## Debian Packages
 
-Debian/Ubuntu `.deb`, RPM, Arch, Homebrew, Winget, and Chocolatey publishing are
-not automated yet. Keep those for a stable post-`v0.1.0` packaging pass after
-config paths, service behavior, and upgrade policy are settled.
+Linux release jobs also publish `.deb` assets for Debian/Ubuntu users. Install a
+downloaded release asset with:
+
+```sh
+sudo apt install ./blackwire_<version>_amd64.deb
+```
+
+The package installs `/usr/bin/blackwire`, `/etc/blackwire`, `/var/lib/blackwire`,
+and a systemd unit. It does not generate config; use `scripts/install.sh` for the
+guided VPS setup modes.
+
+## Apt Repository
+
+The release workflow publishes an unsigned static apt repository to GitHub Pages:
+
+```sh
+echo 'deb [trusted=yes] https://mojindri.github.io/Blackwire/apt stable main' | \
+  sudo tee /etc/apt/sources.list.d/blackwire.list
+sudo apt update
+sudo apt install blackwire
+```
+
+This repository is unsigned for the release-candidate line. Add GPG signing
+before recommending it as the stable production install path.
+
+## Other Package Repositories
+
+RPM repo, Arch, Homebrew, Winget, and Chocolatey publishing are not automated
+yet. Keep those for a stable post-`v0.1.0` packaging pass after config paths,
+service behavior, and upgrade policy are settled.
 
 ---
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-REPO="${BLACKWIRE_REPO:-mojindri/v2ray}"
+REPO="${BLACKWIRE_REPO:-mojindri/Blackwire}"
 VERSION="${VERSION:-latest}"
 DOWNLOAD_BASE="${BLACKWIRE_DOWNLOAD_BASE:-}"
 ACTION="${ACTION:-install}"
