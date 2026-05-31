@@ -154,16 +154,10 @@ async fn connect_transport(
     stream_settings: &Option<StreamSettingsConfig>,
 ) -> Result<BoxedStream, ProxyError> {
     let settings = stream_settings.as_ref();
-    let use_quic = settings.is_some_and(|s| s.network == NetworkType::Quic);
-    let use_kcp = settings.is_some_and(|s| s.network == NetworkType::Kcp);
-    let use_httpupgrade = settings.is_some_and(|s| s.network == NetworkType::HttpUpgrade);
-    let use_grpc = settings.is_some_and(|s| s.network == NetworkType::Grpc);
-    let use_splithttp = settings.is_some_and(|s| s.network == NetworkType::SplitHttp);
-    let use_ws = settings.is_some_and(|s| s.network == NetworkType::Ws);
-    let use_tls = settings.is_some_and(|s| s.security == SecurityType::Tls);
-    let use_shadowtls = settings.is_some_and(|s| s.security == SecurityType::ShadowTls);
+    let network = settings.map(|s| &s.network);
+    let security = settings.map(|s| &s.security);
 
-    if use_quic {
+    if network == Some(&NetworkType::Quic) {
         let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=quic requested without streamSettings".into(),
@@ -178,7 +172,7 @@ async fn connect_transport(
         return quic_connect(server, server_name, allow_insecure).await;
     }
 
-    if use_kcp {
+    if network == Some(&NetworkType::Kcp) {
         let cfg = build_mkcp_client_config(server, stream_settings)?;
         let stream = mkcp_connect(&cfg)
             .await
@@ -186,7 +180,7 @@ async fn connect_transport(
         return Ok(Box::new(stream));
     }
 
-    if use_httpupgrade {
+    if network == Some(&NetworkType::HttpUpgrade) {
         let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=httpupgrade requested without streamSettings".into(),
@@ -205,7 +199,7 @@ async fn connect_transport(
     tcp.set_nodelay(true)?;
     let mut stream: BoxedStream = Box::new(tcp);
 
-    if use_shadowtls {
+    if security == Some(&SecurityType::ShadowTls) {
         let shadow = settings
             .and_then(|s| s.shadow_tls_settings.as_ref())
             .ok_or_else(|| {
@@ -225,7 +219,7 @@ async fn connect_transport(
         stream = shadowtls_v3_connect(stream, shadow.password.as_bytes(), &shadow.dest).await?;
     }
 
-    if use_tls {
+    if security == Some(&SecurityType::Tls) {
         let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "security=tls requested without streamSettings".into(),
@@ -244,7 +238,7 @@ async fn connect_transport(
         stream = tls_connect(stream, server_name, &alpn, allow_insecure).await?;
     }
 
-    if use_grpc {
+    if network == Some(&NetworkType::Grpc) {
         let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=grpc requested without streamSettings".into(),
@@ -266,7 +260,7 @@ async fn connect_transport(
         return Ok(stream);
     }
 
-    if use_splithttp {
+    if network == Some(&NetworkType::SplitHttp) {
         let Some(settings) = stream_settings.as_ref() else {
             return Err(ProxyError::Protocol(
                 "network=splithttp requested without streamSettings".into(),
@@ -282,7 +276,7 @@ async fn connect_transport(
         return Ok(stream);
     }
 
-    if use_ws {
+    if network == Some(&NetworkType::Ws) {
         let Some(settings) = stream_settings.as_ref() else {
             return Err(ProxyError::Protocol(
                 "network=ws requested without streamSettings".into(),
