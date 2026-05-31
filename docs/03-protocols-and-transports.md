@@ -348,8 +348,9 @@ Useful for hostile or lossy links, but not a beginner-friendly first read.
 ### Repo Status
 
 The runtime has a UDP listener with per-peer KCP sessions, idle cleanup, and
-local VLESS-over-mKCP e2e coverage. It still needs realistic loss/latency lab
-validation before being treated as production-ready.
+local VLESS-over-mKCP e2e coverage. In the external-client matrix this row is
+an intentional client SKIP (upstream client-model limits), so support is
+tracked as server-path supported with documented SKIP caveats.
 
 ## TUN
 
@@ -377,10 +378,11 @@ default routes through the OS-assigned utun interface, loads a scoped PF anchor
 for TCP/DNS redirection, and uses
 `tun.outboundInterface`/`tun.outbound_interface` for protected outbound sockets
 so proxy egress does not re-enter the utun capture path. Windows Wintun device
-creation, split-route setup, protected outbound interface binding, and
-packet-level TCP bridging are wired through the native `tun` crate backend, and
-Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled
-`wintun.dll`. The Windows TCP bridge terminates TCP packets from Wintun and
+creation, split-route setup, protected outbound interface binding (via
+`tun.outboundInterface`/`tun.outbound_interface`), and packet-level TCP
+bridging are wired through the native `tun` crate backend, and Windows can use
+`tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`. The
+Windows TCP bridge terminates TCP packets from Wintun and
 opens SOCKS5 CONNECT requests to the local proxy listener configured by
 `tun.redirect_port`.
 
@@ -396,7 +398,8 @@ Advanced transport area, not the first thing to learn. Current runtime support
 implements ShadowTLS v3 ClientHello SessionID authentication, backend TLS
 ApplicationData tainting, switch detection, and rolling-HMAC data frames for
 VLESS/Trojan/VMess-style byte streams. It has local e2e coverage; external
-interop against sing-box/shadow-tls deployments still needs realistic lab proof.
+matrix rows are intentionally SKIP due upstream client-model mismatch, so
+support is tracked as server-path supported with documented SKIP caveats.
 
 ## Common Combinations
 

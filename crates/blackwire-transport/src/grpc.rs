@@ -489,10 +489,11 @@ pub async fn grpc_connect(
     });
 
     let path = format!("/{service_name}/Tun");
+    let uri = format!("https://{authority}{path}");
 
     let request = http::Request::builder()
         .method(http::Method::POST)
-        .uri(format!("https://{authority}{path}"))
+        .uri(uri)
         .header(http::header::CONTENT_TYPE, "application/grpc")
         .header(http::header::TE, "trailers")
         .header("grpc-encoding", "identity")
@@ -547,8 +548,8 @@ pub async fn grpc_accept(
         .ok_or_else(|| ProxyError::Transport("gRPC: no incoming request".into()))?
         .map_err(|e| ProxyError::Transport(format!("gRPC accept error: {e}")))?;
 
-    let path = request.uri().path().to_string();
-    tracing::warn!(path = %path, expected = %expected_path, "gRPC: incoming request");
+    let path = request.uri().path();
+    tracing::debug!(path = %path, expected = %expected_path, "gRPC: incoming request");
     if path != expected_path {
         return Err(ProxyError::Protocol(format!(
             "gRPC: unexpected path '{path}' (expected '{expected_path}')"

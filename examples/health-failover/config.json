@@ -17,7 +17,7 @@
       "tag": "primary-vless",
       "protocol": "vless",
       "settings": {
-        "address": "203.0.113.10",
+        "address": "proxy.example.com",
         "port": 443,
         "users": [
           {

@@ -66,6 +66,26 @@ ssh_server() {
     ssh "${SSH_OPTS[@]}" "${SSH_USER}@${SSH_SERVER}" "$@"
 }
 
+preflight_udp_8389() {
+    local marker="/tmp/blackwire-vps-udp8389.ok"
+    local pidfile="/tmp/blackwire-vps-udp8389.pid"
+
+    ssh_server "rm -f '${marker}' '${pidfile}'; nohup sh -c \"timeout 8 socat -u UDP-RECV:8389 SYSTEM:'printf ok > ${marker}'\" >/tmp/blackwire-vps-udp8389.log 2>&1 & echo \$! > '${pidfile}'" \
+        > "$REPORT_DIR/preflight-udp-prepare.log" 2>&1 || return 1
+    sleep 1
+    ssh_client "printf probe | nc -u -w2 '${SERVER_HOST}' 8389" \
+        > "$REPORT_DIR/preflight-udp-send.log" 2>&1 || true
+    sleep 1
+    if ! ssh_server "test -f '${marker}'" > "$REPORT_DIR/preflight-udp-check.log" 2>&1; then
+        ssh_server "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') >/dev/null 2>&1 || true; fi; rm -f '${marker}' '${pidfile}'" \
+            > "$REPORT_DIR/preflight-udp-cleanup.log" 2>&1 || true
+        return 1
+    fi
+    ssh_server "if [ -f '${pidfile}' ]; then kill \$(cat '${pidfile}') >/dev/null 2>&1 || true; fi; rm -f '${marker}' '${pidfile}'" \
+        >> "$REPORT_DIR/preflight-udp-cleanup.log" 2>&1 || true
+    return 0
+}
+
 copy_to_client() {
     scp "${SCP_OPTS[@]}" -r \
         "$GENERATED_DIR/xray" \
@@ -350,6 +370,11 @@ ssh_client 'command -v docker >/dev/null && command -v curl >/dev/null && comman
 ssh_server 'test -x /usr/local/bin/blackwire && test -d /etc/blackwire/generated && test -f /etc/blackwire/certs/cert.pem' \
     > "$REPORT_DIR/preflight-server.log" 2>&1 || {
     echo "ERROR: SERVER VPS needs blackwire binary, generated configs, and certs." >&2
+    exit 1
+}
+preflight_udp_8389 || {
+    echo "ERROR: UDP preflight to SERVER:8389 failed (likely firewall or routing issue)." >&2
+    echo "Check server setup includes UDP 8389 allow rule and re-run vps-server-setup." >&2
     exit 1
 }
 ssh_client "mkdir -p '$REMOTE_DIR/generated'" > "$REPORT_DIR/remote-mkdir.log" 2>&1

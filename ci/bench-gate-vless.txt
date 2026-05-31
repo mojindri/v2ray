@@ -1,0 +1,11 @@
+# VLESS key runtime scenarios.
+# Path is relative to target/criterion.
+
+vless_tcp_short_lived/64
+vless_tcp_short_lived/256
+vless_tcp_short_lived/1024
+vless_tcp_mixed_small_writes/chunk_x64/64
+vless_tcp_mixed_small_writes/chunk_x64/128
+vless_tcp_mixed_small_writes/chunk_x64/512
+vless_tcp_mixed_small_writes/chunk_x64/1024
+

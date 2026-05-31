@@ -80,9 +80,14 @@ pub async fn splithttp_connect(
         .cloned()
         .unwrap_or_else(|| authority.to_string());
 
-    let mut request = format!(
-        "{method} {path} HTTP/1.1\r\nHost: {host}\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n"
-    );
+    let mut request =
+        String::with_capacity(96 + method.len() + path.len() + host.len() + cfg.headers.len() * 24);
+    request.push_str(&method);
+    request.push(' ');
+    request.push_str(&path);
+    request.push_str(" HTTP/1.1\r\nHost: ");
+    request.push_str(&host);
+    request.push_str("\r\nConnection: keep-alive\r\nTransfer-Encoding: chunked\r\n");
     for (key, value) in &cfg.headers {
         request.push_str(key);
         request.push_str(": ");
@@ -396,6 +401,8 @@ pub async fn splithttp_accept_h2_packet_up(
         .map_err(|e| ProxyError::Transport(format!("xHTTP h2 packet-up handshake failed: {e}")))?;
 
     let base = expected_path.unwrap_or("/").to_string();
+    let prefix = crate::splithttp_packet_up::normalized_path_prefix(&base);
+    let prefix = prefix.trim_end_matches('/').to_string();
     let mut download_sessions: HashSet<String> = HashSet::new();
 
     loop {
@@ -410,16 +417,15 @@ pub async fn splithttp_accept_h2_packet_up(
         };
 
         let (request, mut respond) = incoming;
-        let method = request.method().as_str().to_string();
+        let method = request.method().as_str();
         let path = request
             .uri()
             .path_and_query()
-            .map(|pq| pq.as_str().to_string())
-            .unwrap_or_else(|| request.uri().path().to_string());
+            .map(|pq| pq.as_str())
+            .unwrap_or_else(|| request.uri().path());
         debug!(method = %method, path = %path, "xHTTP h2 packet-up inbound request");
 
-        let prefix = crate::splithttp_packet_up::normalized_path_prefix(&base);
-        if !path.starts_with(prefix.trim_end_matches('/')) {
+        if !path.starts_with(prefix.as_str()) {
             let _ = respond.send_response(
                 http::Response::builder().status(404).body(()).unwrap(),
                 true,
@@ -427,7 +433,7 @@ pub async fn splithttp_accept_h2_packet_up(
             continue;
         }
 
-        let (session, seq) = extract_session_seq(&path, &base);
+        let (session, seq) = extract_session_seq(path, &base);
 
         if method.eq_ignore_ascii_case("OPTIONS") {
             let response = http::Response::builder()

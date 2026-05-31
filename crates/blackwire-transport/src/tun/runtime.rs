@@ -71,17 +71,25 @@ impl TunRuntime {
         self.run_platform(device, shutdown).await
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos", target_os = "windows"))]
+    #[cfg(target_os = "macos")]
     async fn run_platform(
-        #[cfg_attr(not(target_os = "macos"), allow(unused_mut))] mut self,
+        mut self,
         device: TunDevice,
         shutdown: watch::Receiver<bool>,
     ) -> Result<()> {
-        #[cfg(target_os = "macos")]
-        {
-            self.config.name = tun_device_name(&device)?;
-        }
+        self.config.name = tun_device_name(&device)?;
 
+        let routes = setup_runtime_routes(&self.config).await?;
+
+        let result = self.packet_loop(device, shutdown).await;
+
+        routes.cleanup().await;
+
+        result
+    }
+
+    #[cfg(any(target_os = "linux", target_os = "windows"))]
+    async fn run_platform(self, device: TunDevice, shutdown: watch::Receiver<bool>) -> Result<()> {
         let routes = setup_runtime_routes(&self.config).await?;
 
         let result = self.packet_loop(device, shutdown).await;
@@ -135,7 +143,7 @@ impl TunRuntime {
                                 &mut nat,
                                 #[cfg(target_os = "windows")]
                                 &mut tcp,
-                                tun_tx.clone(),
+                                &tun_tx,
                             ).await;
                         }
                         Err(e) => {
@@ -187,7 +195,7 @@ impl TunRuntime {
         raw: &[u8],
         nat: &mut UdpNatTable,
         #[cfg(target_os = "windows")] tcp: &mut TcpBridgeTable,
-        tun_tx: TunTx,
+        tun_tx: &TunTx,
     ) {
         let Some(packet) = parse_ip_packet(raw) else {
             return;

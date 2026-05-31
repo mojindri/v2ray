@@ -67,7 +67,7 @@ impl UdpNatTable {
     /// On the first packet for a flow, creates a bypass socket and spawns a
     /// response-reader task. Subsequent packets for the same flow reuse the
     /// existing socket and refresh its idle timer.
-    pub async fn forward(&mut self, packet: &IpPacket, raw: &[u8], tun_tx: TunTx) -> Result<()> {
+    pub async fn forward(&mut self, packet: &IpPacket, raw: &[u8], tun_tx: &TunTx) -> Result<()> {
         let client = SocketAddr::new(packet.src, packet.src_port);
         let remote = SocketAddr::new(packet.dst, packet.dst_port);
         let key = (client, remote);

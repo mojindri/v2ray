@@ -1,0 +1,8 @@
+# VMess over gRPC key runtime scenarios.
+# Path is relative to target/criterion.
+
+vmess_grpc_short_lived/64
+vmess_grpc_short_lived/256
+vmess_grpc_short_lived/1024
+vmess_grpc_mixed_small_writes/chunk_x64/512
+

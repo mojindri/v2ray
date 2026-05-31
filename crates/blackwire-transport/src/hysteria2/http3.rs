@@ -2,6 +2,7 @@
 
 use std::net::SocketAddr;
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{bail, Context as _, Result};
 use blackwire_app::context::Context;
@@ -12,6 +13,8 @@ use h3_quinn::Connection as H3QuinnConnection;
 use http::{Response, StatusCode};
 use quinn::Connection;
 use tokio::net::UdpSocket;
+use tokio::sync::Semaphore;
+use tokio::time::timeout;
 use tracing::warn;
 
 use super::auth::AuthError;
@@ -19,6 +22,12 @@ use super::proto::{auth_response_to_headers, is_auth_request, AuthResponse, STAT
 use super::tcp;
 use super::udp::{decode_udp_datagram, encode_udp_datagram, Destination, UdpDatagram};
 use super::Hysteria2ServerConfig;
+
+const H3_AUTH_ACCEPT_TIMEOUT: Duration = Duration::from_secs(5);
+const H3_AUTH_HANDLE_TIMEOUT: Duration = Duration::from_secs(5);
+const TCP_REQUEST_TIMEOUT: Duration = Duration::from_secs(5);
+const UDP_REPLY_TIMEOUT: Duration = Duration::from_secs(3);
+const MAX_UDP_WORKERS_PER_CONN: usize = 256;
 
 /// Serve one QUIC connection: HTTP/3 auth, then TCP proxy streams on QUIC bidi streams.
 pub async fn serve_connection(
@@ -32,12 +41,20 @@ pub async fn serve_connection(
         .await
         .context("start HTTP/3 server")?;
 
-    let resolver = match h3_conn.accept().await.context("accept HTTP/3 auth")? {
+    let resolver = match timeout(H3_AUTH_ACCEPT_TIMEOUT, h3_conn.accept())
+        .await
+        .context("accept HTTP/3 auth timed out")??
+    {
         Some(resolver) => resolver,
         None => bail!("connection closed before Hysteria2 auth"),
     };
 
-    handle_h3_auth_request(resolver, &config.password, server_rx_bps, true).await?;
+    timeout(
+        H3_AUTH_HANDLE_TIMEOUT,
+        handle_h3_auth_request(resolver, &config.password, server_rx_bps, true),
+    )
+    .await
+    .context("handle HTTP/3 auth timed out")??;
     // Keep the HTTP/3 server driver alive for the QUIC session without calling
     // `accept()` again. Official hysteria uses http3.StreamDispatcher to hijack
     // proxy streams (varint 0x401); the Rust `h3` crate has no equivalent, so we
@@ -66,11 +83,17 @@ pub async fn serve_connection(
         let dispatcher = Arc::clone(&dispatcher);
         let tag = inbound_tag.clone();
         tokio::spawn(async move {
-            let dest = match tcp::server_read_request(&mut recv).await {
-                Ok(d) => d,
-                Err(e) => {
+            let dest = match timeout(TCP_REQUEST_TIMEOUT, tcp::server_read_request(&mut recv)).await
+            {
+                Ok(Ok(d)) => d,
+                Ok(Err(e)) => {
                     warn!("Hysteria2 bad TCP request: {e}");
                     let _ = tcp::server_write_response(&mut send, false, &e.to_string()).await;
+                    return;
+                }
+                Err(_) => {
+                    warn!("Hysteria2 TCP request read timed out");
+                    let _ = tcp::server_write_response(&mut send, false, "request timeout").await;
                     return;
                 }
             };
@@ -105,6 +128,7 @@ pub async fn serve_connection(
 async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
     // session_id → local UDP socket bound on 0.0.0.0:0
     let sessions: Arc<DashMap<u32, Arc<UdpSocket>>> = Arc::new(DashMap::new());
+    let worker_limiter = Arc::new(Semaphore::new(MAX_UDP_WORKERS_PER_CONN));
 
     loop {
         let raw: bytes::Bytes = match conn.read_datagram().await {
@@ -124,7 +148,7 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
             Destination::V4(ip, port) => SocketAddr::new((*ip).into(), *port),
             Destination::V6(ip, port) => SocketAddr::new((*ip).into(), *port),
             Destination::Domain(name, port) => {
-                match tokio::net::lookup_host(format!("{name}:{port}")).await {
+                match tokio::net::lookup_host((name.as_str(), *port)).await {
                     Ok(mut addrs) => match addrs.next() {
                         Some(a) => a,
                         None => {
@@ -142,8 +166,8 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
 
         let session_id = dg.session_id;
         let packet_id = dg.packet_id;
-        let payload = dg.data.clone();
-        let dest = dg.dest.clone();
+        let payload = dg.data;
+        let dest = dg.dest;
 
         // Get or create a local UDP socket for this session.
         let sock = if let Some(entry) = sessions.get(&session_id) {
@@ -163,15 +187,34 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
         };
 
         let conn2 = conn.clone();
+        let permit = match Arc::clone(&worker_limiter).try_acquire_owned() {
+            Ok(p) => p,
+            Err(_) => {
+                warn!(
+                    tag = %inbound_tag,
+                    max = MAX_UDP_WORKERS_PER_CONN,
+                    "Hysteria2 UDP worker limit reached; dropping datagram"
+                );
+                continue;
+            }
+        };
+
         tokio::spawn(async move {
-            if let Err(e) = sock.send_to(&payload, dest_addr).await {
+            let _permit = permit;
+            if let Err(e) = sock.send_to(payload.as_ref(), dest_addr).await {
                 warn!("Hysteria2 UDP send to {dest_addr}: {e}");
                 return;
             }
 
             let mut buf = vec![0u8; 65535];
-            match sock.recv_from(&mut buf).await {
-                Ok((n, _src)) => {
+            match timeout(UDP_REPLY_TIMEOUT, sock.recv_from(&mut buf)).await {
+                Err(_) => {
+                    warn!("Hysteria2 UDP recv from {dest_addr}: reply timeout");
+                }
+                Ok(Err(e)) => {
+                    warn!("Hysteria2 UDP recv from {dest_addr}: {e}");
+                }
+                Ok(Ok((n, _src))) => {
                     let response_dg = UdpDatagram {
                         session_id,
                         packet_id,
@@ -184,9 +227,6 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
                     if let Err(e) = conn2.send_datagram(encoded) {
                         warn!("Hysteria2 UDP: send_datagram failed: {e}");
                     }
-                }
-                Err(e) => {
-                    warn!("Hysteria2 UDP recv from {dest_addr}: {e}");
                 }
             }
         });

@@ -399,6 +399,10 @@ pub async fn setup_macos_routes(config: &TunConfig) -> Result<()> {
         )
     })?;
 
+    // Enable PF first so the anchor load below succeeds on runners where PF
+    // starts in a disabled state.
+    enable_macos_pf(&config.name).await?;
+
     let mut rb = RollbackList::default();
 
     must(
@@ -465,8 +469,6 @@ pub async fn setup_macos_routes(config: &TunConfig) -> Result<()> {
     )
     .await?;
 
-    enable_macos_pf(&config.name).await?;
-
     let _ = fs::remove_file(&pf_rules_path);
     info!(tun_name = %config.name, anchor = MACOS_PF_ANCHOR, "macOS TUN routes installed");
     Ok(())
@@ -509,7 +511,7 @@ pub async fn cleanup_macos_routes(config: &TunConfig) {
 }
 
 #[cfg(target_os = "macos")]
-const MACOS_PF_ANCHOR: &str = "blackwire/tun";
+const MACOS_PF_ANCHOR: &str = "blackwire";
 
 #[cfg(target_os = "macos")]
 fn validate_macos_runtime_config(config: &TunConfig) -> Result<()> {
@@ -649,6 +651,14 @@ pub async fn cleanup_windows_routes(config: &TunConfig) {
 fn validate_windows_runtime_config(config: &TunConfig) -> Result<()> {
     if !is_safe_windows_interface_name(&config.name) {
         bail!("invalid Windows TUN interface name: {}", config.name);
+    }
+    let Some(outbound_interface) = &config.outbound_interface else {
+        bail!(
+            "Windows TUN runtime requires tun.outboundInterface/tun.outbound_interface so proxy egress can bypass Wintun capture"
+        );
+    };
+    if !is_safe_windows_interface_name(outbound_interface) {
+        bail!("invalid Windows outbound interface name: {outbound_interface}");
     }
     Ok(())
 }
@@ -893,5 +903,77 @@ mod tests {
     fn windows_interface_name_rejects_newline_injection() {
         assert!(!is_safe_windows_interface_name("tun\r\nnetsh bad"));
         assert!(is_safe_windows_interface_name("Blackwire Wintun"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_runtime_config_requires_outbound_interface() {
+        let cfg = TunConfig {
+            name: "utun8".into(),
+            outbound_interface: None,
+            ..TunConfig::default()
+        };
+        let err = validate_macos_runtime_config(&cfg).unwrap_err();
+        assert!(err.to_string().contains("requires tun.outboundInterface"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_runtime_config_rejects_unsafe_outbound_interface() {
+        let cfg = TunConfig {
+            name: "utun8".into(),
+            outbound_interface: Some("en0\nbad".into()),
+            ..TunConfig::default()
+        };
+        let err = validate_macos_runtime_config(&cfg).unwrap_err();
+        assert!(err.to_string().contains("invalid macOS outbound interface"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_runtime_config_accepts_safe_outbound_interface() {
+        let cfg = TunConfig {
+            name: "utun8".into(),
+            outbound_interface: Some("en0".into()),
+            ..TunConfig::default()
+        };
+        validate_macos_runtime_config(&cfg).expect("valid macOS runtime config");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_config_requires_outbound_interface() {
+        let cfg = TunConfig {
+            name: "Blackwire Wintun".into(),
+            outbound_interface: None,
+            ..TunConfig::default()
+        };
+        let err = validate_windows_runtime_config(&cfg).unwrap_err();
+        assert!(err.to_string().contains("requires tun.outboundInterface"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_config_rejects_unsafe_outbound_interface() {
+        let cfg = TunConfig {
+            name: "Blackwire Wintun".into(),
+            outbound_interface: Some("Ethernet\r\nbad".into()),
+            ..TunConfig::default()
+        };
+        let err = validate_windows_runtime_config(&cfg).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("invalid Windows outbound interface"));
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn windows_runtime_config_accepts_safe_outbound_interface() {
+        let cfg = TunConfig {
+            name: "Blackwire Wintun".into(),
+            outbound_interface: Some("Ethernet".into()),
+            ..TunConfig::default()
+        };
+        validate_windows_runtime_config(&cfg).expect("valid Windows runtime config");
     }
 }

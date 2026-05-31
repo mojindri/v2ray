@@ -52,7 +52,8 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 /// The first-use guard needs client bytes so it can retry with a fresh dial if
 /// a pooled socket is stale. Server-first protocols do not send client bytes
 /// immediately, so this guard must be bounded to avoid blocking the relay.
-const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(5);
+const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(1);
+const POOLED_FIRST_WRITE_GUARD_BUF_SIZE: usize = 2048;
 
 use std::collections::HashMap;
 
@@ -111,6 +112,14 @@ pub struct DefaultDispatcher {
     splice_policy: FastSplicePolicy,
 }
 
+fn splice_policy_for_profile(profile: ProfileMode, fast: Option<&FastConfig>) -> FastSplicePolicy {
+    if profile == ProfileMode::Fast {
+        fast.map(|f| f.splice).unwrap_or_default()
+    } else {
+        FastSplicePolicy::Adaptive
+    }
+}
+
 impl DefaultDispatcher {
     /// Create a new dispatcher with the given router and outbounds map.
     ///
@@ -127,7 +136,7 @@ impl DefaultDispatcher {
             dns: None,
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             profile: ProfileMode::default(),
-            splice_policy: FastSplicePolicy::Always,
+            splice_policy: splice_policy_for_profile(ProfileMode::default(), None),
         })
     }
 
@@ -143,7 +152,7 @@ impl DefaultDispatcher {
             dns: None,
             sniffing,
             profile: ProfileMode::default(),
-            splice_policy: FastSplicePolicy::Always,
+            splice_policy: splice_policy_for_profile(ProfileMode::default(), None),
         })
     }
 
@@ -162,7 +171,7 @@ impl DefaultDispatcher {
             dns: Some(dns),
             sniffing: Arc::new(ArcSwap::from_pointee(HashMap::new())),
             profile: ProfileMode::default(),
-            splice_policy: FastSplicePolicy::Always,
+            splice_policy: splice_policy_for_profile(ProfileMode::default(), None),
         })
     }
 
@@ -179,7 +188,7 @@ impl DefaultDispatcher {
             dns: Some(dns),
             sniffing,
             profile: ProfileMode::default(),
-            splice_policy: FastSplicePolicy::Always,
+            splice_policy: splice_policy_for_profile(ProfileMode::default(), None),
         })
     }
 
@@ -196,11 +205,7 @@ impl DefaultDispatcher {
         profile: ProfileMode,
         fast: Option<&FastConfig>,
     ) -> Arc<Self> {
-        let splice_policy = if profile == ProfileMode::Fast {
-            fast.map(|f| f.splice).unwrap_or_default()
-        } else {
-            FastSplicePolicy::Always
-        };
+        let splice_policy = splice_policy_for_profile(profile, fast);
         if self.profile == profile && self.splice_policy == splice_policy {
             return self;
         }
@@ -330,6 +335,7 @@ impl DefaultDispatcher {
         mut inbound_stream: BoxedStream,
         outbound_stream: BoxedStream,
     ) -> Result<(BoxedStream, BoxedStream, u64), ProxyError> {
+        let inbound_tag = ctx.inbound_tag.as_str();
         if self.profile != ProfileMode::Fast
             || !(*outbound_stream).as_any().is::<PooledStream<TcpStream>>()
         {
@@ -343,7 +349,8 @@ impl DefaultDispatcher {
         let (mut outbound, pool_tag, peer_addr) = pooled.into_metadata_parts();
         let pool_label = pool_tag.as_deref().unwrap_or("unknown");
 
-        let mut first = vec![0u8; 16 * 1024];
+        // Keep this small to avoid a per-connection heap allocation here.
+        let mut first = [0u8; POOLED_FIRST_WRITE_GUARD_BUF_SIZE];
         let n = match tokio::time::timeout(
             POOLED_FIRST_WRITE_GUARD_TIMEOUT,
             inbound_stream.read(&mut first),
@@ -354,7 +361,7 @@ impl DefaultDispatcher {
             Err(_) => {
                 metrics::counter!(
                     "freedom_pool_first_use_guard_skipped_total",
-                    "inbound" => ctx.inbound_tag.clone(),
+                    "inbound" => inbound_tag.to_owned(),
                     "outbound" => pool_label.to_owned(),
                     "reason" => "client_first_timeout"
                 )
@@ -369,17 +376,14 @@ impl DefaultDispatcher {
         if outbound.write_all(&first[..n]).await.is_err() {
             metrics::counter!(
                 "freedom_pool_first_use_retries_total",
-                "inbound" => ctx.inbound_tag.clone(),
+                "inbound" => inbound_tag.to_owned(),
                 "outbound" => pool_label.to_owned()
             )
             .increment(1);
 
             let fresh_result: Result<BoxedStream, ProxyError> = if let Some(addr) = peer_addr {
                 match tcp_connect(addr).await {
-                    Ok(stream) => match stream.set_nodelay(true) {
-                        Ok(()) => Ok(Box::new(stream)),
-                        Err(e) => Err(ProxyError::Io(e)),
-                    },
+                    Ok(stream) => Ok(Box::new(stream)),
                     Err(e) => Err(e),
                 }
             } else {
@@ -391,7 +395,7 @@ impl DefaultDispatcher {
                 Err(e) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_failures_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -403,7 +407,7 @@ impl DefaultDispatcher {
                 Ok(()) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_success_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -412,7 +416,7 @@ impl DefaultDispatcher {
                 Err(e) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_failures_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -576,12 +580,10 @@ impl DefaultDispatcher {
         let name = name.clone();
         let port = *port;
         Some(tokio::spawn(async move {
-            let dest = Address::Domain(name, port);
+            let domain = name.as_str();
             // Inline version of resolve_domain_ips without borrowing self.
             let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
-            let resolved =
-                tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
-                    .await;
+            let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(domain)).await;
             if let Ok(Ok(addrs)) = resolved {
                 for ip in addrs {
                     ips.push(match ip {
@@ -593,7 +595,7 @@ impl DefaultDispatcher {
             if ips.is_empty() {
                 let lookup = tokio::time::timeout(
                     ROUTING_DNS_TIMEOUT,
-                    tokio::net::lookup_host((dest.domain().unwrap(), port)),
+                    tokio::net::lookup_host((domain, port)),
                 );
                 if let Ok(Ok(addrs)) = lookup.await {
                     for addr in addrs {
@@ -695,6 +697,7 @@ mod tests {
     use super::*;
     use crate::dns::DnsModuleConfig;
     use crate::router::{Route, RoutingContext};
+    use blackwire_config::schema::{FastPoolPolicy, FastSplicePolicy};
 
     struct StaticRouter;
 
@@ -707,6 +710,27 @@ mod tests {
                 false,
             )
         }
+    }
+
+    #[test]
+    fn compat_profile_uses_adaptive_splice_by_default() {
+        assert_eq!(
+            splice_policy_for_profile(ProfileMode::Compat, None),
+            FastSplicePolicy::Adaptive
+        );
+    }
+
+    #[test]
+    fn fast_profile_honors_configured_splice_policy() {
+        let fast = FastConfig {
+            splice: FastSplicePolicy::Always,
+            pool: FastPoolPolicy::Disabled,
+            strict_production: false,
+        };
+        assert_eq!(
+            splice_policy_for_profile(ProfileMode::Fast, Some(&fast)),
+            FastSplicePolicy::Always
+        );
     }
 
     #[tokio::test]

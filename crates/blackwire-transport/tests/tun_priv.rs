@@ -35,6 +35,8 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::timeout;
 
+#[cfg(target_os = "macos")]
+use blackwire_transport::tun::tun_device_name;
 use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
 use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
 
@@ -224,7 +226,7 @@ async fn macos_tun_runtime_privileged_smoke() {
     let outbound_interface = macos_default_interface()
         .await
         .expect("failed to detect macOS default interface");
-    let cfg = TunConfig {
+    let mut cfg = TunConfig {
         name: "blackwire-ci-utun".into(),
         address: "198.19.10.1".parse().unwrap(),
         netmask: "255.255.0.0".parse().unwrap(),
@@ -236,7 +238,10 @@ async fn macos_tun_runtime_privileged_smoke() {
         wintun_file: None,
     };
     let device = create_tun(&cfg).expect("macOS utun creation failed");
-    run_runtime_briefly(cfg, device).await;
+    // macOS only assigns utun<N> names; the requested name may be ignored by the
+    // kernel, so read the actual assigned name before checking route state.
+    cfg.name = tun_device_name(&device).expect("could not read utun device name");
+    run_macos_runtime_with_route_asserts(cfg, device).await;
 }
 
 /// Starts the Windows Wintun runtime long enough to create the adapter, install
@@ -250,27 +255,34 @@ async fn macos_tun_runtime_privileged_smoke() {
 async fn windows_tun_runtime_privileged_smoke() {
     let wintun_file =
         std::env::var("WINTUN_FILE").expect("WINTUN_FILE must point to wintun.dll for CI smoke");
+    let outbound_interface = std::env::var("TUN_OUTBOUND_INTERFACE")
+        .expect("TUN_OUTBOUND_INTERFACE must point to the physical egress interface name");
     let cfg = TunConfig {
         name: "Blackwire CI Wintun".into(),
         address: "198.19.11.1".parse().unwrap(),
         netmask: "255.255.0.0".parse().unwrap(),
         mtu: 1500,
         bypass_mark: 0,
-        outbound_interface: None,
+        outbound_interface: Some(outbound_interface),
         redirect_port: 17894,
         dns_port: 15304,
         wintun_file: Some(wintun_file),
     };
     let device = create_tun(&cfg).expect("Windows Wintun creation failed");
-    run_runtime_briefly(cfg, device).await;
+    run_windows_runtime_with_route_asserts(cfg, device).await;
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-async fn run_runtime_briefly(cfg: TunConfig, device: blackwire_transport::tun::TunDevice) {
+#[cfg(target_os = "macos")]
+async fn run_macos_runtime_with_route_asserts(
+    cfg: TunConfig,
+    device: blackwire_transport::tun::TunDevice,
+) {
+    let iface = cfg.name.clone();
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let handle = tokio::spawn(async move { TunRuntime::new(cfg).run(device, shutdown_rx).await });
 
-    tokio::time::sleep(Duration::from_millis(250)).await;
+    wait_for_macos_runtime_state(&iface, true).await;
+
     shutdown_tx
         .send(true)
         .expect("runtime shutdown receiver dropped before signal");
@@ -280,6 +292,119 @@ async fn run_runtime_briefly(cfg: TunConfig, device: blackwire_transport::tun::T
         .expect("TUN runtime smoke timed out")
         .expect("TUN runtime task panicked")
         .expect("TUN runtime returned an error");
+
+    wait_for_macos_runtime_state(&iface, false).await;
+}
+
+#[cfg(target_os = "macos")]
+async fn wait_for_macos_runtime_state(interface_name: &str, should_exist: bool) {
+    // We verify only split-route state here. The pfctl anchor load is
+    // implicitly proven by the route check: setup_macos_routes uses a
+    // rollback list, so if pfctl fails the routes are removed before the
+    // runtime returns. routes_ok=true therefore means pfctl also succeeded.
+    // Querying the anchor directly via `pfctl -a blackwire -s rules` is
+    // unreliable on GitHub-hosted macOS runners (may return non-zero or
+    // empty output depending on PF daemon state), so we skip that probe.
+    let timeout_at = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let routes_ok = macos_split_routes_present(interface_name).await;
+
+        if routes_ok == should_exist {
+            return;
+        }
+
+        if tokio::time::Instant::now() >= timeout_at {
+            assert_eq!(
+                routes_ok,
+                should_exist,
+                "macOS TUN split routes mismatch for interface `{interface_name}`: routes_ok={routes_ok}, should_exist={should_exist}"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[cfg(target_os = "macos")]
+async fn macos_split_routes_present(interface_name: &str) -> bool {
+    let out_a = tokio::process::Command::new("route")
+        .args(["-n", "get", "1.0.0.1"])
+        .output()
+        .await
+        .expect("route -n get 1.0.0.1 failed");
+    let out_b = tokio::process::Command::new("route")
+        .args(["-n", "get", "129.0.0.1"])
+        .output()
+        .await
+        .expect("route -n get 129.0.0.1 failed");
+    let a = String::from_utf8_lossy(&out_a.stdout);
+    let b = String::from_utf8_lossy(&out_b.stdout);
+    a.lines()
+        .any(|line| line.trim_start().starts_with("interface:") && line.contains(interface_name))
+        && b.lines().any(|line| {
+            line.trim_start().starts_with("interface:") && line.contains(interface_name)
+        })
+}
+
+#[cfg(target_os = "windows")]
+async fn run_windows_runtime_with_route_asserts(
+    cfg: TunConfig,
+    device: blackwire_transport::tun::TunDevice,
+) {
+    let iface = cfg.name.clone();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
+    let handle = tokio::spawn(async move { TunRuntime::new(cfg).run(device, shutdown_rx).await });
+
+    wait_for_windows_route_state(&iface, true).await;
+
+    shutdown_tx
+        .send(true)
+        .expect("runtime shutdown receiver dropped before signal");
+
+    timeout(Duration::from_secs(10), handle)
+        .await
+        .expect("TUN runtime smoke timed out")
+        .expect("TUN runtime task panicked")
+        .expect("TUN runtime returned an error");
+
+    wait_for_windows_route_state(&iface, false).await;
+}
+
+#[cfg(target_os = "windows")]
+async fn wait_for_windows_route_state(interface_name: &str, should_exist: bool) {
+    let timeout_at = tokio::time::Instant::now() + Duration::from_secs(8);
+    loop {
+        let has_routes = windows_split_routes_present(interface_name).await;
+        if has_routes == should_exist {
+            return;
+        }
+        if tokio::time::Instant::now() >= timeout_at {
+            assert_eq!(
+                has_routes, should_exist,
+                "Windows split-route state mismatch for interface `{interface_name}`"
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+}
+
+#[cfg(target_os = "windows")]
+async fn windows_split_routes_present(interface_name: &str) -> bool {
+    let output = tokio::process::Command::new("netsh")
+        .args(["interface", "ipv4", "show", "route"])
+        .output()
+        .await
+        .expect("netsh interface ipv4 show route failed");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lower = route_row_present(&stdout, "0.0.0.0/1", interface_name);
+    let upper = route_row_present(&stdout, "128.0.0.0/1", interface_name);
+    lower && upper
+}
+
+#[cfg(target_os = "windows")]
+fn route_row_present(routes_output: &str, prefix: &str, interface_name: &str) -> bool {
+    routes_output
+        .lines()
+        .any(|line| line.contains(prefix) && line.contains(interface_name))
 }
 
 #[cfg(target_os = "macos")]
@@ -402,7 +527,7 @@ async fn udp_nat_forward_and_response_roundtrip() {
     );
     let parsed = parse_ip_packet(&pkt).unwrap();
 
-    nat.forward(&parsed, &pkt, tun_tx).await.unwrap();
+    nat.forward(&parsed, &pkt, &tun_tx).await.unwrap();
 
     // The NAT table spawned a response reader. Wait for the echo response.
     let response = timeout(Duration::from_secs(2), tun_rx.recv())
@@ -476,7 +601,7 @@ async fn vps_udp_nat_real_dns_query() {
     let pkt = udp_ipv4_packet(fake_src.octets(), 44444, [8, 8, 8, 8], 53, dns_query);
     let parsed = parse_ip_packet(&pkt).unwrap();
 
-    nat.forward(&parsed, &pkt, tun_tx)
+    nat.forward(&parsed, &pkt, &tun_tx)
         .await
         .expect("NAT forward failed");
 

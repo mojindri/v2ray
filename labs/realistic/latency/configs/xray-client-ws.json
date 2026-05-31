@@ -1,0 +1,37 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "socks-in",
+      "protocol": "socks",
+      "listen": "127.0.0.1",
+      "port": 1082,
+      "settings": { "auth": "noauth" }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "vless-ws-out",
+      "protocol": "vless",
+      "settings": {
+        "vnext": [
+          {
+            "address": "${SERVER_ADDR}",
+            "port": ${SERVER_PORT},
+            "users": [
+              { "id": "00000000-0000-4000-8000-000000000001", "encryption": "none", "flow": "" }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "/bench",
+          "headers": { "Host": "${SERVER_ADDR}" }
+        }
+      }
+    }
+  ]
+}
