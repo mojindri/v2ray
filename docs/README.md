@@ -15,6 +15,8 @@ place: duplicate summaries drift quickly.
 | What exact Make targets exist? | [15-make-command-guide.md](15-make-command-guide.md), [make-target-inventory.md](make-target-inventory.md) |
 | How do I operate an installed Linux VPS? | [installed-command-guide.md](installed-command-guide.md) |
 | What does the external-client matrix prove? | [parity-status.md](parity-status.md), [../labs/realistic/external-clients/README.md](../labs/realistic/external-clients/README.md) |
+| What is the abuse-prevention / traffic-policy backlog? | [traffic-policy-roadmap.md](traffic-policy-roadmap.md) |
+| What is the network-resilience hardening backlog? | [network-resilience-roadmap.md](network-resilience-roadmap.md) |
 
 Guideline: beginner docs should explain concepts and link to these files for
 status. They should not carry independent support matrices or PASS/SKIP counts.
@@ -38,6 +40,10 @@ Related docs:
   Evidence-based feature status.
 - [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md)
   Upstream-first rules for wire parity.
+- [traffic-policy-roadmap.md](traffic-policy-roadmap.md)
+  TODOs for BitTorrent/P2P blocking, UDP policy, limits, quotas, and panel UX.
+- [network-resilience-roadmap.md](network-resilience-roadmap.md)
+  TODOs for DNS hardening, REALITY checks, path diversity, active-probe resistance, and panel exposure.
 - [../tests/interop/README.md](../tests/interop/README.md)
   REALITY and Xray interop notes, including `d0` and `d1`.
 - [../labs/realistic/README.md](../labs/realistic/README.md)

@@ -32,8 +32,8 @@ Black UI is packaged as a companion Linux service when release assets include
 `black-ui-linux-*.tar.gz`.
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 INSTALL_BLACK_UI=1 START_SERVICE=1 bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 INSTALL_BLACK_UI=1 START_SERVICE=1 bash
 ```
 
 Defaults:
@@ -47,8 +47,8 @@ Defaults:
 With nginx domain setup:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 INSTALL_BLACK_UI=1 START_SERVICE=1 bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 INSTALL_BLACK_UI=1 START_SERVICE=1 bash
 ```
 
 The installer adds an nginx reverse proxy at `/panel/` when

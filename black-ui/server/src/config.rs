@@ -774,9 +774,7 @@ mod tests {
         };
 
         let link = vless_link(&settings, &inbound, &user);
-        assert!(
-            link.starts_with("vless://459dc0c8-d891-4768-9234-faf11fd26b5d@203.0.113.10:443?")
-        );
+        assert!(link.starts_with("vless://459dc0c8-d891-4768-9234-faf11fd26b5d@203.0.113.10:443?"));
         assert!(link.contains("type=tcp"));
         assert!(link.contains("security=reality"));
         assert!(link.contains("headerType=none"));

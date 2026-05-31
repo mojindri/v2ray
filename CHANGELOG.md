@@ -6,6 +6,31 @@ This project is pre-1.0. The support contract is owned by
 [docs/release.md](docs/release.md), and detailed feature evidence is owned by
 [docs/feature-matrix.md](docs/feature-matrix.md).
 
+## 0.1.0-rc.4 - 2026-06-01
+
+### Added
+
+- Adaptive balancer mode with in-memory profile scoring, conservative cooldowns, health-aware selection, runtime stats, Prometheus metrics, docs, examples, and focused tests.
+- Black UI setting for auto adaptive routing across enabled outbounds, with backend-generated adaptive routing when two or more valid enabled outbounds exist.
+- Black UI subscription URL generation using configured public base URL / subscription host, so generated links do not default to localhost on VPS deployments.
+- VLESS REALITY share-link export with public keys, short IDs, SNI, fingerprint, and Hiddify-compatible query parameters.
+- Optional firewall sync for enabled public panel-managed inbounds.
+
+### Changed
+
+- Black UI outbound validation now rejects enabled incomplete proxy outbounds before live apply, while allowing disabled draft outbounds to remain saved.
+- Release docs now state the project-level pre-1.0 status more explicitly: many paths are tested and stable-looking, but the whole project is not production-ready yet.
+
+### Fixed
+
+- Live apply no longer rebuilds into invalid enabled Hysteria2, VLESS, VMess, Trojan, or Shadowsocks outbounds with missing required settings.
+- Subscription buttons and share links use the configured public host instead of `127.0.0.1` when deployed on a VPS.
+- REALITY client links no longer emit private-key material as the client public key parameter.
+
+### Validation
+
+- Focused balancer, backend config, Black UI server, and frontend build checks passed during the rc.4 preparation cycle.
+
 ## 0.1.0-rc.3 - 2026-05-31
 
 ### Added

@@ -160,8 +160,8 @@ sudo ss -ltnp | grep blackwire
 Release installer:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 ACTION=upgrade bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 ACTION=upgrade bash
 ```
 
 Downloaded Debian package:
@@ -175,14 +175,14 @@ sudo apt install ./blackwire_<version>_amd64.deb
 Keep config and state:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
   | ACTION=uninstall bash
 ```
 
 Remove config and state too:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
   | ACTION=uninstall REMOVE_CONFIG=1 bash
 ```
 

@@ -16,14 +16,18 @@ changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Release Status
 
-This is a pre-1.0 project with an explicit support contract. The canonical
-release contract lives in [docs/release.md](docs/release.md); the detailed
-feature evidence table lives in [docs/feature-matrix.md](docs/feature-matrix.md).
+This is a pre-1.0 project. Several protocol paths are covered by standard tests,
+interop labs, and VPS validation, but the project as a whole is **not yet
+production-ready**. Treat release candidates as personal, lab, and controlled
+deployment builds unless the specific feature path you use is listed as
+supported in the release contract. The canonical release contract lives in
+[docs/release.md](docs/release.md); the detailed feature evidence table lives in
+[docs/feature-matrix.md](docs/feature-matrix.md).
 
 High-level summary:
 
 - Supported: core proxy runtime, server mode, local SOCKS/HTTP proxy mode, the documented protocol/transport matrix, Handler API structural operations, and TUN runtime on Linux/macOS/Windows.
-- Experimental: Stats API (gRPC) runtime stats until soak and observability validation are complete.
+- Experimental: Stats API (gRPC) runtime stats and Black UI controlled-deployment workflows until soak, hostile-network, and observability validation are complete.
 - Unsupported: V2Ray/Xray JSON import, VMess legacy alterId/non-AEAD, Xray endpoint protobuf decoding for Handler structural RPCs, OpenWrt/Android/iOS, and a standalone desktop/mobile client app.
 
 ## Local Quickstart
@@ -70,8 +74,8 @@ live in [docs/16-environment-cheatsheet.md](docs/16-environment-cheatsheet.md).
 Linux release candidates can be installed from GitHub Releases:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 bash
 ```
 
 The installer downloads the Linux release archive, verifies its `.sha256`, puts
@@ -86,23 +90,23 @@ Black UI panel setup and operations are documented in [docs/black-ui.md](docs/bl
 To install and validate a config in the same step:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 CONFIG_PATH=/path/to/config.json bash
 ```
 
 For a generated Linux VPS config:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 SETUP=reality PUBLIC_HOST=example.com bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 SETUP=reality PUBLIC_HOST=example.com bash
 ```
 
 For the standard domain setup, point DNS at the VPS first and make sure ports 80
 and 443 are open:
 
 ```sh
-curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
-  | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.4/scripts/install.sh \
+  | VERSION=v0.1.0-rc.4 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
 ```
 
 ## Fast Profile
