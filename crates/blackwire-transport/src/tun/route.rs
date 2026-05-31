@@ -836,7 +836,6 @@ async fn run_output(args: &[&str]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::tun::TunConfig;
 
     #[test]
     fn macos_pf_rules_capture_tcp_and_dns_on_utun() {
