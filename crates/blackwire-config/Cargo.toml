@@ -7,7 +7,6 @@ license.workspace = true
 authors.workspace = true
 
 [dependencies]
-blackwire-common          = { path = "../blackwire-common" }
 serde.workspace       = true
 serde_json.workspace  = true
 validator.workspace   = true
@@ -16,7 +15,5 @@ notify.workspace      = true
 once_cell.workspace   = true
 regex.workspace       = true
 tokio.workspace       = true
-thiserror.workspace   = true
 tracing.workspace     = true
 anyhow.workspace      = true
-ipnet.workspace       = true

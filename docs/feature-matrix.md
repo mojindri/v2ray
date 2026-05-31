@@ -245,9 +245,8 @@ production certification on all Experimental rows.
 
 - Native JSON schema — not V2Ray/Xray config paste-compatible.
 - VMess legacy non-AEAD / alterId — not implemented.
-- DoH/DoT DNS upstreams — skipped at resolver build.
 - Handler API (gRPC) — structural add/remove/alter RPCs use native blackwire endpoint JSON in `proxy_settings` rather than Xray core endpoint protobufs.
-- Full hot-reload of listeners, outbounds, and TLS material — requires process restart.
+- Structural config changes (listeners/outbounds/TLS material) trigger CLI-driven instance rebuild with rollback; not in-place listener mutation.
 
 ---
 
