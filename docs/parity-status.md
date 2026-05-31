@@ -17,6 +17,8 @@ VPS promotion (`SSH_SERVER`, `SSH_CLIENT`):
 make -C labs/realistic interop-server-vps
 ```
 
+Latest verified VPS run (2026-05-30): `make -C labs/realistic interop-server-vps` with two production VPS hosts (`SSH_SERVER=<server-host>`, `SSH_CLIENT=<client-host>`) produced PASS/SKIP-only outcomes and `ss2022-udp` PASS for both Xray and sing-box. Summary: `labs/realistic/reports/external-clients-vps/summary.txt`.
+
 ## Strict priority queue (work order)
 
 See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
@@ -35,8 +37,10 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 | Area | Evidence |
 |------|----------|
 | External-client Docker matrix | `run-docker-matrix.sh` — 16 protocol rows (incl. `vless-splithttp-packet-up` Xray PASS; sing-box SKIP) |
+| REALITY + Hysteria2 | `vless-reality` and `hysteria2` rows: Xray+sing-box **PASS** |
 | VLESS UDP command `0x02`, sniffing, DNS DoH/DoT | Lab rows per feature matrix |
 | HTTPUpgrade, QUIC, SplitHTTP **stream-one** (HTTP/2) | Transports + e2e + `vless-splithttp` Xray+sing-box **PASS** |
+| ShadowTLS v3 + mKCP server paths | blackwire e2e **PASS**; matrix client rows intentionally SKIP (upstream client-model limits) |
 | Vision, hot-reload, Stats gRPC | `vision.rs`, `reload.rs`, `blackwire-api` |
 | Routing `IPIfNonMatch` / `IPOnDemand` | `router.rs`, `dispatcher.rs` |
 | Trojan TCP, VMess, SS2022 TCP/UDP, REALITY, WS, gRPC | Matrix rows + e2e |

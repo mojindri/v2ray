@@ -65,6 +65,21 @@ impl Default for PoolConfig {
 }
 
 impl PoolConfig {
+    /// Adaptive defaults for Fast Profile production traffic.
+    ///
+    /// Compared to `Default`, this ramps to a higher steady-state capacity and
+    /// starts pooling earlier so short benchmark windows can reach warm behavior.
+    pub fn fast_profile() -> Self {
+        Self {
+            max_per_dest: 8,
+            max_global_idle: 256,
+            max_dests: 512,
+            idle_ttl: Duration::from_secs(8),
+            hotness_window: Duration::from_secs(12),
+            min_hotness_for_pool: 8,
+        }
+    }
+
     /// Explicit numeric `poolSize` override for lab/debug configs.
     ///
     /// Unlike adaptive defaults, this starts pooling immediately so controlled
@@ -74,7 +89,7 @@ impl PoolConfig {
             max_per_dest,
             max_global_idle: max_per_dest.saturating_mul(64).max(max_per_dest),
             min_hotness_for_pool: 1,
-            ..Self::default()
+            ..Self::fast_profile()
         }
     }
 }
@@ -233,10 +248,10 @@ impl DestPool {
         })
     }
 
-    /// Record one connection and return the current effective pool capacity.
-    fn record_and_cap(&self, max: usize, min_hotness_for_pool: u64) -> usize {
+    /// Record one connection and return `(effective_capacity, hotness_count)`.
+    fn record_and_cap(&self, max: usize, min_hotness_for_pool: u64) -> (usize, u64) {
         let count = self.hotness.lock().record_and_get();
-        tier_from_count(count, max, min_hotness_for_pool)
+        (tier_from_count(count, max, min_hotness_for_pool), count)
     }
 
     /// Return the current effective capacity without recording a hit.
@@ -341,7 +356,6 @@ impl DestPool {
             tokio::spawn(async move {
                 match tcp_connect(dp.addr).await {
                     Ok(stream) => {
-                        let _ = stream.set_nodelay(true);
                         {
                             let mut guard = dp.idle.lock();
                             if guard.len() < p.max_per_dest {
@@ -532,13 +546,9 @@ impl FreedomOutbound {
                     return Ok(SocketAddr::new(ip, *port));
                 }
 
-                let addrs: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), *port))
+                tokio::net::lookup_host((name.as_str(), *port))
                     .await
                     .map_err(|e| ProxyError::DnsResolutionFailed(format!("{name}: {e}")))?
-                    .collect();
-
-                addrs
-                    .into_iter()
                     .next()
                     .ok_or_else(|| ProxyError::DnsResolutionFailed(name.clone()))
             }
@@ -561,7 +571,8 @@ impl OutboundHandler for FreedomOutbound {
             let dest_pool = pool.get_or_create(addr);
 
             // Record this connection, get current adaptive capacity tier.
-            let cap = dest_pool.record_and_cap(pool.max_per_dest, pool.min_hotness_for_pool);
+            let (cap, hotness) =
+                dest_pool.record_and_cap(pool.max_per_dest, pool.min_hotness_for_pool);
             metrics::gauge!(
                 "freedom_pool_capacity",
                 "outbound" => pool.tag.clone()
@@ -571,7 +582,7 @@ impl OutboundHandler for FreedomOutbound {
                 "freedom_pool_hotness",
                 "outbound" => pool.tag.clone()
             )
-            .set(dest_pool.hotness.lock().estimate() as f64);
+            .set(hotness as f64);
 
             let (taken, stale) = dest_pool.try_take(pool.idle_ttl);
 
@@ -617,7 +628,6 @@ impl OutboundHandler for FreedomOutbound {
 
         // Cold path: dial a fresh connection (pool disabled or miss).
         let stream = tcp_connect(addr).await?;
-        stream.set_nodelay(true)?;
         Ok(Box::new(stream))
     }
 }

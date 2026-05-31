@@ -129,6 +129,14 @@ pub async fn ws_accept(tcp_stream: BoxedStream) -> Result<BoxedStream, ProxyErro
 /// Gorilla write buffer size used by Xray (`WriteBufferSize: 4 * 1024`).
 const WS_WRITE_BUFFER_SIZE: usize = 4 * 1024;
 
+/// Write size that bypasses the small coalescing buffer and is sent as one
+/// WebSocket frame.
+///
+/// The relay fallback copies in 16 KiB chunks. Directly framing those large
+/// writes avoids splitting one relay read into four 4 KiB WebSocket frames
+/// without increasing the per-stream buffer used by short-lived/small flows.
+const WS_DIRECT_FRAME_MIN_SIZE: usize = 16 * 1024;
+
 type InnerWsStream<S> = tokio_tungstenite::WebSocketStream<S>;
 
 fn ws_buffer_pool() -> &'static Arc<BufferPool> {
@@ -240,6 +248,24 @@ impl<S: AsyncRead + AsyncWrite + Unpin> AsyncWrite for WsStream<S> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if self.write_buf.is_empty()
+            && self.pending_write.is_none()
+            && buf.len() >= WS_DIRECT_FRAME_MIN_SIZE
+        {
+            match Sink::poll_ready(Pin::new(&mut self.inner), cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(Err(e)) => return Poll::Ready(Err(ws_err_to_io(e))),
+                Poll::Ready(Ok(())) => {}
+            }
+            if let Err(e) = Sink::start_send(
+                Pin::new(&mut self.inner),
+                Message::Binary(Bytes::copy_from_slice(buf)),
+            ) {
+                return Poll::Ready(Err(ws_err_to_io(e)));
+            }
+            return Poll::Ready(Ok(buf.len()));
+        }
+
         if self.write_buf.len() >= WS_WRITE_BUFFER_SIZE {
             match self.as_mut().poll_flush(cx) {
                 Poll::Ready(Ok(())) => {}

@@ -1,0 +1,22 @@
+{
+  "log": { "level": "warn" },
+  "inbounds": [
+    {
+      "type": "vless",
+      "tag": "vless-ws-in",
+      "listen": "127.0.0.1",
+      "listen_port": 10086,
+      "users": [
+        { "uuid": "00000000-0000-4000-8000-000000000001", "name": "lab-user" }
+      ],
+      "transport": {
+        "type": "ws",
+        "path": "/bench"
+      }
+    }
+  ],
+  "outbounds": [
+    { "type": "direct", "tag": "direct" }
+  ],
+  "route": { "final": "direct" }
+}

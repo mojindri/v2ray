@@ -33,6 +33,7 @@
 //! codebase after the recorder has been installed.
 
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -43,11 +44,18 @@ use tracing::{error, info};
 
 use crate::runtime_stats;
 
+static METRICS_ENABLED: AtomicBool = AtomicBool::new(false);
+
+#[inline]
+fn metrics_enabled() -> bool {
+    METRICS_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Shared state for the metrics HTTP server.
 #[derive(Clone)]
 struct MetricsState {
     prometheus_handle: Arc<PrometheusHandle>,
-    ready: Arc<std::sync::atomic::AtomicBool>,
+    ready: bool,
 }
 
 /// Start the metrics HTTP server.
@@ -74,14 +82,14 @@ pub fn start_metrics_server(addr: &str) -> anyhow::Result<JoinHandle<()>> {
     let handle = builder
         .install_recorder()
         .map_err(|e| anyhow::anyhow!("failed to install Prometheus recorder: {e}"))?;
+    METRICS_ENABLED.store(true, Ordering::Relaxed);
 
     // Describe metrics so Prometheus scrape shows help text.
     describe_metrics();
 
-    let ready = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let state = MetricsState {
         prometheus_handle: Arc::new(handle),
-        ready,
+        ready: true,
     };
 
     let app = Router::new()
@@ -255,7 +263,7 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn readyz(State(state): State<MetricsState>) -> impl IntoResponse {
-    if state.ready.load(std::sync::atomic::Ordering::Relaxed) {
+    if state.ready {
         (axum::http::StatusCode::OK, "ready")
     } else {
         (axum::http::StatusCode::SERVICE_UNAVAILABLE, "not ready")
@@ -282,6 +290,9 @@ async fn version_handler() -> impl IntoResponse {
 /// Record that a new connection was accepted on `inbound` using `protocol`.
 pub fn record_connection_accepted(inbound: &str, protocol: &str) {
     runtime_stats::record_connection_accepted(inbound, protocol);
+    if !metrics_enabled() {
+        return;
+    }
     metrics::counter!(
         "proxy_connections_total",
         "inbound" => inbound.to_owned(),
@@ -298,6 +309,9 @@ pub fn record_connection_accepted(inbound: &str, protocol: &str) {
 
 /// Record how long the inbound protocol header parse took.
 pub fn record_inbound_parse(inbound: &str, elapsed: std::time::Duration) {
+    if !metrics_enabled() {
+        return;
+    }
     metrics::histogram!(
         "proxy_inbound_parse_seconds",
         "inbound" => inbound.to_owned()
@@ -307,6 +321,9 @@ pub fn record_inbound_parse(inbound: &str, elapsed: std::time::Duration) {
 
 /// Record how long the routing decision took.
 pub fn record_route(inbound: &str, elapsed: std::time::Duration) {
+    if !metrics_enabled() {
+        return;
+    }
     metrics::histogram!(
         "proxy_route_seconds",
         "inbound" => inbound.to_owned()
@@ -316,6 +333,9 @@ pub fn record_route(inbound: &str, elapsed: std::time::Duration) {
 
 /// Record how long a DNS resolution took during routing.
 pub fn record_dns(inbound: &str, elapsed: std::time::Duration) {
+    if !metrics_enabled() {
+        return;
+    }
     metrics::histogram!(
         "proxy_dns_seconds",
         "inbound" => inbound.to_owned()
@@ -325,6 +345,9 @@ pub fn record_dns(inbound: &str, elapsed: std::time::Duration) {
 
 /// Record how long the outbound connect (dial + handshake) took.
 pub fn record_outbound_connect(inbound: &str, outbound: &str, elapsed: std::time::Duration) {
+    if !metrics_enabled() {
+        return;
+    }
     metrics::histogram!(
         "proxy_outbound_connect_seconds",
         "inbound" => inbound.to_owned(),
@@ -335,6 +358,9 @@ pub fn record_outbound_connect(inbound: &str, outbound: &str, elapsed: std::time
 
 /// Increment the relay error counter for an inbound.
 pub fn record_relay_error(inbound: &str) {
+    if !metrics_enabled() {
+        return;
+    }
     metrics::counter!(
         "proxy_relay_errors_total",
         "inbound" => inbound.to_owned()
@@ -348,6 +374,9 @@ pub fn record_relay_error(inbound: &str) {
 /// record bytes / duration.
 pub fn record_connection_closed(inbound: &str, rx_bytes: u64, tx_bytes: u64, duration: Duration) {
     runtime_stats::record_relay_traffic(inbound, None, rx_bytes, tx_bytes);
+    if !metrics_enabled() {
+        return;
+    }
     metrics::gauge!(
         "proxy_active_connections",
         "inbound" => inbound.to_owned()

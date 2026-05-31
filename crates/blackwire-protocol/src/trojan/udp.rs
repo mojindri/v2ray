@@ -54,17 +54,17 @@ pub async fn relay_trojan_udp(stream: BoxedStream) -> Result<(), ProxyError> {
             }
             acc.extend_from_slice(&buf[..n]);
 
+            let mut consumed_total = 0usize;
             while !acc.is_empty() {
-                match parse_udp_datagram(&acc) {
+                match parse_udp_datagram(&acc[consumed_total..]) {
                     Ok((dest, payload, consumed)) => {
-                        let data = payload.to_vec();
-                        acc.drain(..consumed);
-                        if data.is_empty() {
+                        consumed_total += consumed;
+                        if payload.is_empty() {
                             continue;
                         }
                         let upstream = resolve_udp_dest(&dest).await?;
                         if let Some(reply_payload) =
-                            exchange_udp_datagram(&udp, upstream, &data).await?
+                            exchange_udp_datagram(&udp, upstream, payload).await?
                         {
                             let reply = encode_udp_datagram(&dest, &reply_payload)?;
                             reply_tx.send(reply).await.map_err(|_| {
@@ -87,6 +87,9 @@ pub async fn relay_trojan_udp(stream: BoxedStream) -> Result<(), ProxyError> {
                     }
                     Err(e) => return Err(e),
                 }
+            }
+            if consumed_total > 0 {
+                acc.drain(..consumed_total);
             }
         }
         Ok::<(), ProxyError>(())

@@ -11,6 +11,7 @@ use p256::elliptic_curve::sec1::ToEncodedPoint;
 use rand::RngExt;
 use sha2::Sha256;
 use tokio::io::AsyncWriteExt;
+use tokio::time::timeout;
 use tracing::debug;
 use x25519_dalek::{PublicKey, StaticSecret};
 
@@ -21,6 +22,9 @@ use super::{
     tls13::{complete_tls13_handshake, Tls13Stream},
     REALITY_HKDF_INFO, REALITY_TOKEN_PLAINTEXT_LEN, SESSION_ID_OFFSET_IN_HANDSHAKE_BODY,
 };
+
+const REALITY_CLIENT_HELLO_WRITE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const REALITY_TLS_HANDSHAKE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(8);
 
 /// REALITY client configuration read from the outbound config.
 pub struct RealityClientConfig {
@@ -102,21 +106,31 @@ impl RealityClient {
         let sid_start = 5 + SESSION_ID_OFFSET_IN_HANDSHAKE_BODY;
         final_hello[sid_start..sid_start + 32].copy_from_slice(&encrypted_token);
 
-        tcp.write_all(&final_hello).await?;
+        timeout(
+            REALITY_CLIENT_HELLO_WRITE_TIMEOUT,
+            tcp.write_all(&final_hello),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout)?
+        .map_err(ProxyError::from)?;
         debug!(server = %self.config.server, "REALITY ClientHello sent");
 
         // ── Complete TLS 1.3 handshake ───────────────────────────────────────
         // final_hello[5..] is the ClientHello handshake body (without the 5-byte
         // TLS record header). It forms the start of the TLS transcript.
         let client_hello_hs_body = &final_hello[5..];
-        let app_keys = complete_tls13_handshake(
-            &mut tcp,
-            client_hello_hs_body,
-            &key_shares.x25519_secret,
-            Some(&key_shares.secp256r1_secret),
-            &auth_key,
+        let app_keys = timeout(
+            REALITY_TLS_HANDSHAKE_TIMEOUT,
+            complete_tls13_handshake(
+                &mut tcp,
+                client_hello_hs_body,
+                &key_shares.x25519_secret,
+                Some(&key_shares.secp256r1_secret),
+                &auth_key,
+            ),
         )
-        .await?;
+        .await
+        .map_err(|_| ProxyError::Timeout)??;
 
         debug!(server = %self.config.server, "REALITY TLS 1.3 handshake complete");
         Ok(Box::new(Tls13Stream::new(Box::new(tcp), app_keys)))

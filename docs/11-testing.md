@@ -433,8 +433,14 @@ sudo -E cargo test -p blackwire-transport --features priv-test --test tun_priv m
 
 ```powershell
 $env:WINTUN_FILE = "C:\path\to\wintun.dll"
+$env:TUN_OUTBOUND_INTERFACE = "Ethernet"
 cargo test -p blackwire-transport --features priv-test --test tun_priv windows_tun_runtime_privileged_smoke -- --include-ignored
 ```
+
+Those focused privileged runtime smokes assert setup/cleanup symmetry:
+
+- macOS: while runtime is up, split routes and PF anchor redirection rules are present; after shutdown, both are removed.
+- Windows: while runtime is up, both split default routes (`0.0.0.0/1` and `128.0.0.0/1`) are present; after shutdown, both are removed.
 
 The VPS interop group requires real internet access on the server.
 

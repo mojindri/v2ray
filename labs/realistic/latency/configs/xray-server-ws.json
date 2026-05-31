@@ -1,0 +1,25 @@
+{
+  "log": { "loglevel": "warning" },
+  "inbounds": [
+    {
+      "tag": "vless-ws-in",
+      "protocol": "vless",
+      "listen": "127.0.0.1",
+      "port": 10085,
+      "settings": {
+        "clients": [
+          { "id": "00000000-0000-4000-8000-000000000001" }
+        ],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": { "path": "/bench" }
+      }
+    }
+  ],
+  "outbounds": [
+    { "tag": "direct", "protocol": "freedom" }
+  ]
+}

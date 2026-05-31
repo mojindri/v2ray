@@ -32,6 +32,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use bytes::BytesMut;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tracing::debug;
 
@@ -41,7 +42,6 @@ use blackwire_app::features::InboundHandler;
 use blackwire_common::{
     read_socks5_address, write_socks5_address, Address, BoxedStream, Network, ProxyError,
 };
-use bytes::BytesMut;
 
 // ── SOCKS5 protocol constants ─────────────────────────────────────────────────
 
@@ -162,12 +162,13 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Socks5Request, Pro
         return Err(ProxyError::Protocol("no auth methods offered".into()));
     }
 
-    let mut methods = vec![0u8; nmethods];
-    stream.read_exact(&mut methods).await?;
+    let mut methods = [0u8; 255];
+    let offered = &mut methods[..nmethods];
+    stream.read_exact(offered).await?;
 
     // We only support "no authentication" (method 0x00).
     // Check if the client offered it.
-    if !methods.contains(&METHOD_NO_AUTH) {
+    if !offered.contains(&METHOD_NO_AUTH) {
         // Tell the client we have no acceptable method and bail.
         stream
             .write_all(&[SOCKS_VERSION, METHOD_NO_ACCEPTABLE])
@@ -197,12 +198,12 @@ async fn socks5_handshake(stream: &mut BoxedStream) -> Result<Socks5Request, Pro
     let _rsv = stream.read_u8().await?; // reserved byte, ignored
 
     let atyp = stream.read_u8().await?;
-    let _dest = read_socks5_address(stream, atyp, "SOCKS5").await?;
+    let dest = read_socks5_address(stream, atyp, "SOCKS5").await?;
 
     match cmd {
         CMD_CONNECT => {
             send_reply(stream, REP_SUCCESS).await?;
-            Ok(Socks5Request::Connect(_dest))
+            Ok(Socks5Request::Connect(dest))
         }
         CMD_UDP_ASSOCIATE => Ok(Socks5Request::UdpAssociate),
         _ => {

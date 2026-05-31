@@ -1,0 +1,8 @@
+# Shadowsocks 2022 key runtime scenarios.
+# Path is relative to target/criterion.
+
+ss2022_short_lived/64
+ss2022_short_lived/256
+ss2022_short_lived/1024
+ss2022_mixed_small_writes/chunk_x64/512
+

@@ -41,6 +41,46 @@ The CLI flag wins over the config field. This allows using an existing config wi
 | Field | Default | Meaning |
 |---|---|---|
 | `strictProduction` | `true` | Rejects `security = none`. Set to `false` only for local benchmarking labs. |
+| `pool` | `disabled` | Freedom preconnect pool policy. Keep disabled unless a targeted VPS gate proves pooling helps the workload. |
+| `splice` | `adaptive` | Raw TCP relay splice policy for eligible streams. |
+
+### Freedom pool tuning (optional)
+
+Fast Profile keeps Freedom TCP preconnect pooling disabled by default. Current
+native VPS results show adaptive pooling can help some warm rows but can hurt
+bursty high-concurrency no-keepalive traffic, so pooling is now opt-in and must
+be justified by a targeted gate. You can enable and tune it per outbound in
+`settings`:
+
+```json
+{
+  "tag": "freedom",
+  "protocol": "freedom",
+  "settings": {
+    "pool": {
+      "mode": "adaptive",
+      "maxPerDest": 8,
+      "maxGlobalIdle": 256,
+      "maxDests": 512,
+      "idleTtlMs": 8000,
+      "hotnessWindowMs": 12000,
+      "minHotnessForPool": 8
+    }
+  }
+}
+```
+
+Accepted `pool.mode` values:
+- `adaptive`
+- `fixed` (uses fixed per-destination capacity)
+- `disabled` / `off` / `none` (default in Fast Profile)
+
+Legacy `poolSize` is still supported for lab/debug compatibility.
+
+Latency lab profiles may use `blackwire-fast-lab-server-pooled.json` to test
+pooling explicitly. The default Fast lab server keeps pooling disabled so the
+strict gate does not hide high-concurrency no-keepalive failures behind mixed
+pool behavior.
 
 ---
 

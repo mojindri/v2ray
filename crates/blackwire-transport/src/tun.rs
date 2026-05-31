@@ -23,6 +23,8 @@ pub mod session;
 pub mod tcp;
 
 pub use backend::{current_tun_support, ensure_tun_runtime_supported, TunPlatformSupport};
+#[cfg(target_os = "macos")]
+pub use device::tun_device_name;
 pub use device::{create_tun, TunConfig, TunDevice};
 pub use nat::UdpNatTable;
 pub use packet::{

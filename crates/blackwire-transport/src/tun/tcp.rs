@@ -60,7 +60,7 @@ impl TcpBridgeTable {
         }
     }
 
-    pub async fn forward(&mut self, packet: &IpPacket, raw: &[u8], tun_tx: TunTx) -> Result<()> {
+    pub async fn forward(&mut self, packet: &IpPacket, raw: &[u8], tun_tx: &TunTx) -> Result<()> {
         if packet.protocol != TransportProtocol::Tcp {
             return Ok(());
         }
@@ -114,7 +114,7 @@ impl TcpBridgeTable {
             );
 
             send_control(
-                tun_tx,
+                tun_tx.clone(),
                 remote,
                 client,
                 server_seq,

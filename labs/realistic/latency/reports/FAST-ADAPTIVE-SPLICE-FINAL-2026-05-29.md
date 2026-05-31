@@ -4,8 +4,8 @@ Date: 2026-05-29
 
 Environment:
 
-- Runner VPS: `91.107.176.118`
-- Upstream VPS: `203.0.113.10`
+- Runner VPS: `<runner-host>`
+- Upstream VPS: `<upstream-host>`
 - Upstream: nginx static payloads on `:18080`
 - Client: sing-box SOCKS5 to VLESS
 - Benchmark: `hey -z 30s -c 32`, 5s warmup, keepalive enabled

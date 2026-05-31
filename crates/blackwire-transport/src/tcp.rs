@@ -104,6 +104,10 @@ impl TcpServerTransport {
         #[cfg(unix)]
         socket.set_reuse_port(true).map_err(ProxyError::Io)?;
         socket.set_nonblocking(true).map_err(ProxyError::Io)?;
+        // Apply larger TCP buffers once on the listening socket so accepted
+        // sockets inherit them; this avoids per-connection setsockopt syscalls.
+        let _ = socket.set_recv_buffer_size(4 * 1024 * 1024);
+        let _ = socket.set_send_buffer_size(4 * 1024 * 1024);
         socket.bind(&addr.into()).map_err(ProxyError::Io)?;
 
         #[cfg(target_os = "linux")]
@@ -141,7 +145,7 @@ impl TcpServerTransport {
         addr: SocketAddr,
         handler: Arc<dyn ConnectionHandler>,
     ) -> Result<(), ProxyError> {
-        let listener = TcpListener::bind(addr).await?;
+        let listener = self.bind(addr)?;
         self.serve_listener(listener, handler).await
     }
 
@@ -216,13 +220,6 @@ impl TcpServerTransport {
                 }
             };
 
-            // Apply socket options to the accepted stream.
-            if let Err(e) = Self::apply_socket_opts(&stream) {
-                debug!(error = %e, "failed to set socket options");
-            }
-
-            debug!(peer = %peer_addr, "TCP connection accepted");
-
             let permit = if let Some(limiter) = &limiter {
                 match Arc::clone(limiter).try_acquire_owned() {
                     Ok(permit) => Some(permit),
@@ -239,10 +236,17 @@ impl TcpServerTransport {
                 None
             };
 
+            debug!(peer = %peer_addr, "TCP connection accepted");
+
             // Spawn a new task for this connection so the accept loop is not blocked.
             let handler = Arc::clone(&handler);
             tokio::spawn(async move {
                 let _permit = permit;
+                // Apply socket options in the connection task to keep the
+                // accept loop focused on accept/admission under load.
+                if let Err(e) = Self::apply_socket_opts(&stream) {
+                    debug!(error = %e, "failed to set socket options");
+                }
                 let stream: BoxedStream = Box::new(stream);
                 if let Err(e) = handler.handle_connection(stream, peer_addr).await {
                     if !e.is_benign() {
@@ -261,11 +265,6 @@ impl TcpServerTransport {
         // Without this, the OS buffers small writes and sends them together.
         // For proxy traffic this adds latency — we want each write sent immediately.
         sock.set_tcp_nodelay(true)?;
-
-        // 4 MiB socket buffers improve throughput on high-RTT, high-bandwidth
-        // links. The OS may silently cap these at the kernel's rmem_max/wmem_max.
-        let _ = sock.set_recv_buffer_size(4 * 1024 * 1024);
-        let _ = sock.set_send_buffer_size(4 * 1024 * 1024);
 
         Ok(())
     }
