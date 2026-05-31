@@ -1,0 +1,11 @@
+# Trojan key runtime scenarios.
+# Path is relative to target/criterion.
+
+trojan_tcp_short_lived/64
+trojan_tcp_short_lived/256
+trojan_tcp_short_lived/1024
+trojan_tcp_mixed_small_writes/chunk_x64/64
+trojan_tcp_mixed_small_writes/chunk_x64/128
+trojan_tcp_mixed_small_writes/chunk_x64/512
+trojan_tcp_mixed_small_writes/chunk_x64/1024
+
