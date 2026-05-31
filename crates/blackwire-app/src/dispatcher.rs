@@ -52,7 +52,7 @@ const ROUTING_DNS_TIMEOUT: Duration = Duration::from_secs(3);
 /// The first-use guard needs client bytes so it can retry with a fresh dial if
 /// a pooled socket is stale. Server-first protocols do not send client bytes
 /// immediately, so this guard must be bounded to avoid blocking the relay.
-const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(2);
+const POOLED_FIRST_WRITE_GUARD_TIMEOUT: Duration = Duration::from_millis(1);
 const POOLED_FIRST_WRITE_GUARD_BUF_SIZE: usize = 2048;
 
 use std::collections::HashMap;
@@ -382,10 +382,7 @@ impl DefaultDispatcher {
 
             let fresh_result: Result<BoxedStream, ProxyError> = if let Some(addr) = peer_addr {
                 match tcp_connect(addr).await {
-                    Ok(stream) => match stream.set_nodelay(true) {
-                        Ok(()) => Ok(Box::new(stream)),
-                        Err(e) => Err(ProxyError::Io(e)),
-                    },
+                    Ok(stream) => Ok(Box::new(stream)),
                     Err(e) => Err(e),
                 }
             } else {
