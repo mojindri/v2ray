@@ -109,15 +109,36 @@ For the current release candidate:
 
 ```sh
 git push origin HEAD
-git push origin v0.1.0-rc.2
+git push origin v0.1.0-rc.3
 ```
 
 If the release already exists but only has GitHub source archives, run the
 workflow manually for the tag:
 
 ```sh
-gh workflow run release-assets.yml -f tag=v0.1.0-rc.2
+gh workflow run release-assets.yml -f tag=v0.1.0-rc.3
 ```
+
+## Container Image
+
+`.github/workflows/container-image.yml` publishes the Docker image to GHCR when a
+`v*` tag is pushed, or manually through `workflow_dispatch` with a tag input.
+
+For prerelease tags such as `v0.1.0-rc.3`, the workflow publishes:
+
+- `ghcr.io/<owner>/<repo>:v0.1.0-rc.3`
+- `ghcr.io/<owner>/<repo>:0.1.0-rc.3`
+- `ghcr.io/<owner>/<repo>:rc`
+
+For stable tags such as `v0.1.0`, the workflow publishes:
+
+- `ghcr.io/<owner>/<repo>:v0.1.0`
+- `ghcr.io/<owner>/<repo>:0.1.0`
+- `ghcr.io/<owner>/<repo>:latest`
+
+The image is built for `linux/amd64` and `linux/arm64`, includes OCI labels,
+uses the GitHub Actions Docker build cache, and requests SBOM/provenance
+attestations from BuildKit.
 
 ---
 
