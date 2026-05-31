@@ -399,6 +399,10 @@ pub async fn setup_macos_routes(config: &TunConfig) -> Result<()> {
         )
     })?;
 
+    // Enable PF first so the anchor load below succeeds on runners where PF
+    // starts in a disabled state.
+    enable_macos_pf(&config.name).await?;
+
     let mut rb = RollbackList::default();
 
     must(
@@ -464,8 +468,6 @@ pub async fn setup_macos_routes(config: &TunConfig) -> Result<()> {
         "load macOS PF TUN redirection anchor",
     )
     .await?;
-
-    enable_macos_pf(&config.name).await?;
 
     let _ = fs::remove_file(&pf_rules_path);
     info!(tun_name = %config.name, anchor = MACOS_PF_ANCHOR, "macOS TUN routes installed");

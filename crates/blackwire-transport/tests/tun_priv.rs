@@ -35,10 +35,10 @@ use tokio::net::UdpSocket;
 use tokio::sync::watch;
 use tokio::time::timeout;
 
-use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
-use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
 #[cfg(target_os = "macos")]
 use blackwire_transport::tun::tun_device_name;
+use blackwire_transport::tun::{create_tun, TunConfig, TunRuntime};
+use blackwire_transport::tun::{parse_ip_packet, UdpNatTable};
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -350,8 +350,15 @@ async fn macos_pf_anchor_has_rules(interface_name: &str) -> bool {
         .output()
         .await
         .expect("pfctl -a blackwire/tun -s rules failed");
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    stdout.contains("rdr pass on") && stdout.contains(interface_name) && stdout.contains("port 53")
+    // pfctl may write rules to stdout or stderr depending on macOS version.
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+    combined.contains("rdr pass on")
+        && combined.contains(interface_name)
+        && combined.contains("port 53")
 }
 
 #[cfg(target_os = "windows")]
