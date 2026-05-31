@@ -356,7 +356,6 @@ impl DestPool {
             tokio::spawn(async move {
                 match tcp_connect(dp.addr).await {
                     Ok(stream) => {
-                        let _ = stream.set_nodelay(true);
                         {
                             let mut guard = dp.idle.lock();
                             if guard.len() < p.max_per_dest {
@@ -633,7 +632,6 @@ impl OutboundHandler for FreedomOutbound {
 
         // Cold path: dial a fresh connection (pool disabled or miss).
         let stream = tcp_connect(addr).await?;
-        stream.set_nodelay(true)?;
         Ok(Box::new(stream))
     }
 }
