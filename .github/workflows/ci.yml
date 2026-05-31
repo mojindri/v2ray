@@ -27,3 +27,42 @@ jobs:
 
       - name: Run workspace checks
         run: make verify-local
+
+  black-ui:
+    name: Black UI
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: black-ui/frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: black-ui/frontend
+        run: npm ci
+
+      - name: Install Playwright Chromium
+        working-directory: black-ui/frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Build frontend
+        working-directory: black-ui/frontend
+        run: npm run build
+
+      - name: Test backend
+        run: cargo test -p black-ui-server --locked
+
+      - name: Run browser/API QA flow
+        working-directory: black-ui/frontend
+        run: npm run qa:flow
