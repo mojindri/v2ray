@@ -33,8 +33,8 @@
 //! codebase after the recorder has been installed.
 
 use std::net::SocketAddr;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::{extract::State, response::IntoResponse, routing::get, Json, Router};
