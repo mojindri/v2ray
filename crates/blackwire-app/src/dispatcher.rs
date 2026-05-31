@@ -335,6 +335,7 @@ impl DefaultDispatcher {
         mut inbound_stream: BoxedStream,
         outbound_stream: BoxedStream,
     ) -> Result<(BoxedStream, BoxedStream, u64), ProxyError> {
+        let inbound_tag = ctx.inbound_tag.as_str();
         if self.profile != ProfileMode::Fast
             || !(*outbound_stream).as_any().is::<PooledStream<TcpStream>>()
         {
@@ -360,7 +361,7 @@ impl DefaultDispatcher {
             Err(_) => {
                 metrics::counter!(
                     "freedom_pool_first_use_guard_skipped_total",
-                    "inbound" => ctx.inbound_tag.clone(),
+                    "inbound" => inbound_tag.to_owned(),
                     "outbound" => pool_label.to_owned(),
                     "reason" => "client_first_timeout"
                 )
@@ -375,7 +376,7 @@ impl DefaultDispatcher {
         if outbound.write_all(&first[..n]).await.is_err() {
             metrics::counter!(
                 "freedom_pool_first_use_retries_total",
-                "inbound" => ctx.inbound_tag.clone(),
+                "inbound" => inbound_tag.to_owned(),
                 "outbound" => pool_label.to_owned()
             )
             .increment(1);
@@ -394,7 +395,7 @@ impl DefaultDispatcher {
                 Err(e) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_failures_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -406,7 +407,7 @@ impl DefaultDispatcher {
                 Ok(()) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_success_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -415,7 +416,7 @@ impl DefaultDispatcher {
                 Err(e) => {
                     metrics::counter!(
                         "freedom_pool_fresh_retry_failures_total",
-                        "inbound" => ctx.inbound_tag.clone(),
+                        "inbound" => inbound_tag.to_owned(),
                         "outbound" => pool_label.to_owned()
                     )
                     .increment(1);
@@ -579,12 +580,10 @@ impl DefaultDispatcher {
         let name = name.clone();
         let port = *port;
         Some(tokio::spawn(async move {
-            let dest = Address::Domain(name, port);
+            let domain = name.as_str();
             // Inline version of resolve_domain_ips without borrowing self.
             let mut ips: SmallVec<[Address; 4]> = SmallVec::new();
-            let resolved =
-                tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(dest.domain().unwrap()))
-                    .await;
+            let resolved = tokio::time::timeout(ROUTING_DNS_TIMEOUT, dns.resolve(domain)).await;
             if let Ok(Ok(addrs)) = resolved {
                 for ip in addrs {
                     ips.push(match ip {
@@ -596,7 +595,7 @@ impl DefaultDispatcher {
             if ips.is_empty() {
                 let lookup = tokio::time::timeout(
                     ROUTING_DNS_TIMEOUT,
-                    tokio::net::lookup_host((dest.domain().unwrap(), port)),
+                    tokio::net::lookup_host((domain, port)),
                 );
                 if let Ok(Ok(addrs)) = lookup.await {
                     for addr in addrs {

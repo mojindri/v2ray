@@ -234,7 +234,7 @@ impl Instance {
     ///   - A listen address is invalid
     ///   - A required config field is missing or malformed
     pub async fn from_config(config: Arc<Config>) -> Result<Self> {
-        let mut tasks = Vec::new();
+        let mut tasks = Vec::with_capacity(config.inbounds.len().saturating_add(4));
         let mut shutdown_tx: Option<tokio::sync::watch::Sender<bool>> = None;
         let mut outbound_bypass_mark = None;
         let mut outbound_interface = None;
@@ -243,7 +243,8 @@ impl Instance {
         if let Some(tun_cfg) = &config.tun {
             ensure_tun_runtime_supported()?;
             outbound_bypass_mark = Some(tun_cfg.bypass_mark);
-            outbound_interface = tun_cfg.outbound_interface.clone();
+            let tun_outbound_interface = tun_cfg.outbound_interface.clone();
+            outbound_interface = tun_outbound_interface.clone();
 
             let tc = TunConfig {
                 name: tun_cfg.name.clone(),
@@ -257,7 +258,7 @@ impl Instance {
                     .with_context(|| format!("invalid TUN netmask '{}'", tun_cfg.netmask))?,
                 mtu: tun_cfg.mtu,
                 bypass_mark: tun_cfg.bypass_mark,
-                outbound_interface: tun_cfg.outbound_interface.clone(),
+                outbound_interface: tun_outbound_interface,
                 redirect_port: tun_cfg.redirect_port,
                 dns_port: tun_cfg.dns_port,
                 wintun_file: tun_cfg.wintun_file.clone(),
@@ -280,7 +281,12 @@ impl Instance {
         let dns = build_dns_module(config.dns.as_ref()).await?;
 
         // ── Step 2: Build outbound handlers ─────────────────────────────────
-        let mut outbound_map: HashMap<String, Arc<dyn OutboundHandler>> = HashMap::new();
+        let balancer_count = config
+            .routing
+            .as_ref()
+            .map_or(0, |routing| routing.balancers.len());
+        let mut outbound_map: HashMap<String, Arc<dyn OutboundHandler>> =
+            HashMap::with_capacity(config.outbounds.len().saturating_add(balancer_count));
 
         for out_cfg in &config.outbounds {
             reject_unfinished_transport_settings(
