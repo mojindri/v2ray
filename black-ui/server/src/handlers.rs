@@ -13,6 +13,7 @@ use uuid::Uuid;
 use crate::{
     auth, capabilities, config, db,
     error::{ApiResult, AppError},
+    firewall,
     models::{
         ApplyResult, BulkInput, CapabilityMap, ConfigSection, ConfigSectionInput, Inbound,
         InboundInput, LoginInput, LoginResponse, ManagedUser, Outbound, OutboundInput,
@@ -812,12 +813,13 @@ fn json_text(value: Option<&Value>) -> String {
 async fn apply_all(state: &AppState, try_live: bool) -> ApiResult<ApplyResult> {
     config::write(state).map_err(|e| AppError::bad_request(e.to_string()))?;
     let settings = current_settings(state)?;
+    let firewall_note = firewall_note(state, &settings);
     if !try_live || !settings.grpc_enabled {
         return Ok(Json(ApplyResult {
             config_valid: true,
             config_written: true,
             live_applied: false,
-            message: "config saved; live gRPC disabled".into(),
+            message: apply_message("config saved; live gRPC disabled", firewall_note),
         }));
     }
     if !runtime::probe(&settings.grpc_address).await {
@@ -825,7 +827,10 @@ async fn apply_all(state: &AppState, try_live: bool) -> ApiResult<ApplyResult> {
             config_valid: true,
             config_written: true,
             live_applied: false,
-            message: "config saved; gRPC unavailable, restart or reload required".into(),
+            message: apply_message(
+                "config saved; gRPC unavailable, restart or reload required",
+                firewall_note,
+            ),
         }));
     }
     match runtime::sync_config(state, &settings.grpc_address).await {
@@ -833,14 +838,34 @@ async fn apply_all(state: &AppState, try_live: bool) -> ApiResult<ApplyResult> {
             config_valid: true,
             config_written: true,
             live_applied: true,
-            message: "config saved and live runtime synchronized".into(),
+            message: apply_message("config saved and live runtime synchronized", firewall_note),
         })),
         Err(e) => Ok(Json(ApplyResult {
             config_valid: true,
             config_written: true,
             live_applied: false,
-            message: format!("config saved; live apply failed: {e}"),
+            message: apply_message(
+                &format!("config saved; live apply failed: {e}"),
+                firewall_note,
+            ),
         })),
+    }
+}
+
+fn firewall_note(state: &AppState, settings: &Settings) -> Option<String> {
+    if !settings.firewall_auto_open {
+        return None;
+    }
+    Some(match firewall::sync_enabled_inbounds(state) {
+        Ok(note) => note,
+        Err(e) => format!("firewall sync failed: {e}"),
+    })
+}
+
+fn apply_message(base: &str, firewall_note: Option<String>) -> String {
+    match firewall_note {
+        Some(note) => format!("{base}; {note}"),
+        None => base.into(),
     }
 }
 

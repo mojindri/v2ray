@@ -32,6 +32,11 @@ export function SettingsPage({
         <Field label="gRPC address">
           <Input value={form.grpcAddress} onChange={(e) => setForm({ ...form, grpcAddress: e.target.value })} />
         </Field>
+        <Switch
+          checked={form.firewallAutoOpen}
+          onChange={(firewallAutoOpen) => setForm({ ...form, firewallAutoOpen })}
+          label="Auto-open UFW ports for public enabled inbounds"
+        />
         <Field label="Public base URL">
           <Input value={form.publicBaseUrl} onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })} />
         </Field>

@@ -85,6 +85,7 @@ pub fn init(conn: &Connection, data_dir: &Path) -> Result<()> {
     set_default(conn, "configPath", &config_path)?;
     set_default(conn, "grpcEnabled", "true")?;
     set_default(conn, "grpcAddress", "127.0.0.1:62789")?;
+    set_default(conn, "firewallAutoOpen", "false")?;
     set_default(conn, "publicBaseUrl", "http://127.0.0.1:18080")?;
     set_default(conn, "subscriptionHost", "127.0.0.1")?;
     set_default(conn, "enforcementIntervalSeconds", "30")?;
@@ -203,6 +204,10 @@ pub fn load_settings(conn: &Connection) -> Result<Settings> {
             .get("grpcAddress")
             .cloned()
             .unwrap_or_else(|| "127.0.0.1:62789".into()),
+        firewall_auto_open: map
+            .get("firewallAutoOpen")
+            .map(|v| v == "true")
+            .unwrap_or(false),
         public_base_url: map
             .get("publicBaseUrl")
             .cloned()
@@ -223,6 +228,7 @@ pub fn save_settings(conn: &Connection, settings: &Settings) -> Result<()> {
         ("configPath", settings.config_path.clone()),
         ("grpcEnabled", settings.grpc_enabled.to_string()),
         ("grpcAddress", settings.grpc_address.clone()),
+        ("firewallAutoOpen", settings.firewall_auto_open.to_string()),
         ("publicBaseUrl", settings.public_base_url.clone()),
         ("subscriptionHost", settings.subscription_host.clone()),
         (

@@ -397,6 +397,7 @@ mod tests {
                 config_path: data_dir.join("config.json").to_string_lossy().to_string(),
                 grpc_enabled: true,
                 grpc_address: "127.0.0.1:0".into(),
+                firewall_auto_open: false,
                 public_base_url: "http://127.0.0.1:18080".into(),
                 subscription_host: "127.0.0.1".into(),
                 enforcement_interval_seconds: 30,

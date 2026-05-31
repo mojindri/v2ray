@@ -7,6 +7,7 @@ pub struct Settings {
     pub config_path: String,
     pub grpc_enabled: bool,
     pub grpc_address: String,
+    pub firewall_auto_open: bool,
     pub public_base_url: String,
     pub subscription_host: String,
     pub enforcement_interval_seconds: u64,

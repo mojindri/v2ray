@@ -4,6 +4,7 @@ export interface Settings {
   configPath: string;
   grpcEnabled: boolean;
   grpcAddress: string;
+  firewallAutoOpen: boolean;
   publicBaseUrl: string;
   subscriptionHost: string;
   enforcementIntervalSeconds: number;

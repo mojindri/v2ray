@@ -7,6 +7,7 @@ mod config;
 mod db;
 mod enforcement;
 mod error;
+mod firewall;
 mod handlers;
 mod models;
 mod runtime;

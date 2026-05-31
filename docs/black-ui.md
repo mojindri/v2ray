@@ -21,6 +21,7 @@ Supported in the first Black UI package:
 - Config preview, validate, import, write, and live apply.
 - gRPC live sync through Blackwire Handler API.
 - Linux `systemctl` status, restart, and recent `journalctl` logs.
+- Optional Linux UFW auto-open for enabled public inbound ports.
 
 Unsupported Blackwire features should not be shown. Experimental runtime data,
 such as StatsService traffic, is shown as runtime-dependent.
@@ -76,3 +77,14 @@ without an external access-control layer.
 Admin sessions use HttpOnly SameSite cookies. Set `BLACK_UI_COOKIE_SECURE=1`
 when the panel is served through HTTPS; the domain installer enables this
 automatically.
+
+## Firewall Auto-Open
+
+The Settings page includes `Auto-open UFW ports for public enabled inbounds`.
+When enabled, Black UI runs `ufw allow <port>/<protocol>` after config save/apply
+for enabled inbounds that listen on a public address. Localhost-only inbounds are
+skipped.
+
+This only adds or confirms rules; it does not delete firewall rules. The Black UI
+service must have permission to run `ufw`, usually by running as root or through a
+separate sudoers policy.
