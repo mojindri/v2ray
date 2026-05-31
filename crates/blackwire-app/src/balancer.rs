@@ -212,6 +212,8 @@ mod tests {
             tag: "auto".into(),
             selector: vec!["a".into(), "b".into()],
             strategy: strategy.into(),
+            profiles: vec![],
+            adaptive: None,
             health_check: None,
         }
     }
