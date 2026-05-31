@@ -182,8 +182,35 @@ pub fn vless_link(settings: &Settings, inbound: &Inbound, user: &ManagedUser) ->
     }
     if inbound.transport == "reality" {
         params.push("security=reality".into());
+        if let Some(value) = reality_value(inbound, "/realitySettings/publicKey") {
+            params.push(format!("pbk={}", util::url_escape(&value)));
+        }
+        if let Some(value) = reality_value(inbound, "/realitySettings/shortId").or_else(|| {
+            serde_json::from_str::<Value>(&inbound.stream_settings)
+                .ok()
+                .and_then(|v| {
+                    v.pointer("/realitySettings/shortIds")
+                        .and_then(Value::as_array)
+                        .and_then(|ids| ids.first())
+                        .and_then(Value::as_str)
+                        .map(str::to_string)
+                })
+        }) {
+            params.push(format!("sid={}", util::url_escape(&value)));
+        }
+        if let Some(value) = reality_value(inbound, "/realitySettings/serverName") {
+            params.push(format!("sni={}", util::url_escape(&value)));
+        }
+        if let Some(value) = reality_value(inbound, "/realitySettings/fingerprint") {
+            params.push(format!("fp={}", util::url_escape(&value)));
+        } else {
+            params.push("fp=chrome".into());
+        }
     } else {
         params.push("security=none".into());
+    }
+    if !user.flow.trim().is_empty() {
+        params.push(format!("flow={}", util::url_escape(&user.flow)));
     }
     format!(
         "vless://{}@{}:{}?{}#{}",
@@ -193,6 +220,17 @@ pub fn vless_link(settings: &Settings, inbound: &Inbound, user: &ManagedUser) ->
         params.join("&"),
         util::url_escape(&user.email)
     )
+}
+
+fn reality_value(inbound: &Inbound, pointer: &str) -> Option<String> {
+    serde_json::from_str::<Value>(&inbound.stream_settings)
+        .ok()
+        .and_then(|v| {
+            v.pointer(pointer)
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })
+        .filter(|v| !v.is_empty())
 }
 
 fn trojan_link(settings: &Settings, inbound: &Inbound, user: &ManagedUser) -> Result<String> {
