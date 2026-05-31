@@ -67,6 +67,8 @@ jobs:
     needs: prepare-release
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    env:
+      TAG: ${{ needs.prepare-release.outputs.tag }}
     strategy:
       fail-fast: false
       matrix:
@@ -75,10 +77,12 @@ jobs:
             asset: blackwire-linux-x86_64
             binary: blackwire
             archive: blackwire-linux-x86_64.tar.gz
+            deb_arch: amd64
           - os: ubuntu-24.04-arm
             asset: blackwire-linux-arm64
             binary: blackwire
             archive: blackwire-linux-arm64.tar.gz
+            deb_arch: arm64
           - os: macos-latest
             asset: blackwire-macos
             binary: blackwire
@@ -111,6 +115,14 @@ jobs:
           tar -C dist -czf dist/${{ matrix.archive }} ${{ matrix.asset }}
           (cd dist && shasum -a 256 ${{ matrix.archive }} > ${{ matrix.archive }}.sha256)
 
+      - name: Package Debian asset
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${TAG#v}"
+          bash scripts/package-deb.sh "$version" "${{ matrix.deb_arch }}" "target/release/${{ matrix.binary }}" dist
+
       - name: Package Windows asset
         if: runner.os == 'Windows'
         shell: pwsh
@@ -128,7 +140,13 @@ jobs:
           TAG: ${{ needs.prepare-release.outputs.tag }}
         shell: bash
         run: |
-          gh release upload "$TAG" \
-            "dist/${{ matrix.archive }}" \
-            "dist/${{ matrix.archive }}.sha256" \
-            --clobber
+          assets=(
+            "dist/${{ matrix.archive }}"
+            "dist/${{ matrix.archive }}.sha256"
+          )
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            version="${TAG#v}"
+            deb="blackwire_${version}_${{ matrix.deb_arch }}.deb"
+            assets+=("dist/$deb" "dist/$deb.sha256")
+          fi
+          gh release upload "$TAG" "${assets[@]}" --clobber

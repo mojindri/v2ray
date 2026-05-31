@@ -101,6 +101,8 @@ Expected assets:
 
 - `blackwire-linux-x86_64.tar.gz`
 - `blackwire-linux-arm64.tar.gz`
+- `blackwire_<version>_amd64.deb`
+- `blackwire_<version>_arm64.deb`
 - `blackwire-macos.tar.gz`
 - `blackwire-windows-x86_64.zip`
 - one `.sha256` file for each archive
@@ -212,10 +214,23 @@ Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the binary, systemd unit,
 config, and state directories. `INIT_SERVER=...` remains available as an
 internal compatibility escape hatch, but release docs should prefer `SETUP`.
 
+## Debian Packages
+
+Linux release jobs also publish `.deb` assets for Debian/Ubuntu users. Install a
+downloaded release asset with:
+
+```sh
+sudo apt install ./blackwire_<version>_amd64.deb
+```
+
+The package installs `/usr/bin/blackwire`, `/etc/blackwire`, `/var/lib/blackwire`,
+and a systemd unit. It does not generate config; use `scripts/install.sh` for the
+guided VPS setup modes.
+
 ## Package Repositories
 
-Debian/Ubuntu `.deb`, RPM, Arch, Homebrew, Winget, and Chocolatey publishing are
-not automated yet. Keep those for a stable post-`v0.1.0` packaging pass after
+An apt repository, RPM repo, Arch, Homebrew, Winget, and Chocolatey publishing
+are not automated yet. Keep those for a stable post-`v0.1.0` packaging pass after
 config paths, service behavior, and upgrade policy are settled.
 
 ---

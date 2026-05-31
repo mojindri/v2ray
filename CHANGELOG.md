@@ -24,6 +24,7 @@ This project is pre-1.0. The support contract is owned by
 - Linux domain TLS bootstrap using generated Trojan TLS config with certbot or existing certificate paths.
 - Standard nginx domain setup mode (`SETUP=domain`) with HTTPS termination and localhost WebSocket reverse proxy.
 - Installed command guide for service control, uninstall, config edits, logs, and examples.
+- Debian package release assets for Linux amd64 and arm64.
 
 ### Changed
 

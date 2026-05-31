@@ -156,9 +156,17 @@ sudo ss -ltnp | grep blackwire
 
 ## Upgrade
 
+Release installer:
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
   | VERSION=v0.1.0-rc.3 ACTION=upgrade bash
+```
+
+Downloaded Debian package:
+
+```sh
+sudo apt install ./blackwire_<version>_amd64.deb
 ```
 
 ## Uninstall
@@ -175,4 +183,11 @@ Remove config and state too:
 ```sh
 curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
   | ACTION=uninstall REMOVE_CONFIG=1 bash
+```
+
+Debian package:
+
+```sh
+sudo apt remove blackwire
+sudo apt purge blackwire
 ```
