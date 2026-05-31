@@ -133,9 +133,17 @@ jobs:
           retention-days: 14
 
   memory-profile-nginx:
-    name: Memory profile (nginx 64k)
+    name: Memory profile (nginx ${{ matrix.payload }})
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - payload: 1k
+            baseline: ci/perf-baselines/memory_nginx_1k.json
+          - payload: 64k
+            baseline: ci/perf-baselines/memory_nginx_64k.json
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
@@ -159,7 +167,7 @@ jobs:
           export PATH="$HOME/go/bin:$PATH"
           export BW_BIN="$PWD/target/release/blackwire"
           export PERF_START_NGINX=1
-          export MEM_PAYLOAD=64k
+          export MEM_PAYLOAD="${{ matrix.payload }}"
           export MEM_DURATION=15
           export MEM_CONCURRENCY=32
           mkdir -p reports/perf
@@ -168,21 +176,21 @@ jobs:
       - name: Resolve profile JSON path
         id: profile
         run: |
-          json_path="$(ls -1t reports/perf/memory-profile-nginx-64k-*.json | head -n1)"
+          json_path="$(ls -1t reports/perf/memory-profile-nginx-${{ matrix.payload }}-*.json | head -n1)"
           echo "json_path=$json_path" >> "$GITHUB_OUTPUT"
           echo "profile_json=$json_path"
 
       - name: Enforce memory regression baseline
         run: |
           python3 ci/scripts/check_memory_regression.py \
-            ci/perf-baselines/memory_nginx_64k.json \
+            "${{ matrix.baseline }}" \
             "${{ steps.profile.outputs.json_path }}"
 
       - name: Upload memory profile artifacts
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: memory-profile-nginx-64k
+          name: memory-profile-nginx-${{ matrix.payload }}
           path: reports/perf
           if-no-files-found: warn
           retention-days: 14
