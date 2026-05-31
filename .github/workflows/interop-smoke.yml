@@ -37,15 +37,29 @@ jobs:
           retention-days: 14
 
   interop-docker:
-    name: External clients (Docker)
+    name: External clients (Docker, ${{ matrix.shard }})
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 60
     if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - shard: vless-core
+            protocols: vless-reality,vless-tcp,vless-mux,vless-vision,vless-udp
+          - shard: vless-transports
+            protocols: vless-ws,vless-httpupgrade,vless-quic,vless-splithttp,vless-splithttp-packet-up,vless-sniff
+          - shard: vmess-trojan-ss
+            protocols: vmess-grpc,trojan-tls,trojan-udp,ss2022,ss2022-udp
+          - shard: hysteria-edge
+            protocols: hysteria2,vless-shadowtls,vless-mkcp
     steps:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - name: Docker interop server-compat
-        run: timeout 90m make -C labs/realistic interop-server-docker
+        env:
+          MATRIX_PROTOCOLS: ${{ matrix.protocols }}
+        run: timeout 45m make -C labs/realistic interop-server-docker
       - name: Check external-client summary
         run: |
           summary="labs/realistic/reports/external-clients/summary.txt"
@@ -59,7 +73,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: interop-logs
+          name: interop-logs-${{ matrix.shard }}
           path: labs/realistic/reports/
           if-no-files-found: ignore
           retention-days: 21
