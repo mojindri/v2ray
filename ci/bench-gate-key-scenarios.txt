@@ -1,0 +1,22 @@
+# Key runtime scenarios to guard in CI.
+# Path is relative to target/criterion.
+
+vless_tcp_short_lived/64
+vless_tcp_short_lived/256
+vless_tcp_short_lived/1024
+vless_tcp_mixed_small_writes/chunk_x64/64
+vless_tcp_mixed_small_writes/chunk_x64/128
+vless_tcp_mixed_small_writes/chunk_x64/512
+vless_tcp_mixed_small_writes/chunk_x64/1024
+trojan_tcp_short_lived/64
+trojan_tcp_short_lived/256
+trojan_tcp_short_lived/1024
+trojan_tcp_mixed_small_writes/chunk_x64/64
+trojan_tcp_mixed_small_writes/chunk_x64/128
+trojan_tcp_mixed_small_writes/chunk_x64/512
+trojan_tcp_mixed_small_writes/chunk_x64/1024
+ss2022_mixed_small_writes/chunk_x64/512
+vmess_grpc_short_lived/64
+vmess_grpc_short_lived/256
+vmess_grpc_short_lived/1024
+
