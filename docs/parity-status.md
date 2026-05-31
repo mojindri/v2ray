@@ -36,15 +36,15 @@ See [xray-parity-roadmap.md](xray-parity-roadmap.md). Summary:
 
 | Area | Evidence |
 |------|----------|
-| External-client Docker matrix | `run-docker-matrix.sh` — 16 protocol rows (incl. `vless-splithttp-packet-up` Xray PASS; sing-box SKIP) |
+| External-client Docker matrix | `run-docker-matrix.sh` — configured rows from `labs/realistic/external-clients/scenarios.env` (incl. `vless-splithttp-packet-up` Xray PASS; sing-box SKIP) |
 | REALITY + Hysteria2 | `vless-reality` and `hysteria2` rows: Xray+sing-box **PASS** |
 | VLESS UDP command `0x02`, sniffing, DNS DoH/DoT | Lab rows per feature matrix |
 | HTTPUpgrade, QUIC, SplitHTTP **stream-one** (HTTP/2) | Transports + e2e + `vless-splithttp` Xray+sing-box **PASS** |
 | ShadowTLS v3 + mKCP server paths | blackwire e2e **PASS**; matrix client rows intentionally SKIP (upstream client-model limits) |
-| Vision, hot-reload, Stats gRPC | `vision.rs`, `reload.rs`, `blackwire-api` |
+| Vision and hot-reload | `vision.rs`, `reload.rs` |
 | Routing `IPIfNonMatch` / `IPOnDemand` | `router.rs`, `dispatcher.rs` |
 | Trojan TCP, VMess, SS2022 TCP/UDP, REALITY, WS, gRPC | Matrix rows + e2e |
-| Handler gRPC (VLESS user ops) | API listener user add/remove |
+| Handler gRPC | API listener user add/remove plus structural native-endpoint rebuild operations |
 
 ## External-client matrix SKIPs (not “unsupported in blackwire”)
 

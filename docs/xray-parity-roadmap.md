@@ -1,4 +1,4 @@
-x§# Xray / sing-box wire parity roadmap
+# Xray / sing-box wire parity roadmap
 
 Gap tracker ordered **strictly** by [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md). A row is not **Supported** until step **4** (external-client matrix PASS) unless documented as intentional deviation.
 
@@ -41,7 +41,8 @@ When Xray and sing-box disagree, add a second matrix row or document SKIP — ne
 | **SplitHTTP / xHTTP stream-one** (HTTP/2 via ALPN h2)                              | **matrix `vless-splithttp` Xray+sing-box PASS**                           |
 | XTLS Vision + `vless-vision`                                                       | Supported: direct-copy negotiation hands raw TCP flows into splice/adaptive splice |
 | Hot-reload routing/users                                                           | Done                                                                      |
-| Stats + Handler gRPC (VLESS user ops)                                              | Done                                                                      |
+| Handler gRPC (VLESS user ops + structural native-endpoint operations)              | Done                                                                      |
+| Stats gRPC runtime counters                                                        | Wired; remains Experimental until soak/observability validation            |
 | VPS matrix script aligned with Docker                                              | Done                                                                      |
 | **Trojan UDP ASSOCIATE** (`CMD 0x03`, framed packets)                              | **matrix `trojan-udp` Xray+sing-box PASS** (Python SOCKS5 UDP ASSOCIATE) |
 | **VLESS Mux.Cool TCP** (`CMD 0x03` / `v1.mux.cool`)                               | **matrix `vless-mux` Xray PASS**; sing-box SKIP (smux ≠ Mux.Cool)        |

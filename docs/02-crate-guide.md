@@ -330,19 +330,20 @@ This is the executable, `blackwire`.
 
 ### Purpose
 
-Planned management/stats API crate.
+gRPC management/stats API crate.
 
 ### Current Status
 
-Mostly a stub right now.
+Handler and Stats services are wired. Handler supports list, VLESS user mutate,
+and structural add/remove/alter operations through the CLI management handle.
 
 ### Why It Matters
 
-It shows intended future direction:
+It provides runtime control-plane operations:
 
 - management interface
 - stats exposure
-- possible compatibility with v2ray-style management APIs
+- native blackwire endpoint JSON flow for structural operations
 
 ### Read First
 
@@ -445,4 +446,3 @@ Use this ownership map:
 
 - `tests`
   behavior proof
-

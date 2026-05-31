@@ -5,6 +5,10 @@
 This is a pre-1.0 project. The table below is the release support contract.
 Any area not listed as **Supported** carries an explicit caveat.
 
+This file owns release support labels. Detailed feature evidence lives in
+[feature-matrix.md](feature-matrix.md), and gate commands live in
+[11-testing.md](11-testing.md) / [test-workflows.md](test-workflows.md).
+
 ### Supported (safe to rely on)
 
 Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
@@ -31,7 +35,6 @@ Validated by CI, the e2e test suite, and the realistic lab mandatory matrix.
 - External-client failure pcaps captured and uploaded by CI
 - TUN transparent proxy on Linux/macOS/Windows, covered by privileged CI smoke tests; Linux outbound sockets use `SO_MARK`; macOS utun runtime installs split default routes plus a PF anchor for TCP/DNS redirection and uses `tun.outboundInterface`/`tun.outbound_interface` for protected proxy egress; Windows Wintun device creation, split-route setup, packet-level TCP bridging to the local SOCKS listener, and protected outbound interface binding are wired (Windows full-device runtime requires `tun.outboundInterface`/`tun.outbound_interface`), and Windows can use `tun.wintunFile`/`tun.wintun_file` to point at a bundled `wintun.dll`; shared packet/NAT/session APIs and the runtime packet loop compile cross-platform; full-device runtime support is reported through an explicit platform support contract
 - Handler API structural endpoint operations with rebuild rollback
-- macOS release artifact build
 
 ### Experimental (implemented; missing hostile-network or soak proof)
 
