@@ -4,15 +4,11 @@ use rusqlite::{params, OptionalExtension};
 
 use crate::{db, error::AppError, state::AppState, util};
 
+const SESSION_COOKIE: &str = "black_ui_session";
+const SESSION_MAX_AGE_SECONDS: i64 = 7 * 24 * 60 * 60;
+
 pub fn require(headers: &HeaderMap, state: &AppState) -> Result<i64, AppError> {
-    let Some(value) = headers.get(header::AUTHORIZATION) else {
-        return Err(AppError::unauthorized());
-    };
-    let token = value
-        .to_str()
-        .ok()
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or_else(AppError::unauthorized)?;
+    let token = session_token(headers).ok_or_else(AppError::unauthorized)?;
     let conn = state.db.lock().unwrap();
     let row = conn
         .query_row(
@@ -28,7 +24,7 @@ pub fn require(headers: &HeaderMap, state: &AppState) -> Result<i64, AppError> {
     let created_at = DateTime::parse_from_rfc3339(&created_at)
         .map_err(|e| AppError::internal(e.into()))?
         .with_timezone(&Utc);
-    if created_at + Duration::days(7) <= Utc::now() {
+    if created_at + Duration::seconds(SESSION_MAX_AGE_SECONDS) <= Utc::now() {
         conn.execute("DELETE FROM sessions WHERE token = ?1", params![token])
             .map_err(|e| AppError::internal(e.into()))?;
         return Err(AppError::unauthorized());
@@ -66,7 +62,7 @@ pub fn create_admin_session(
     let token = util::random_token(48);
     conn.execute(
         "DELETE FROM sessions WHERE created_at < ?1",
-        params![(Utc::now() - Duration::days(7)).to_rfc3339()],
+        params![(Utc::now() - Duration::seconds(SESSION_MAX_AGE_SECONDS)).to_rfc3339()],
     )
     .map_err(|e| AppError::internal(e.into()))?;
     conn.execute(
@@ -106,14 +102,52 @@ pub fn create_first_admin(
 }
 
 pub fn delete_session(headers: &HeaderMap, state: &AppState) -> Result<(), AppError> {
-    if let Some(token) = headers
-        .get(header::AUTHORIZATION)
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-    {
+    if let Some(token) = session_token(headers) {
         let conn = state.db.lock().unwrap();
         conn.execute("DELETE FROM sessions WHERE token = ?1", params![token])
             .map_err(|e| AppError::internal(e.into()))?;
     }
     Ok(())
+}
+
+pub fn session_cookie(token: &str) -> String {
+    let secure = if std::env::var("BLACK_UI_COOKIE_SECURE")
+        .ok()
+        .as_deref()
+        == Some("1")
+    {
+        "; Secure"
+    } else {
+        ""
+    };
+    format!(
+        "{SESSION_COOKIE}={token}; HttpOnly; SameSite=Strict; Path=/; Max-Age={SESSION_MAX_AGE_SECONDS}{secure}"
+    )
+}
+
+pub fn expired_session_cookie() -> String {
+    format!("{SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0")
+}
+
+fn session_token(headers: &HeaderMap) -> Option<&str> {
+    bearer_token(headers).or_else(|| cookie_token(headers))
+}
+
+fn bearer_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::AUTHORIZATION)?
+        .to_str()
+        .ok()?
+        .strip_prefix("Bearer ")
+}
+
+fn cookie_token(headers: &HeaderMap) -> Option<&str> {
+    headers
+        .get(header::COOKIE)?
+        .to_str()
+        .ok()?
+        .split(';')
+        .map(str::trim)
+        .find_map(|part| part.strip_prefix(&format!("{SESSION_COOKIE}=")))
+        .filter(|value| !value.is_empty())
 }

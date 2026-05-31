@@ -1,4 +1,8 @@
 use axum::{
+    extract::{DefaultBodyLimit, Request},
+    http::{header, HeaderValue},
+    middleware::{self, Next},
+    response::Response,
     routing::{get, post, put},
     Router,
 };
@@ -15,6 +19,8 @@ pub fn router(state: AppState) -> Router {
         .route("/sub/{token}/raw", get(handlers::subscription_raw))
         .fallback_service(ServeDir::new(static_dir).append_index_html_on_directories(true))
         .with_state(state)
+        .layer(middleware::from_fn(security_headers))
+        .layer(DefaultBodyLimit::max(4 * 1024 * 1024))
         .layer(cors_layer())
         .layer(TraceLayer::new_for_http())
 }
@@ -25,6 +31,27 @@ fn cors_layer() -> CorsLayer {
     } else {
         CorsLayer::new()
     }
+}
+
+async fn security_headers(request: Request, next: Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    headers.insert(header::X_FRAME_OPTIONS, HeaderValue::from_static("DENY"));
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'",
+        ),
+    );
+    response
 }
 
 fn api_router() -> Router<AppState> {

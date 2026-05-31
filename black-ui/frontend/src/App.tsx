@@ -38,7 +38,19 @@ export default function App() {
 
   const refresh = useCallback(async () => {
     const status = await api.status();
-    if (!getToken() || status.setupRequired) {
+    if (status.setupRequired) {
+      setData((current) => ({ ...current, status }));
+      return;
+    }
+    try {
+      await api.me();
+      if (!getToken()) {
+        setToken();
+        setTokenState("cookie");
+      }
+    } catch {
+      clearToken();
+      setTokenState("");
       setData((current) => ({ ...current, status }));
       return;
     }
@@ -86,8 +98,8 @@ export default function App() {
   const login = (username: string, password: string) => {
     run(async () => {
       const res = setupRequired ? await api.setup(username, password) : await api.login(username, password);
-      setToken(res.token);
-      setTokenState(res.token);
+      setToken();
+      setTokenState("cookie");
       return { message: `Logged in as ${res.username}` };
     }, "Logged in").catch(() => undefined);
   };

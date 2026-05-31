@@ -39,6 +39,7 @@ BLACK_UI_DATA_DIR="${BLACK_UI_DATA_DIR:-/var/lib/black-ui}"
 BLACK_UI_STATIC_DIR="${BLACK_UI_STATIC_DIR:-/usr/local/share/black-ui/frontend/dist}"
 BLACK_UI_PUBLIC_BASE_URL="${BLACK_UI_PUBLIC_BASE_URL:-}"
 BLACK_UI_PANEL_PATH="${BLACK_UI_PANEL_PATH:-/panel}"
+BLACK_UI_COOKIE_SECURE="${BLACK_UI_COOKIE_SECURE:-}"
 
 log() {
     printf 'blackwire-install: %s\n' "$*"
@@ -734,6 +735,14 @@ install_black_ui_systemd_unit() {
     unit_path="/etc/systemd/system/black-ui.service"
     tmp_unit="$(mktemp)"
     group="$(service_group)"
+    cookie_secure="$BLACK_UI_COOKIE_SECURE"
+    if [ -z "$cookie_secure" ]; then
+        if [ "$SETUP" = "domain" ]; then
+            cookie_secure=1
+        else
+            cookie_secure=0
+        fi
+    fi
     cat > "$tmp_unit" <<UNIT
 [Unit]
 Description=black-ui Blackwire control panel
@@ -749,6 +758,7 @@ WorkingDirectory=${BLACK_UI_DATA_DIR}
 Environment=BLACK_UI_DATA_DIR=${BLACK_UI_DATA_DIR}
 Environment=BLACK_UI_LISTEN=${BLACK_UI_LISTEN}
 Environment=BLACK_UI_STATIC_DIR=${BLACK_UI_STATIC_DIR}
+Environment=BLACK_UI_COOKIE_SECURE=${cookie_secure}
 Restart=on-failure
 RestartSec=5s
 ProtectSystem=strict

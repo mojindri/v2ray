@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    http::{HeaderMap, StatusCode},
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -26,7 +26,7 @@ use crate::{
 pub async fn setup(
     State(state): State<AppState>,
     Json(input): Json<SetupInput>,
-) -> ApiResult<LoginResponse> {
+) -> Result<Response, AppError> {
     auth::create_first_admin(&state, &input.username, &input.password)?;
     login(
         State(state),
@@ -41,15 +41,21 @@ pub async fn setup(
 pub async fn login(
     State(state): State<AppState>,
     Json(input): Json<LoginInput>,
-) -> ApiResult<LoginResponse> {
+) -> Result<Response, AppError> {
     let (token, username) = auth::create_admin_session(&state, &input.username, &input.password)?;
-    Ok(Json(LoginResponse { token, username }))
+    login_response(token, username)
 }
 
-pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Value> {
+pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, AppError> {
     let _ = auth::require(&headers, &state)?;
     auth::delete_session(&headers, &state)?;
-    Ok(Json(json!({ "ok": true })))
+    let mut response = Json(json!({ "ok": true })).into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&auth::expired_session_cookie())
+            .map_err(|e| AppError::internal(e.into()))?,
+    );
+    Ok(response)
 }
 
 pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<Value> {
@@ -63,6 +69,20 @@ pub async fn me(State(state): State<AppState>, headers: HeaderMap) -> ApiResult<
         )
         .map_err(|e| AppError::internal(e.into()))?;
     Ok(Json(json!({ "username": username })))
+}
+
+fn login_response(token: String, username: String) -> Result<Response, AppError> {
+    let mut response = Json(LoginResponse {
+        token: token.clone(),
+        username,
+    })
+    .into_response();
+    response.headers_mut().insert(
+        header::SET_COOKIE,
+        HeaderValue::from_str(&auth::session_cookie(&token))
+            .map_err(|e| AppError::internal(e.into()))?,
+    );
+    Ok(response)
 }
 
 pub async fn capabilities() -> ApiResult<CapabilityMap> {

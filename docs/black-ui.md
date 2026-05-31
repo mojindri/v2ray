@@ -72,3 +72,7 @@ journalctl -u blackwire -f
 Keep the panel bound to localhost and expose it through authenticated HTTPS
 reverse proxy. Do not bind `BLACK_UI_LISTEN=0.0.0.0:18080` on a public VPS
 without an external access-control layer.
+
+Admin sessions use HttpOnly SameSite cookies. Set `BLACK_UI_COOKIE_SECURE=1`
+when the panel is served through HTTPS; the domain installer enables this
+automatically.

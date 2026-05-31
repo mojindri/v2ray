@@ -15,27 +15,25 @@ import type {
   UserInput
 } from "./types";
 
-const TOKEN_KEY = "black-ui-token";
+const SESSION_MARKER_KEY = "black-ui-session";
 
 export function getToken(): string {
-  return localStorage.getItem(TOKEN_KEY) ?? "";
+  return sessionStorage.getItem(SESSION_MARKER_KEY) ?? "";
 }
 
-export function setToken(token: string): void {
-  localStorage.setItem(TOKEN_KEY, token);
+export function setToken(): void {
+  sessionStorage.setItem(SESSION_MARKER_KEY, "cookie");
 }
 
 export function clearToken(): void {
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(SESSION_MARKER_KEY);
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
-  const token = getToken();
-  if (token) headers.set("Authorization", `Bearer ${token}`);
   if (options.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
 
-  const res = await fetch(path, { ...options, headers });
+  const res = await fetch(path, { ...options, credentials: "same-origin", headers });
   const contentType = res.headers.get("content-type") ?? "";
   const payload = contentType.includes("application/json") ? await res.json() : await res.text();
   if (!res.ok) {
