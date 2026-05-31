@@ -1,21 +1,17 @@
 # Blackwire
 
-Rust-native proxy implementation for **server** and **local proxy** paths,
-validated against Xray-core and sing-box clients.
+Blackwire is a Rust-native proxy runtime for server and local proxy use cases.
+It targets wire compatibility with selected Xray-core and sing-box client paths,
+but uses its own JSON config schema rather than accepting Xray/sing-box configs
+as a drop-in format.
 
-This repository is organized around two goals:
+Compatibility is proved with real upstream clients, not only in-process Rust
+tests. The realistic lab under `labs/realistic/` drives the configured
+external-client matrix from `labs/realistic/external-clients/scenarios.env`,
+with Docker, Lima fingerprint checks, and optional two-VPS validation.
 
-- implement a practical protocol/transport matrix compatible with Xray-core and sing-box clients
-- prove compatibility with **real upstream clients** — Xray-core and sing-box in
-  Docker labs, Lima fingerprint checks, and two-VPS production-style runs
-
-Supported paths are validated against original clients, not only in-process Rust
-tests. External-client automation lives under `labs/realistic/` and drives the
-configured matrix in `labs/realistic/external-clients/scenarios.env`.
-
-The project uses its **own JSON config schema** (not a byte-for-byte Xray/sing-box config
-drop-in). Wire behavior and client interop are the compatibility contract. For
-per-protocol status, see [docs/feature-matrix.md](docs/feature-matrix.md).
+For exact support status, use [docs/release.md](docs/release.md) and
+[docs/feature-matrix.md](docs/feature-matrix.md) as the source of truth.
 
 ## Release Status
 
@@ -28,6 +24,61 @@ High-level summary:
 - Supported: core proxy runtime, server mode, local SOCKS/HTTP proxy mode, the documented protocol/transport matrix, Handler API structural operations, and TUN runtime on Linux/macOS/Windows.
 - Experimental: Stats API (gRPC) runtime stats until soak and observability validation are complete.
 - Unsupported: V2Ray/Xray JSON import, VMess legacy alterId/non-AEAD, Xray endpoint protobuf decoding for Handler structural RPCs, OpenWrt/Android/iOS, and a standalone desktop/mobile client app.
+
+## Local Quickstart
+
+Prerequisites:
+
+- Rust toolchain from `rust-toolchain.toml`
+- `make`
+- Docker, only if you want the realistic interop lab
+- Lima, only if you want VM fingerprint/performance checks
+
+Build and run the local Rust gate:
+
+```sh
+make verify-local
+```
+
+Run the CLI directly from source:
+
+```sh
+cargo run -q -p blackwire -- --help
+cargo run -q -p blackwire -- test -c examples/vless-client-server/server.json
+cargo run -q -p blackwire -- run -c examples/vless-client-server/server.json
+```
+
+Run a local client/server example in two terminals:
+
+```sh
+cargo run -q -p blackwire -- run -c examples/vless-client-server/server.json
+cargo run -q -p blackwire -- run -c examples/vless-client-server/client.json
+```
+
+The example client exposes SOCKS5 on `127.0.0.1:10080`:
+
+```sh
+curl --socks5-hostname 127.0.0.1:10080 https://example.com/
+```
+
+More examples live under [examples/](examples/), and command/environment details
+live in [docs/16-environment-cheatsheet.md](docs/16-environment-cheatsheet.md).
+
+## Fast Profile
+
+Blackwire also has a latency-first `fast` operating profile for a narrower
+production path. It keeps the same auth, TLS, REALITY validation, timeouts, and
+parser strictness as compatibility mode, but rejects features that add hot-path
+complexity.
+
+Use it with:
+
+```sh
+blackwire run -c config.json --profile fast
+```
+
+Read [docs/fast-profile.md](docs/fast-profile.md) before enabling it; that doc
+owns the exact constraints, defaults, and benchmark policy.
 
 ## Start Here
 
