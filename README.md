@@ -93,6 +93,14 @@ curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/
   | VERSION=v0.1.0-rc.3 INIT_SERVER=vless-reality PUBLIC_HOST=example.com bash
 ```
 
+For a domain-backed TLS server, point DNS at the VPS first and make sure port 80
+is open for the ACME challenge:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 INIT_SERVER=trojan-tls DOMAIN=proxy.example.com INSTALL_CERTBOT=1 START_SERVICE=1 bash
+```
+
 ## Fast Profile
 
 Blackwire also has a latency-first `fast` operating profile for a narrower

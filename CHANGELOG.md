@@ -21,6 +21,7 @@ This project is pre-1.0. The support contract is owned by
 - Linux install script for GitHub Release assets with checksum verification and optional systemd unit installation.
 - Installer support for `CONFIG_PATH` / `CONFIG_URL` with config validation before service start.
 - Linux VPS bootstrap options for generated VLESS TCP / VLESS REALITY configs, firewall guidance, upgrade, and uninstall.
+- Linux domain TLS bootstrap using generated Trojan TLS config with certbot or existing certificate paths.
 
 ### Changed
 

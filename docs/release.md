@@ -183,14 +183,29 @@ curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/
   | VERSION=v0.1.0-rc.3 INIT_SERVER=vless-reality PUBLIC_HOST=example.com bash
 ```
 
-Supported generated configs are `INIT_SERVER=vless-tcp` and
-`INIT_SERVER=vless-reality`. The installer generates UUIDs, REALITY keys and
-short IDs when needed, writes client connection hints to
-`/etc/blackwire/client-info.txt`, validates the generated config, and prints
-firewall/log/start commands. Set `OPEN_FIREWALL=1` to open `SERVER_PORT` through
-`ufw` or firewalld when either is installed; cloud firewalls still need to be
-opened outside the server. Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the
-binary, systemd unit, config, and state directories.
+Supported generated configs are `INIT_SERVER=vless-tcp`,
+`INIT_SERVER=vless-reality`, and `INIT_SERVER=trojan-tls`. The installer
+generates UUIDs/passwords, REALITY keys and short IDs when needed, writes client
+connection hints to `/etc/blackwire/client-info.txt`, validates the generated
+config, and prints firewall/log/start commands.
+
+Domain-backed TLS setup:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 INIT_SERVER=trojan-tls DOMAIN=proxy.example.com INSTALL_CERTBOT=1 START_SERVICE=1 bash
+```
+
+For `INIT_SERVER=trojan-tls`, point the domain DNS record to the VPS first and
+open `tcp/80` for the certbot standalone ACME challenge. The installer can
+install certbot through the distro package manager when `INSTALL_CERTBOT=1`, or
+it can use existing certificate files through `TLS_CERT_FILE` and `TLS_KEY_FILE`.
+Because Let's Encrypt private keys are root-owned, the generated TLS systemd unit
+runs as root unless `SERVICE_USER`/`SERVICE_GROUP` are explicitly overridden.
+Set `OPEN_FIREWALL=1` to open `SERVER_PORT` through `ufw` or firewalld when
+either is installed; cloud firewalls still need to be opened outside the server.
+Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the binary, systemd unit,
+config, and state directories.
 
 ## Package Repositories
 

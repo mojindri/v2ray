@@ -16,6 +16,12 @@ CONFIG_URL="${CONFIG_URL:-}"
 INIT_SERVER="${INIT_SERVER:-}"
 SERVER_PORT="${SERVER_PORT:-443}"
 SERVER_LISTEN="${SERVER_LISTEN:-0.0.0.0}"
+DOMAIN="${DOMAIN:-}"
+TLS_CERT_FILE="${TLS_CERT_FILE:-}"
+TLS_KEY_FILE="${TLS_KEY_FILE:-}"
+ACME_EMAIL="${ACME_EMAIL:-}"
+ACME_STAGING="${ACME_STAGING:-0}"
+INSTALL_CERTBOT="${INSTALL_CERTBOT:-0}"
 REALITY_DEST="${REALITY_DEST:-www.microsoft.com:443}"
 REALITY_SERVER_NAME="${REALITY_SERVER_NAME:-www.microsoft.com}"
 PUBLIC_HOST="${PUBLIC_HOST:-<server-ip-or-domain>}"
@@ -233,12 +239,129 @@ REALITY server name: $REALITY_SERVER_NAME
 REALITY destination: $REALITY_DEST
 INFO
             ;;
-        *) die "unsupported INIT_SERVER value: $INIT_SERVER (use vless-tcp or vless-reality)" ;;
+        trojan-tls)
+            prepare_tls_certificate
+            if [ "$SERVICE_USER" = "nobody" ] && [ "$SERVICE_GROUP" = "" ]; then
+                SERVICE_USER="root"
+                SERVICE_GROUP="root"
+                log "using root service user for TLS so certificate private key is readable"
+            fi
+            password="$(short_id)$(short_id)$(short_id)$(short_id)"
+            sudo_cmd sh -c "cat > '$CONFIG_DIR/config.json'" <<JSON
+{
+  "log": {
+    "level": "info",
+    "json": false
+  },
+  "inbounds": [
+    {
+      "tag": "trojan-tls-in",
+      "protocol": "trojan",
+      "listen": "$SERVER_LISTEN",
+      "port": $SERVER_PORT,
+      "settings": {
+        "clients": [
+          {
+            "password": "$password"
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "tls",
+        "tlsSettings": {
+          "certificateFile": "$TLS_CERT_FILE",
+          "keyFile": "$TLS_KEY_FILE"
+        }
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "tag": "freedom",
+      "protocol": "freedom"
+    }
+  ],
+  "routing": {
+    "rules": [
+      {
+        "outboundTag": "freedom"
+      }
+    ]
+  }
+}
+JSON
+            protect_config_for_service "$CONFIG_DIR/config.json"
+            sudo_cmd sh -c "cat > '$info_file'" <<INFO
+Generated Trojan TLS server config
+
+Address: ${DOMAIN:-$PUBLIC_HOST}
+Port: $SERVER_PORT
+Password: $password
+Network: tcp
+Security: tls
+TLS certificate: $TLS_CERT_FILE
+TLS key: $TLS_KEY_FILE
+INFO
+            ;;
+        *) die "unsupported INIT_SERVER value: $INIT_SERVER (use vless-tcp, vless-reality, or trojan-tls)" ;;
     esac
 
     sudo_cmd chmod 0600 "$info_file"
     log "generated $INIT_SERVER config at $CONFIG_DIR/config.json"
     log "wrote client connection hints to $info_file"
+}
+
+install_package_if_possible() {
+    package="$1"
+    if command -v apt-get >/dev/null 2>&1; then
+        sudo_cmd apt-get update
+        sudo_cmd apt-get install -y "$package"
+    elif command -v dnf >/dev/null 2>&1; then
+        sudo_cmd dnf install -y "$package"
+    elif command -v yum >/dev/null 2>&1; then
+        sudo_cmd yum install -y "$package"
+    else
+        die "cannot install $package automatically; install it manually and rerun"
+    fi
+}
+
+prepare_tls_certificate() {
+    if [ -n "$TLS_CERT_FILE" ] || [ -n "$TLS_KEY_FILE" ]; then
+        [ -n "$TLS_CERT_FILE" ] && [ -n "$TLS_KEY_FILE" ] || die "set both TLS_CERT_FILE and TLS_KEY_FILE"
+        [ -f "$TLS_CERT_FILE" ] || die "TLS_CERT_FILE does not exist: $TLS_CERT_FILE"
+        [ -f "$TLS_KEY_FILE" ] || die "TLS_KEY_FILE does not exist: $TLS_KEY_FILE"
+        return 0
+    fi
+
+    [ -n "$DOMAIN" ] || die "INIT_SERVER=trojan-tls requires DOMAIN, or set TLS_CERT_FILE and TLS_KEY_FILE"
+
+    if ! command -v certbot >/dev/null 2>&1; then
+        if [ "$INSTALL_CERTBOT" = "1" ]; then
+            install_package_if_possible certbot
+        else
+            die "certbot not found; install certbot, set INSTALL_CERTBOT=1, or provide TLS_CERT_FILE/TLS_KEY_FILE"
+        fi
+    fi
+
+    certbot_args=(certonly --standalone --non-interactive --agree-tos --domain "$DOMAIN")
+    if [ -n "$ACME_EMAIL" ]; then
+        certbot_args+=(--email "$ACME_EMAIL")
+    else
+        certbot_args+=(--register-unsafely-without-email)
+    fi
+    if [ "$ACME_STAGING" = "1" ]; then
+        certbot_args+=(--staging)
+    fi
+
+    log "requesting Let's Encrypt certificate for $DOMAIN with certbot standalone"
+    log "ensure DNS points to this VPS and tcp/80 is open before this step"
+    sudo_cmd certbot "${certbot_args[@]}"
+
+    TLS_CERT_FILE="/etc/letsencrypt/live/${DOMAIN}/fullchain.pem"
+    TLS_KEY_FILE="/etc/letsencrypt/live/${DOMAIN}/privkey.pem"
+    [ -f "$TLS_CERT_FILE" ] || die "certbot did not create $TLS_CERT_FILE"
+    [ -f "$TLS_KEY_FILE" ] || die "certbot did not create $TLS_KEY_FILE"
 }
 
 download_url() {
