@@ -81,6 +81,7 @@ systemd unit when systemd is available. It does not start the service unless
 
 Installed command usage, service control, uninstall, config edits, and examples
 are documented in [docs/installed-command-guide.md](docs/installed-command-guide.md).
+Black UI panel setup and operations are documented in [docs/black-ui.md](docs/black-ui.md).
 
 To install and validate a config in the same step:
 

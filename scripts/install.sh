@@ -33,6 +33,12 @@ PUBLIC_HOST="${PUBLIC_HOST:-<server-ip-or-domain>}"
 OPEN_FIREWALL="${OPEN_FIREWALL:-0}"
 SERVICE_USER="${SERVICE_USER:-nobody}"
 SERVICE_GROUP="${SERVICE_GROUP:-}"
+INSTALL_BLACK_UI="${INSTALL_BLACK_UI:-0}"
+BLACK_UI_LISTEN="${BLACK_UI_LISTEN:-127.0.0.1:18080}"
+BLACK_UI_DATA_DIR="${BLACK_UI_DATA_DIR:-/var/lib/black-ui}"
+BLACK_UI_STATIC_DIR="${BLACK_UI_STATIC_DIR:-/usr/local/share/black-ui/frontend/dist}"
+BLACK_UI_PUBLIC_BASE_URL="${BLACK_UI_PUBLIC_BASE_URL:-}"
+BLACK_UI_PANEL_PATH="${BLACK_UI_PANEL_PATH:-/panel}"
 
 log() {
     printf 'blackwire-install: %s\n' "$*"
@@ -87,6 +93,19 @@ detect_asset() {
         x86_64|amd64) echo "blackwire-linux-x86_64.tar.gz" ;;
         aarch64|arm64) echo "blackwire-linux-arm64.tar.gz" ;;
         *) die "unsupported Linux architecture: $arch" ;;
+    esac
+}
+
+detect_black_ui_asset() {
+    os="$(uname -s)"
+    arch="$(uname -m)"
+
+    [ "$os" = "Linux" ] || die "black-ui installer supports Linux only"
+
+    case "$arch" in
+        x86_64|amd64) echo "black-ui-linux-x86_64.tar.gz" ;;
+        aarch64|arm64) echo "black-ui-linux-arm64.tar.gz" ;;
+        *) die "unsupported Linux architecture for black-ui: $arch" ;;
     esac
 }
 
@@ -586,6 +605,27 @@ NGINX
         key_file="/etc/letsencrypt/live/$DOMAIN/privkey.pem"
     fi
 
+    ui_nginx_location=""
+    if [ "$INSTALL_BLACK_UI" = "1" ]; then
+        case "$BLACK_UI_PANEL_PATH" in
+            /*) ;;
+            *) die "BLACK_UI_PANEL_PATH must start with '/'" ;;
+        esac
+        ui_nginx_location="
+    location ${BLACK_UI_PANEL_PATH}/ {
+        proxy_http_version 1.1;
+        proxy_set_header Host \\$host;
+        proxy_set_header X-Real-IP \\$remote_addr;
+        proxy_set_header X-Forwarded-For \\$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_pass http://${BLACK_UI_LISTEN}/;
+    }
+
+    location = ${BLACK_UI_PANEL_PATH} {
+        return 301 ${BLACK_UI_PANEL_PATH}/;
+    }"
+    fi
+
     sudo_cmd sh -c "cat > '$nginx_available'" <<NGINX
 server {
     listen 80;
@@ -617,6 +657,7 @@ server {
         proxy_read_timeout 300s;
         proxy_pass http://127.0.0.1:$INTERNAL_PORT;
     }
+${ui_nginx_location}
 }
 NGINX
     sudo_cmd sh -c "printf '%s\n' 'blackwire-${DOMAIN}.conf' > '$CONFIG_DIR/nginx-site'"
@@ -683,6 +724,82 @@ UNIT
         log "service not started; run: systemctl enable --now blackwire"
     else
         log "service not started; create ${CONFIG_DIR}/config.json, then run: systemctl enable --now blackwire"
+    fi
+}
+
+install_black_ui_systemd_unit() {
+    command -v systemctl >/dev/null 2>&1 || return 0
+    [ -d /run/systemd/system ] || return 0
+
+    unit_path="/etc/systemd/system/black-ui.service"
+    tmp_unit="$(mktemp)"
+    group="$(service_group)"
+    cat > "$tmp_unit" <<UNIT
+[Unit]
+Description=black-ui Blackwire control panel
+Documentation=https://github.com/${REPO}
+After=network-online.target blackwire.service
+Wants=network-online.target
+
+[Service]
+User=${SERVICE_USER}
+Group=${group}
+ExecStart=${PREFIX}/bin/black-ui
+WorkingDirectory=${BLACK_UI_DATA_DIR}
+Environment=BLACK_UI_DATA_DIR=${BLACK_UI_DATA_DIR}
+Environment=BLACK_UI_LISTEN=${BLACK_UI_LISTEN}
+Environment=BLACK_UI_STATIC_DIR=${BLACK_UI_STATIC_DIR}
+Restart=on-failure
+RestartSec=5s
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=${BLACK_UI_DATA_DIR} ${CONFIG_DIR}
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNIT
+
+    sudo_cmd install -m 0644 "$tmp_unit" "$unit_path"
+    rm -f "$tmp_unit"
+    sudo_cmd systemctl daemon-reload
+    sudo_cmd systemctl enable --now black-ui
+    log "installed and started black-ui.service at ${BLACK_UI_LISTEN}"
+}
+
+install_black_ui() {
+    [ "$INSTALL_BLACK_UI" = "1" ] || return 0
+    ui_asset="$(detect_black_ui_asset)"
+    ui_url="$(download_url "$ui_asset")"
+    ui_workdir="$(mktemp -d)"
+    log "downloading ${ui_asset} from ${REPO} (${VERSION})"
+    curl -fsSL "$ui_url" -o "$ui_workdir/$ui_asset"
+    curl -fsSL "$ui_url.sha256" -o "$ui_workdir/$ui_asset.sha256"
+    (
+        cd "$ui_workdir"
+        awk -v asset="$ui_asset" '{ print $1 "  " asset }' "$ui_asset.sha256" > "$ui_asset.sha256.local"
+        sha256sum -c "$ui_asset.sha256.local"
+        tar -xzf "$ui_asset"
+    )
+    ui_binary="$(find "$ui_workdir" -type f -name black-ui -perm -111 | head -n 1)"
+    [ -n "$ui_binary" ] || die "black-ui binary not found in $ui_asset"
+    sudo_cmd install -d -m 0755 "$PREFIX/bin" "$BLACK_UI_DATA_DIR" "$BLACK_UI_STATIC_DIR"
+    sudo_cmd install -m 0755 "$ui_binary" "$PREFIX/bin/black-ui"
+    ui_dist="$(find "$ui_workdir" -type d -path '*/frontend/dist' | head -n 1)"
+    if [ -n "$ui_dist" ]; then
+        sudo_cmd cp -a "$ui_dist"/. "$BLACK_UI_STATIC_DIR"/
+    else
+        log "black-ui frontend dist not found in asset; API will run but browser UI may be unavailable"
+    fi
+    rm -rf "$ui_workdir"
+    install_black_ui_systemd_unit
+    if [ -n "$BLACK_UI_PUBLIC_BASE_URL" ]; then
+        log "black-ui public base URL: $BLACK_UI_PUBLIC_BASE_URL"
+    elif [ -n "$DOMAIN" ]; then
+        log "black-ui can be reverse-proxied at https://${DOMAIN}${BLACK_UI_PANEL_PATH}"
+    else
+        log "black-ui listens locally at http://${BLACK_UI_LISTEN}"
     fi
 }
 
@@ -833,6 +950,8 @@ README
         auto) install_systemd_unit ;;
         *) die "invalid INSTALL_SYSTEMD value: $INSTALL_SYSTEMD" ;;
     esac
+
+    install_black_ui
 
     log "installed: $("$PREFIX/bin/blackwire" version 2>/dev/null || "$PREFIX/bin/blackwire" --version 2>/dev/null || echo "$PREFIX/bin/blackwire")"
     print_next_steps

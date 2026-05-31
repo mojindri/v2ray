@@ -151,6 +151,7 @@ a systemd unit when systemd is available.
 
 Installed command usage, service control, uninstall, config edits, and examples
 are documented in [installed-command-guide.md](installed-command-guide.md).
+Black UI companion panel setup is documented in [black-ui.md](black-ui.md).
 
 Prerelease install:
 
@@ -213,6 +214,16 @@ either is installed; cloud firewalls still need to be opened outside the server.
 Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the binary, systemd unit,
 config, and state directories. `INIT_SERVER=...` remains available as an
 internal compatibility escape hatch, but release docs should prefer `SETUP`.
+
+To install the Black UI companion panel with the Linux release assets:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/Blackwire/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 INSTALL_BLACK_UI=1 START_SERVICE=1 bash
+```
+
+When combined with `SETUP=domain`, the installer reverse-proxies Black UI at
+`/panel/` through nginx.
 
 ## Debian Packages
 

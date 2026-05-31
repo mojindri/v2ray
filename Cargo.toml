@@ -24,6 +24,7 @@ members = [
     "crates/blackwire-app",
     "crates/blackwire-tls",
     "crates/blackwire-api",
+    "black-ui/server",
     "tests",
 ]
 resolver = "2"
@@ -124,6 +125,7 @@ tracing-subscriber  = { version = "0.3", features = ["env-filter", "json"] }
 metrics             = "0.24"
 metrics-exporter-prometheus = "0.18"
 axum                = "0.8"
+tower-http          = { version = "0.6", features = ["cors", "fs", "trace"] }
 
 # ── Concurrency ────────────────────────────────────────────────────────────────
 dashmap     = "6"
@@ -155,3 +157,5 @@ rand_core   = "0.6"
 hex         = "0.4"
 base64      = "0.22"
 num_cpus    = "1"
+chrono      = { version = "0.4", features = ["serde", "clock"] }
+rusqlite    = { version = "0.37", features = ["bundled"] }

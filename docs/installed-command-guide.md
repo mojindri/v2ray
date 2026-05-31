@@ -1,6 +1,7 @@
 # Installed Commands
 
 This guide is for Linux VPS installs from GitHub Releases.
+For the Black UI companion panel, see [black-ui.md](black-ui.md).
 
 ## Where Things Are
 

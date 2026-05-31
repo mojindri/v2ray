@@ -41,3 +41,8 @@ benches/reports/shared-path-local-*/
 benches/reports/flamegraphs/
 perf.data
 perf.data.old
+
+# Black UI local frontend/runtime artifacts.
+black-ui/frontend/node_modules/
+black-ui/frontend/dist/
+black-ui/data/

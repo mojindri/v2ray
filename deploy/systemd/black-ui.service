@@ -1,0 +1,24 @@
+[Unit]
+Description=black-ui Blackwire control panel
+Documentation=https://github.com/mojindri/Blackwire
+After=network-online.target blackwire.service
+Wants=network-online.target
+
+[Service]
+User=nobody
+Group=nogroup
+ExecStart=/usr/local/bin/black-ui
+WorkingDirectory=/var/lib/black-ui
+Environment=BLACK_UI_DATA_DIR=/var/lib/black-ui
+Environment=BLACK_UI_LISTEN=127.0.0.1:18080
+Environment=BLACK_UI_STATIC_DIR=/usr/share/black-ui/frontend/dist
+Restart=on-failure
+RestartSec=5s
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/black-ui /etc/blackwire
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

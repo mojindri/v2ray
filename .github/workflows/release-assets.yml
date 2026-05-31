@@ -78,11 +78,15 @@ jobs:
             binary: blackwire
             archive: blackwire-linux-x86_64.tar.gz
             deb_arch: amd64
+            ui_asset: black-ui-linux-x86_64
+            ui_archive: black-ui-linux-x86_64.tar.gz
           - os: ubuntu-24.04-arm
             asset: blackwire-linux-arm64
             binary: blackwire
             archive: blackwire-linux-arm64.tar.gz
             deb_arch: arm64
+            ui_asset: black-ui-linux-arm64
+            ui_archive: black-ui-linux-arm64.tar.gz
           - os: macos-latest
             asset: blackwire-macos
             binary: blackwire
@@ -123,6 +127,28 @@ jobs:
           version="${TAG#v}"
           bash scripts/package-deb.sh "$version" "${{ matrix.deb_arch }}" "target/release/${{ matrix.binary }}" dist
 
+      - uses: actions/setup-node@v6
+        if: runner.os == 'Linux'
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: black-ui/frontend/package-lock.json
+
+      - name: Build Black UI asset
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd black-ui/frontend && npm ci && npm run build)
+          cargo build --release --locked --bin black-ui
+          mkdir -p "dist/${{ matrix.ui_asset }}/frontend"
+          cp target/release/black-ui "dist/${{ matrix.ui_asset }}/"
+          chmod +x "dist/${{ matrix.ui_asset }}/black-ui"
+          cp -a black-ui/frontend/dist "dist/${{ matrix.ui_asset }}/frontend/dist"
+          cp README.md CHANGELOG.md "dist/${{ matrix.ui_asset }}/"
+          tar -C dist -czf "dist/${{ matrix.ui_archive }}" "${{ matrix.ui_asset }}"
+          (cd dist && shasum -a 256 "${{ matrix.ui_archive }}" > "${{ matrix.ui_archive }}.sha256")
+
       - name: Package Windows asset
         if: runner.os == 'Windows'
         shell: pwsh
@@ -148,6 +174,7 @@ jobs:
             version="${TAG#v}"
             deb="blackwire_${version}_${{ matrix.deb_arch }}.deb"
             assets+=("dist/$deb" "dist/$deb.sha256")
+            assets+=("dist/${{ matrix.ui_archive }}" "dist/${{ matrix.ui_archive }}.sha256")
           fi
           gh release upload "$TAG" "${assets[@]}" --clobber
 
