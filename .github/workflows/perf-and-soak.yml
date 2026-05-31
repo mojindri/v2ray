@@ -132,6 +132,61 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
+  memory-profile-nginx:
+    name: Memory profile (nginx 64k)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Install runtime deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nginx netcat-openbsd
+          go install github.com/rakyll/hey@latest
+
+      - name: Build Blackwire release binary
+        run: cargo build --release --bin blackwire
+
+      - name: Run nginx memory profile
+        run: |
+          chmod +x tools/perf/memory_profile_nginx.sh
+          export PATH="$HOME/go/bin:$PATH"
+          export BW_BIN="$PWD/target/release/blackwire"
+          export PERF_START_NGINX=1
+          export MEM_PAYLOAD=64k
+          export MEM_DURATION=15
+          export MEM_CONCURRENCY=32
+          mkdir -p reports/perf
+          tools/perf/memory_profile_nginx.sh reports/perf | tee reports/perf/memory-profile-ci.stdout
+
+      - name: Resolve profile JSON path
+        id: profile
+        run: |
+          json_path="$(ls -1t reports/perf/memory-profile-nginx-64k-*.json | head -n1)"
+          echo "json_path=$json_path" >> "$GITHUB_OUTPUT"
+          echo "profile_json=$json_path"
+
+      - name: Enforce memory regression baseline
+        run: |
+          python3 ci/scripts/check_memory_regression.py \
+            ci/perf-baselines/memory_nginx_64k.json \
+            "${{ steps.profile.outputs.json_path }}"
+
+      - name: Upload memory profile artifacts
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: memory-profile-nginx-64k
+          path: reports/perf
+          if-no-files-found: warn
+          retention-days: 14
+
   soak:
     name: Soak
     if: github.event_name == 'schedule'
