@@ -98,7 +98,7 @@ impl TlsConnectionHandler {
         handshake_timeout: Option<Duration>,
         inner: Arc<dyn ConnectionHandler>,
     ) -> Arc<Self> {
-        let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
+        let alpn_refs: Vec<&str> = alpn.iter().map(String::as_str).collect();
         // Pre-build the TlsAcceptor so the ServerConfig (and its session ticket
         // keys) is shared across all connections. TLS 1.3 clients can then
         // resume sessions without a full handshake on reconnect.
@@ -402,10 +402,10 @@ pub(crate) fn build_conn_handler(
     }
 
     if uses_splithttp(stream_settings) {
-        let (expected_path, expected_method, mode) = stream_settings
-            .as_ref()
-            .map(splithttp_listen_params)
-            .unwrap_or((None, None, normalize_splithttp_mode("")));
+        let (expected_path, expected_method, mode) = stream_settings.as_ref().map_or_else(
+            || (None, None, normalize_splithttp_mode("")),
+            splithttp_listen_params,
+        );
         handler = SplitHttpConnectionHandler::new(
             expected_path,
             expected_method,
@@ -420,8 +420,7 @@ pub(crate) fn build_conn_handler(
         let service_name = stream_settings
             .as_ref()
             .and_then(|s| s.grpc_settings.as_ref())
-            .map(|g| g.service_name.as_str())
-            .unwrap_or("GunService")
+            .map_or("GunService", |g| g.service_name.as_str())
             .to_string();
         handler = GrpcConnectionHandler::new(service_name, handshake_timeout, handler);
     }
@@ -461,7 +460,7 @@ pub(crate) fn build_conn_handler(
         } else {
             vec![]
         };
-        let alpn_refs: Vec<&str> = alpn.iter().map(|s| s.as_str()).collect();
+        let alpn_refs: Vec<&str> = alpn.iter().map(String::as_str).collect();
         blackwire_transport::tls_build_server_config(&cert_pem, &key_pem, &alpn_refs)
             .map_err(|e| anyhow::anyhow!("invalid TLS certificate/key material: {e}"))?;
         handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handshake_timeout, handler);

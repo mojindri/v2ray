@@ -133,9 +133,7 @@ fn capacity_for(hint: usize) -> usize {
 fn num_cpus() -> usize {
     // We read from an environment variable in tests so the pool size
     // is predictable without depending on the actual CPU count.
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(1)
+    std::thread::available_parallelism().map_or(1, std::num::NonZeroUsize::get)
 }
 
 #[cfg(test)]
