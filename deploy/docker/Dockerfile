@@ -34,6 +34,7 @@ COPY crates/blackwire-protocol/Cargo.toml crates/blackwire-protocol/
 COPY crates/blackwire-app/Cargo.toml    crates/blackwire-app/
 COPY crates/blackwire-tls/Cargo.toml    crates/blackwire-tls/
 COPY crates/blackwire-api/Cargo.toml    crates/blackwire-api/
+COPY black-ui/server/Cargo.toml     black-ui/server/
 COPY tests/Cargo.toml               tests/
 COPY benches/Cargo.toml             benches/
 COPY benches/benches/               benches/benches/
@@ -43,7 +44,8 @@ COPY benches/benches/               benches/benches/
 RUN for d in blackwire-common blackwire-config blackwire-app blackwire-transport blackwire-protocol blackwire-core blackwire-tls blackwire-api; do \
         mkdir -p crates/$d/src && echo "// stub" > crates/$d/src/lib.rs; \
     done && \
-    mkdir -p crates/blackwire-cli/src && echo "fn main(){}" > crates/blackwire-cli/src/main.rs
+    mkdir -p crates/blackwire-cli/src && echo "fn main(){}" > crates/blackwire-cli/src/main.rs && \
+    mkdir -p black-ui/server/src && echo "fn main(){}" > black-ui/server/src/main.rs
 
 # Download and compile all dependencies (cached if Cargo.toml unchanged).
 RUN cargo fetch
@@ -53,6 +55,7 @@ COPY crates/ crates/
 COPY tests/ tests/
 COPY benches/ benches/
 COPY fingerprints/ fingerprints/
+COPY black-ui/server/ black-ui/server/
 
 # Build the release binary with maximum optimisations.
 RUN cargo build --release --bin blackwire

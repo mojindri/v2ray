@@ -94,7 +94,12 @@ pub fn init(conn: &Connection, data_dir: &Path) -> Result<()> {
 }
 
 fn migrate_existing_schema(conn: &Connection) -> Result<()> {
-    add_column_if_missing(conn, "inbounds", "protocol", "TEXT NOT NULL DEFAULT 'vless'")?;
+    add_column_if_missing(
+        conn,
+        "inbounds",
+        "protocol",
+        "TEXT NOT NULL DEFAULT 'vless'",
+    )?;
     add_column_if_missing(conn, "inbounds", "settings", "TEXT NOT NULL DEFAULT ''")?;
     add_column_if_missing(conn, "inbounds", "sniffing", "TEXT NOT NULL DEFAULT ''")?;
     add_column_if_missing(conn, "inbounds", "limits", "TEXT NOT NULL DEFAULT ''")?;
@@ -115,7 +120,10 @@ fn add_column_if_missing(
             return Ok(());
         }
     }
-    conn.execute(&format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"), [])?;
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {definition}"),
+        [],
+    )?;
     Ok(())
 }
 

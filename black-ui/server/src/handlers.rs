@@ -46,7 +46,10 @@ pub async fn login(
     login_response(token, username)
 }
 
-pub async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Result<Response, AppError> {
+pub async fn logout(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Response, AppError> {
     let _ = auth::require(&headers, &state)?;
     auth::delete_session(&headers, &state)?;
     let mut response = Json(json!({ "ok": true })).into_response();
@@ -879,7 +882,9 @@ async fn apply_user_change(
         if inbound.enabled && user.enabled && user.enforcement_status == "active" {
             if inbound.protocol == "vless" {
                 if let Err(e) = runtime::add_user(&settings.grpc_address, &inbound, &user).await {
-                    if let Err(sync_error) = runtime::sync_config(state, &settings.grpc_address).await {
+                    if let Err(sync_error) =
+                        runtime::sync_config(state, &settings.grpc_address).await
+                    {
                         failures.push(format!(
                             "add {}: {e}; full sync failed: {sync_error}",
                             user.email

@@ -70,7 +70,9 @@ pub async fn sync_config(state: &AppState, addr: &str) -> Result<()> {
             })
             .await;
     }
-    let current_inbound_tags = current.into_iter().collect::<std::collections::HashSet<_>>();
+    let current_inbound_tags = current
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>();
     for inbound in target_inbounds {
         let tag = inbound["tag"].as_str().unwrap_or_default().to_string();
         if current_inbound_tags.contains(&tag) {
@@ -322,7 +324,10 @@ mod tests {
             Ok(())
         }
 
-        async fn add_inbound(&self, config: NativeEndpointConfig) -> std::result::Result<(), String> {
+        async fn add_inbound(
+            &self,
+            config: NativeEndpointConfig,
+        ) -> std::result::Result<(), String> {
             self.operations
                 .lock()
                 .unwrap()
@@ -336,11 +341,17 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("remove-inbound:{tag}"));
-            self.inbounds.lock().unwrap().retain(|existing| existing != tag);
+            self.inbounds
+                .lock()
+                .unwrap()
+                .retain(|existing| existing != tag);
             Ok(())
         }
 
-        async fn add_outbound(&self, config: NativeEndpointConfig) -> std::result::Result<(), String> {
+        async fn add_outbound(
+            &self,
+            config: NativeEndpointConfig,
+        ) -> std::result::Result<(), String> {
             self.operations
                 .lock()
                 .unwrap()
@@ -354,11 +365,17 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(format!("remove-outbound:{tag}"));
-            self.outbounds.lock().unwrap().retain(|existing| existing != tag);
+            self.outbounds
+                .lock()
+                .unwrap()
+                .retain(|existing| existing != tag);
             Ok(())
         }
 
-        async fn alter_outbound(&self, config: NativeEndpointConfig) -> std::result::Result<(), String> {
+        async fn alter_outbound(
+            &self,
+            config: NativeEndpointConfig,
+        ) -> std::result::Result<(), String> {
             self.operations
                 .lock()
                 .unwrap()
@@ -369,7 +386,8 @@ mod tests {
 
     #[tokio::test]
     async fn sync_config_skips_empty_vless_and_updates_existing_runtime_tags() {
-        let data_dir = std::env::temp_dir().join(format!("black-ui-runtime-test-{}", util::random_token(8)));
+        let data_dir =
+            std::env::temp_dir().join(format!("black-ui-runtime-test-{}", util::random_token(8)));
         std::fs::create_dir_all(&data_dir).unwrap();
         let conn = Connection::open_in_memory().unwrap();
         db::init(&conn, &data_dir).unwrap();
@@ -418,7 +436,9 @@ mod tests {
         let handle = start_api_server(&format!("127.0.0.1:{port}"), fake.clone()).unwrap();
         wait_for_probe(port).await;
 
-        sync_config(&state, &format!("127.0.0.1:{port}")).await.unwrap();
+        sync_config(&state, &format!("127.0.0.1:{port}"))
+            .await
+            .unwrap();
         handle.abort();
 
         let operations = fake.operations.lock().unwrap().clone();

@@ -54,10 +54,14 @@ pub fn create_admin_session(
         .optional()
         .map_err(|e| AppError::internal(e.into()))?;
     let Some((admin_id, username, expected, salt)) = row else {
-        return Err(AppError::unauthorized_message("invalid username or password"));
+        return Err(AppError::unauthorized_message(
+            "invalid username or password",
+        ));
     };
     if util::hash_password(password, &salt) != expected {
-        return Err(AppError::unauthorized_message("invalid username or password"));
+        return Err(AppError::unauthorized_message(
+            "invalid username or password",
+        ));
     }
     let token = util::random_token(48);
     conn.execute(
@@ -111,11 +115,7 @@ pub fn delete_session(headers: &HeaderMap, state: &AppState) -> Result<(), AppEr
 }
 
 pub fn session_cookie(token: &str) -> String {
-    let secure = if std::env::var("BLACK_UI_COOKIE_SECURE")
-        .ok()
-        .as_deref()
-        == Some("1")
-    {
+    let secure = if std::env::var("BLACK_UI_COOKIE_SECURE").ok().as_deref() == Some("1") {
         "; Secure"
     } else {
         ""
