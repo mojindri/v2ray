@@ -40,7 +40,8 @@ Related docs:
 - [feature-matrix.md](feature-matrix.md)
   Evidence-based feature status.
 - [performance-evidence.md](performance-evidence.md)
-  Latest local performance and memory-profile result summaries.
+  Local report summaries for load, slowloris, memory, fuzz, security hygiene,
+  netem, packet capture, and benchmark artifacts.
 - [xray-parity-source-of-truth.md](xray-parity-source-of-truth.md)
   Upstream-first rules for wire parity.
 - [traffic-policy-roadmap.md](traffic-policy-roadmap.md)

@@ -46,7 +46,7 @@ Environment:
 On macOS, `Can't assign requested address` (errno 49) or `early eof` during handshake / short-lived benches usually means the local ephemeral port pool is exhausted from many connect-close cycles. Stop other lab Docker matrices, use `BENCH_SKIP_HANDSHAKE=1` or `BENCH_BULK_ONLY=1`, or lower `BENCH_MAX_CONNECTS_PER_SAMPLE`.
 
 Baseline notes and rankings: [`benches/perf-baseline.md`](../benches/perf-baseline.md).
-Summarized local result evidence, including the latest locally archived VPS
+Summarized local report evidence, including the locally archived VPS
 memory-profile RSS, lives in [performance-evidence.md](performance-evidence.md).
 
 ## Flamegraphs

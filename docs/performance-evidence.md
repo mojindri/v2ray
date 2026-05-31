@@ -11,7 +11,7 @@ Latest local production matrix summary:
 
 | Field | Value |
 | --- | --- |
-| Raw report | `reports/production/ci-matrix-local-20260523T223752Z.txt` |
+| Local raw report | `reports/production/ci-matrix-local-20260523T223752Z.txt` |
 | `local-fast` | PASS |
 | `local-load` | PASS |
 | `local-slowloris` | PASS |
@@ -30,7 +30,7 @@ Latest managed local load result:
 
 | Field | Value |
 | --- | --- |
-| Raw report | `reports/production/local-load.json` |
+| Local raw report | `reports/production/local-load.json` |
 | Requests | `250` |
 | Concurrency | `50` |
 | Success rate | `1.0` |
@@ -54,7 +54,7 @@ Latest local slowloris result:
 
 | Field | Value |
 | --- | --- |
-| Raw report | `reports/production/slowloris.json` |
+| Local raw report | `reports/production/slowloris.json` |
 | Clients | `25` |
 | Closed | `25` |
 | Still open after duration | `0` |
@@ -72,7 +72,7 @@ Latest local Blackwire server memory profile:
 | Field | Value |
 | --- | --- |
 | Scenario | Nginx target, 64 KiB payload memory profile |
-| Raw report | `benches/reports/flamegraphs/vps-20260531/memory-profile-nginx-64k-20260531T093038Z.log` |
+| Local raw report | `benches/reports/flamegraphs/vps-20260531/memory-profile-nginx-64k-20260531T093038Z.log` |
 | Sampled process | Blackwire server process, `server_pid=241597` |
 | Peak RSS | `24568` KiB, about `24.0` MiB |
 | Peak virtual size at RSS peak | `428452` KiB, about `418.4` MiB |
@@ -94,7 +94,7 @@ level.
 Local fuzz harness reports all reached `DONE` for their configured `32`
 runs:
 
-| Target | Raw report | Result | Peak reported RSS |
+| Target | Local raw report | Result | Peak reported RSS |
 | --- | --- | --- | --- |
 | Hysteria2 frame | `reports/production/fuzz-hysteria2_frame.log` | `DONE`, 32 runs | `64` MiB |
 | REALITY client hello | `reports/production/fuzz-reality_client_hello.log` | `DONE`, 32 runs | `63` MiB |
@@ -108,7 +108,7 @@ runtime measurement. It is from the Hysteria2 fuzz harness:
 
 | Field | Value |
 | --- | --- |
-| Raw report | `reports/production/fuzz-hysteria2_frame.log` |
+| Local raw report | `reports/production/fuzz-hysteria2_frame.log` |
 | Peak reported RSS | `64` MiB |
 | Context | `target/aarch64-apple-darwin/release/hysteria2_frame` libFuzzer run |
 
@@ -131,7 +131,7 @@ cargo-deny not installed. Install with: cargo install cargo-deny
 ```
 
 Treat these reports as partial hygiene evidence, not a complete dependency
-vulnerability audit. Representative latest raw report:
+vulnerability audit. Representative local raw report:
 `reports/production/security-20260524T082023Z.log`.
 
 ## Network Emulation And Packet Capture
@@ -156,7 +156,7 @@ Long-form benchmark conclusions are already maintained in
 `benches/perf-baseline.md`. The key local evidence from the benchmark logs
 is:
 
-| Area | Raw report | Result |
+| Area | Local raw report | Result |
 | --- | --- | --- |
 | Shared-path workspace tests | `benches/reports/test-workspace-shared-path-20260530.log` | Multiple workspace test groups report `test result: ok` |
 | Shared-path quick bench baseline | `benches/reports/protocol-matrix-20260530T002407Z.log` | Completed Criterion quick protocol matrix |
