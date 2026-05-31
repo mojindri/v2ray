@@ -11,7 +11,8 @@ external-client matrix from `labs/realistic/external-clients/scenarios.env`,
 with Docker, Lima fingerprint checks, and optional two-VPS validation.
 
 For exact support status, use [docs/release.md](docs/release.md) and
-[docs/feature-matrix.md](docs/feature-matrix.md) as the source of truth.
+[docs/feature-matrix.md](docs/feature-matrix.md) as the source of truth. Release-facing
+changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
 ## Release Status
 
