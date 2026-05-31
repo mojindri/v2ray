@@ -65,6 +65,42 @@ curl --socks5-hostname 127.0.0.1:10080 https://example.com/
 More examples live under [examples/](examples/), and command/environment details
 live in [docs/16-environment-cheatsheet.md](docs/16-environment-cheatsheet.md).
 
+## Install From Release
+
+Linux release candidates can be installed from GitHub Releases:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 bash
+```
+
+The installer downloads the Linux release archive, verifies its `.sha256`, puts
+`blackwire` in `/usr/local/bin`, creates `/etc/blackwire`, and installs a
+systemd unit when systemd is available. It does not start the service unless
+`START_SERVICE=1` is set.
+
+To install and validate a config in the same step:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
+```
+
+For a generated Linux VPS config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 SETUP=reality PUBLIC_HOST=example.com bash
+```
+
+For the standard domain setup, point DNS at the VPS first and make sure ports 80
+and 443 are open:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
+```
+
 ## Fast Profile
 
 Blackwire also has a latency-first `fast` operating profile for a narrower

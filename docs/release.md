@@ -109,15 +109,111 @@ For the current release candidate:
 
 ```sh
 git push origin HEAD
-git push origin v0.1.0-rc.2
+git push origin v0.1.0-rc.3
 ```
 
 If the release already exists but only has GitHub source archives, run the
 workflow manually for the tag:
 
 ```sh
-gh workflow run release-assets.yml -f tag=v0.1.0-rc.2
+gh workflow run release-assets.yml -f tag=v0.1.0-rc.3
 ```
+
+## Container Image
+
+`.github/workflows/container-image.yml` publishes the Docker image to GHCR when a
+`v*` tag is pushed, or manually through `workflow_dispatch` with a tag input.
+
+For prerelease tags such as `v0.1.0-rc.3`, the workflow publishes:
+
+- `ghcr.io/<owner>/<repo>:v0.1.0-rc.3`
+- `ghcr.io/<owner>/<repo>:0.1.0-rc.3`
+- `ghcr.io/<owner>/<repo>:rc`
+
+For stable tags such as `v0.1.0`, the workflow publishes:
+
+- `ghcr.io/<owner>/<repo>:v0.1.0`
+- `ghcr.io/<owner>/<repo>:0.1.0`
+- `ghcr.io/<owner>/<repo>:latest`
+
+The image is built for `linux/amd64` and `linux/arm64`, includes OCI labels,
+uses the GitHub Actions Docker build cache, and requests SBOM/provenance
+attestations from BuildKit.
+
+## Install Script
+
+`scripts/install.sh` installs Linux release assets from GitHub Releases. It
+supports `linux/amd64` and `linux/arm64`, verifies the release `.sha256`, installs
+the binary to `/usr/local/bin/blackwire`, creates `/etc/blackwire`, and installs
+a systemd unit when systemd is available.
+
+Prerelease install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 bash
+```
+
+Stable install, after a stable release is marked latest:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/main/scripts/install.sh | bash
+```
+
+By default, the installer does not start the service. To start immediately after
+installing, create `/etc/blackwire/config.json` first and set `START_SERVICE=1`.
+For mirrors or installer tests, set `BLACKWIRE_DOWNLOAD_BASE` to a directory URL
+that contains the archive and matching `.sha256` file.
+
+Config-aware install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
+```
+
+`CONFIG_PATH` copies a local config into `/etc/blackwire/config.json`;
+`CONFIG_URL` downloads one. The installer runs `blackwire test` after installing
+the config. `START_SERVICE=1` is rejected unless a config is present and valid.
+
+Generated Linux VPS config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 SETUP=reality PUBLIC_HOST=example.com bash
+```
+
+Supported setup modes are `SETUP=domain`, `SETUP=reality`, `SETUP=direct`, and
+`SETUP=custom`. The installer generates UUIDs/passwords, REALITY keys and short
+IDs when needed, writes client connection hints to
+`/etc/blackwire/client-info.txt`, validates the generated config, and prints
+firewall/log/start commands.
+
+Standard domain setup:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 SETUP=domain DOMAIN=proxy.example.com PROXY_PATH=/secret-path INSTALL_NGINX=1 INSTALL_CERTBOT=1 START_SERVICE=1 bash
+```
+
+For `SETUP=domain`, point the domain DNS record to the VPS first and open
+`tcp/80` and `tcp/443`. The installer can install nginx and certbot through the
+distro package manager, obtains an nginx-managed certificate, writes a normal
+HTTPS server block, and reverse-proxies only `PROXY_PATH` to Blackwire on
+localhost. Do not use the shell variable `PATH` for this; it controls executable
+lookup.
+For tests or custom certificates, provide `TLS_CERT_FILE` and `TLS_KEY_FILE`.
+Set `OPEN_FIREWALL=1` to open the required ports through `ufw` or firewalld when
+either is installed; cloud firewalls still need to be opened outside the server.
+Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the binary, systemd unit,
+config, and state directories. `INIT_SERVER=...` remains available as an
+internal compatibility escape hatch, but release docs should prefer `SETUP`.
+
+## Package Repositories
+
+Debian/Ubuntu `.deb`, RPM, Arch, Homebrew, Winget, and Chocolatey publishing are
+not automated yet. Keep those for a stable post-`v0.1.0` packaging pass after
+config paths, service behavior, and upgrade policy are settled.
 
 ---
 
