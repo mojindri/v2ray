@@ -1,8 +1,7 @@
-<p align="center">
-  <img src="docs/assets/blackwire-logo.png" alt="Blackwire logo" width="180">
-</p>
-
-# Blackwire
+<div align="center">
+  <img src="docs/assets/blackwire-logo.png" alt="Blackwire logo" width="112">
+  <h1>Blackwire</h1>
+</div>
 
 Blackwire is a Rust-native proxy runtime for server and local proxy use cases.
 It targets wire compatibility with selected Xray-core and sing-box client paths,
