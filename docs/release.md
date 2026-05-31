@@ -165,6 +165,33 @@ installing, create `/etc/blackwire/config.json` first and set `START_SERVICE=1`.
 For mirrors or installer tests, set `BLACKWIRE_DOWNLOAD_BASE` to a directory URL
 that contains the archive and matching `.sha256` file.
 
+Config-aware install:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
+```
+
+`CONFIG_PATH` copies a local config into `/etc/blackwire/config.json`;
+`CONFIG_URL` downloads one. The installer runs `blackwire test` after installing
+the config. `START_SERVICE=1` is rejected unless a config is present and valid.
+
+Generated Linux VPS config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 INIT_SERVER=vless-reality PUBLIC_HOST=example.com bash
+```
+
+Supported generated configs are `INIT_SERVER=vless-tcp` and
+`INIT_SERVER=vless-reality`. The installer generates UUIDs, REALITY keys and
+short IDs when needed, writes client connection hints to
+`/etc/blackwire/client-info.txt`, validates the generated config, and prints
+firewall/log/start commands. Set `OPEN_FIREWALL=1` to open `SERVER_PORT` through
+`ufw` or firewalld when either is installed; cloud firewalls still need to be
+opened outside the server. Set `ACTION=uninstall REMOVE_CONFIG=1` to remove the
+binary, systemd unit, config, and state directories.
+
 ## Package Repositories
 
 Debian/Ubuntu `.deb`, RPM, Arch, Homebrew, Winget, and Chocolatey publishing are

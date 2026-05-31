@@ -19,6 +19,8 @@ This project is pre-1.0. The support contract is owned by
 - Release asset workflow for Linux, Linux arm64, macOS, and Windows binaries with SHA256 files.
 - GHCR image publishing for Linux amd64/arm64 release tags, with rc tags kept separate from `latest`.
 - Linux install script for GitHub Release assets with checksum verification and optional systemd unit installation.
+- Installer support for `CONFIG_PATH` / `CONFIG_URL` with config validation before service start.
+- Linux VPS bootstrap options for generated VLESS TCP / VLESS REALITY configs, firewall guidance, upgrade, and uninstall.
 
 ### Changed
 

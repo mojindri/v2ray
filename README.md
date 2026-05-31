@@ -79,6 +79,20 @@ The installer downloads the Linux release archive, verifies its `.sha256`, puts
 systemd unit when systemd is available. It does not start the service unless
 `START_SERVICE=1` is set.
 
+To install and validate a config in the same step:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 CONFIG_PATH=/path/to/config.json bash
+```
+
+For a generated Linux VPS config:
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/mojindri/v2ray/v0.1.0-rc.3/scripts/install.sh \
+  | VERSION=v0.1.0-rc.3 INIT_SERVER=vless-reality PUBLIC_HOST=example.com bash
+```
+
 ## Fast Profile
 
 Blackwire also has a latency-first `fast` operating profile for a narrower
