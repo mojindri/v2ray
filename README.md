@@ -79,6 +79,9 @@ The installer downloads the Linux release archive, verifies its `.sha256`, puts
 systemd unit when systemd is available. It does not start the service unless
 `START_SERVICE=1` is set.
 
+Installed command usage, service control, uninstall, config edits, and examples
+are documented in [docs/installed-command-guide.md](docs/installed-command-guide.md).
+
 To install and validate a config in the same step:
 
 ```sh

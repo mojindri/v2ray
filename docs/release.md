@@ -147,6 +147,9 @@ supports `linux/amd64` and `linux/arm64`, verifies the release `.sha256`, instal
 the binary to `/usr/local/bin/blackwire`, creates `/etc/blackwire`, and installs
 a systemd unit when systemd is available.
 
+Installed command usage, service control, uninstall, config edits, and examples
+are documented in [installed-command-guide.md](installed-command-guide.md).
+
 Prerelease install:
 
 ```sh

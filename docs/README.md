@@ -13,6 +13,7 @@ place: duplicate summaries drift quickly.
 | Which tests/gates should be run? | [11-testing.md](11-testing.md) |
 | Which `make` command should I use day to day? | [test-workflows.md](test-workflows.md) |
 | What exact Make targets exist? | [15-make-command-guide.md](15-make-command-guide.md), [make-target-inventory.md](make-target-inventory.md) |
+| How do I operate an installed Linux VPS? | [installed-command-guide.md](installed-command-guide.md) |
 | What does the external-client matrix prove? | [parity-status.md](parity-status.md), [../labs/realistic/external-clients/README.md](../labs/realistic/external-clients/README.md) |
 
 Guideline: beginner docs should explain concepts and link to these files for
@@ -69,7 +70,9 @@ Third-wave practical docs:
    Command-oriented map for Make targets and when to use each one.
 15. [16-environment-cheatsheet.md](16-environment-cheatsheet.md)
    One-page separation of local, Docker, Lima VM, real VPS, and direct-on-VPS debugging commands.
-16. [make-target-inventory.md](make-target-inventory.md)
+16. [installed-command-guide.md](installed-command-guide.md)
+   Start/stop, uninstall, logs, config edits, and examples for installed Linux VPS users.
+17. [make-target-inventory.md](make-target-inventory.md)
    Full target inventory (canonical, lab, interop, compatibility aliases).
 
 Example-driven learning:
