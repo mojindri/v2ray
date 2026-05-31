@@ -23,9 +23,9 @@ fn now_ms() -> u64 {
 
 /// Shared buffer pool for the idle relay helper.
 /// Reusing 16 KiB buffers avoids per-connection heap allocations.
-fn relay_pool() -> &'static Arc<BufferPool> {
+fn relay_pool() -> &'static BufferPool {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
-    POOL.get_or_init(BufferPool::new)
+    POOL.get_or_init(BufferPool::new).as_ref()
 }
 
 /// Bidirectional relay using pooled 16 KiB buffers.

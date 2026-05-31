@@ -446,21 +446,21 @@ async fn adaptive_copy_then_splice(
 }
 
 #[cfg(target_os = "linux")]
-fn adaptive_relay_pool() -> &'static Arc<BufferPool> {
+fn adaptive_relay_pool() -> &'static BufferPool {
     static POOL: OnceLock<Arc<BufferPool>> = OnceLock::new();
-    POOL.get_or_init(BufferPool::new)
+    POOL.get_or_init(BufferPool::new).as_ref()
 }
 
 #[cfg(target_os = "linux")]
 struct PooledRelayBuffer {
-    pool: Arc<BufferPool>,
+    pool: &'static BufferPool,
     buf: Option<BytesMut>,
 }
 
 #[cfg(target_os = "linux")]
 impl PooledRelayBuffer {
     fn new(size: usize) -> Self {
-        let pool = Arc::clone(adaptive_relay_pool());
+        let pool = adaptive_relay_pool();
         let mut buf = pool.acquire(size);
         buf.resize(size, 0);
         Self {
