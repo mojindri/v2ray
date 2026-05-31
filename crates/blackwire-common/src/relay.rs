@@ -45,17 +45,13 @@ where
     let (b_rx, b_tx) = tokio::io::split(b);
     let pool = relay_pool();
     let (r_up, r_down) = tokio::join!(
-        copy_one_pooled(a_rx, b_tx, Arc::clone(pool)),
-        copy_one_pooled(b_rx, a_tx, Arc::clone(pool)),
+        copy_one_pooled(a_rx, b_tx, pool),
+        copy_one_pooled(b_rx, a_tx, pool),
     );
     Ok((r_up?, r_down?))
 }
 
-async fn copy_one_pooled<R, W>(
-    mut reader: R,
-    mut writer: W,
-    pool: Arc<BufferPool>,
-) -> io::Result<u64>
+async fn copy_one_pooled<R, W>(mut reader: R, mut writer: W, pool: &BufferPool) -> io::Result<u64>
 where
     R: AsyncRead + Unpin,
     W: AsyncWrite + Unpin,
