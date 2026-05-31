@@ -549,7 +549,7 @@ pub async fn grpc_accept(
         .map_err(|e| ProxyError::Transport(format!("gRPC accept error: {e}")))?;
 
     let path = request.uri().path();
-    tracing::warn!(path = %path, expected = %expected_path, "gRPC: incoming request");
+    tracing::debug!(path = %path, expected = %expected_path, "gRPC: incoming request");
     if path != expected_path {
         return Err(ProxyError::Protocol(format!(
             "gRPC: unexpected path '{path}' (expected '{expected_path}')"
