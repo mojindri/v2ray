@@ -333,8 +333,9 @@ async fn macos_split_routes_present(interface_name: &str) -> bool {
     let b = String::from_utf8_lossy(&out_b.stdout);
     a.lines()
         .any(|line| line.trim_start().starts_with("interface:") && line.contains(interface_name))
-        && b.lines()
-            .any(|line| line.trim_start().starts_with("interface:") && line.contains(interface_name))
+        && b.lines().any(|line| {
+            line.trim_start().starts_with("interface:") && line.contains(interface_name)
+        })
 }
 
 #[cfg(target_os = "macos")]
@@ -345,9 +346,7 @@ async fn macos_pf_anchor_has_rules(interface_name: &str) -> bool {
         .await
         .expect("pfctl -a blackwire/tun -s rules failed");
     let stdout = String::from_utf8_lossy(&out.stdout);
-    stdout.contains("rdr pass on")
-        && stdout.contains(interface_name)
-        && stdout.contains("port 53")
+    stdout.contains("rdr pass on") && stdout.contains(interface_name) && stdout.contains("port 53")
 }
 
 #[cfg(target_os = "windows")]

@@ -960,7 +960,9 @@ mod tests {
             ..TunConfig::default()
         };
         let err = validate_windows_runtime_config(&cfg).unwrap_err();
-        assert!(err.to_string().contains("invalid Windows outbound interface"));
+        assert!(err
+            .to_string()
+            .contains("invalid Windows outbound interface"));
     }
 
     #[cfg(target_os = "windows")]

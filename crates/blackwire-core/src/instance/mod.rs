@@ -76,7 +76,9 @@ use helpers::{
 };
 
 fn as_usize(value: Option<&serde_json::Value>) -> Option<usize> {
-    value.and_then(serde_json::Value::as_u64).map(|v| v as usize)
+    value
+        .and_then(serde_json::Value::as_u64)
+        .map(|v| v as usize)
 }
 
 fn as_u64(value: Option<&serde_json::Value>) -> Option<u64> {
@@ -90,7 +92,11 @@ fn as_pool_mode(value: Option<&serde_json::Value>) -> Option<String> {
 }
 
 fn apply_pool_overrides(mut cfg: PoolConfig, source: &serde_json::Value) -> PoolConfig {
-    if let Some(v) = as_usize(source.get("maxPerDest").or_else(|| source.get("max_per_dest"))) {
+    if let Some(v) = as_usize(
+        source
+            .get("maxPerDest")
+            .or_else(|| source.get("max_per_dest")),
+    ) {
         cfg.max_per_dest = v.max(1);
     }
     if let Some(v) = as_usize(
@@ -103,7 +109,11 @@ fn apply_pool_overrides(mut cfg: PoolConfig, source: &serde_json::Value) -> Pool
     if let Some(v) = as_usize(source.get("maxDests").or_else(|| source.get("max_dests"))) {
         cfg.max_dests = v.max(1);
     }
-    if let Some(ms) = as_u64(source.get("idleTtlMs").or_else(|| source.get("idle_ttl_ms"))) {
+    if let Some(ms) = as_u64(
+        source
+            .get("idleTtlMs")
+            .or_else(|| source.get("idle_ttl_ms")),
+    ) {
         cfg.idle_ttl = std::time::Duration::from_millis(ms.max(1));
     }
     if let Some(ms) = as_u64(
@@ -161,7 +171,11 @@ fn freedom_pool_config(config: &Config, settings: &serde_json::Value) -> Option<
         }
     }
 
-    if settings.get("poolEnabled").and_then(serde_json::Value::as_bool) == Some(false) {
+    if settings
+        .get("poolEnabled")
+        .and_then(serde_json::Value::as_bool)
+        == Some(false)
+    {
         return None;
     }
 

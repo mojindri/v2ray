@@ -192,9 +192,12 @@ impl Hysteria2Client {
             .await
             .map_err(|e| ProxyError::Transport(format!("QUIC handshake: {e}")))?;
 
-        timeout(CLIENT_AUTH_TIMEOUT, client_h3_auth(&conn, &self.config.password, rx_bps))
-            .await
-            .map_err(|_| ProxyError::Timeout)??;
+        timeout(
+            CLIENT_AUTH_TIMEOUT,
+            client_h3_auth(&conn, &self.config.password, rx_bps),
+        )
+        .await
+        .map_err(|_| ProxyError::Timeout)??;
 
         let (mut send, mut recv) = timeout(CLIENT_OPEN_STREAM_TIMEOUT, conn.open_bi())
             .await
