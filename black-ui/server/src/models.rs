@@ -11,6 +11,8 @@ pub struct Settings {
     pub public_base_url: String,
     pub subscription_host: String,
     pub enforcement_interval_seconds: u64,
+    #[serde(default)]
+    pub adaptive_routing_enabled: bool,
 }
 
 #[derive(Debug, Serialize)]

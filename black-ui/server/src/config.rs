@@ -6,7 +6,7 @@ use validator::Validate;
 
 use crate::{
     db,
-    models::{Inbound, ManagedUser, Settings},
+    models::{Inbound, ManagedUser, Outbound, Settings},
     state::AppState,
     util,
 };
@@ -51,8 +51,12 @@ pub fn build_value(state: &AppState) -> Result<Value> {
         inbound_json.push(entry);
     }
 
+    let enabled_outbounds = outbounds
+        .into_iter()
+        .filter(|outbound| outbound.enabled)
+        .collect::<Vec<_>>();
     let mut outbound_json = Vec::new();
-    for outbound in outbounds.into_iter().filter(|o| o.enabled) {
+    for outbound in &enabled_outbounds {
         let mut entry = json!({
             "tag": outbound.tag,
             "protocol": outbound.protocol,
@@ -79,6 +83,9 @@ pub fn build_value(state: &AppState) -> Result<Value> {
             root[key] = value;
         }
     }
+    if settings.adaptive_routing_enabled {
+        root["routing"] = adaptive_routing_section(&enabled_outbounds);
+    }
     if let Some(value) = enabled_section(&sections, "metricsAddr")? {
         root["metricsAddr"] = value;
     }
@@ -87,6 +94,47 @@ pub fn build_value(state: &AppState) -> Result<Value> {
     }
 
     Ok(root)
+}
+
+fn adaptive_routing_section(outbounds: &[Outbound]) -> Value {
+    let tags = outbounds
+        .iter()
+        .map(|outbound| outbound.tag.as_str())
+        .collect::<Vec<_>>();
+    if tags.len() < 2 {
+        return json!({ "rules": [{ "outboundTag": tags.first().copied().unwrap_or("freedom") }] });
+    }
+    let profiles = tags
+        .iter()
+        .enumerate()
+        .map(|(idx, tag)| {
+            json!({
+                "name": if idx == 0 { "stable".to_string() } else { format!("backup-{idx}") },
+                "outboundTag": tag
+            })
+        })
+        .collect::<Vec<_>>();
+    json!({
+        "balancers": [{
+            "tag": "auto-proxy",
+            "selector": tags,
+            "strategy": "adaptive",
+            "profiles": profiles,
+            "adaptive": {
+                "failureThreshold": 2,
+                "cooldownSecs": 30,
+                "ewmaAlpha": 0.2,
+                "switchMargin": 0.15
+            },
+            "health_check": {
+                "url": "http://www.gstatic.com/generate_204",
+                "interval_secs": 30,
+                "timeout_secs": 5,
+                "max_failures": 2
+            }
+        }],
+        "rules": [{ "outboundTag": "auto-proxy" }]
+    })
 }
 
 pub fn validate_value(value: &Value) -> Result<()> {
@@ -620,6 +668,56 @@ mod tests {
     }
 
     #[test]
+    fn adaptive_routing_setting_generates_balancer_only_with_multiple_outbounds() {
+        let state = test_state();
+        {
+            let conn = state.db.lock().unwrap();
+            let ts = util::now();
+            conn.execute(
+                "INSERT INTO inbounds (tag, listen, port, protocol, enabled, transport, settings, stream_settings, sniffing, limits, created_at, updated_at)
+                 VALUES ('socks', '127.0.0.1', 18080, 'socks', 1, 'tcp', '{}', '', '', '', ?1, ?1)",
+                params![ts],
+            )
+            .unwrap();
+            db::save_settings(
+                &conn,
+                &Settings {
+                    config_path: "/tmp/config.json".into(),
+                    grpc_enabled: false,
+                    grpc_address: "127.0.0.1:62789".into(),
+                    firewall_auto_open: false,
+                    public_base_url: "http://127.0.0.1:18080".into(),
+                    subscription_host: "127.0.0.1".into(),
+                    enforcement_interval_seconds: 30,
+                    adaptive_routing_enabled: true,
+                },
+            )
+            .unwrap();
+        }
+
+        let value = build_value(&state).unwrap();
+        validate_value(&value).unwrap();
+        assert!(value["routing"].get("balancers").is_none());
+        assert_eq!(value["routing"]["rules"][0]["outboundTag"], "freedom");
+
+        {
+            let conn = state.db.lock().unwrap();
+            let ts = util::now();
+            conn.execute(
+                "INSERT INTO outbounds (tag, protocol, enabled, settings, stream_settings, created_at, updated_at)
+                 VALUES ('backup-freedom', 'freedom', 1, '{}', '', ?1, ?1)",
+                params![ts],
+            )
+            .unwrap();
+        }
+
+        let value = build_value(&state).unwrap();
+        validate_value(&value).unwrap();
+        assert_eq!(value["routing"]["balancers"][0]["strategy"], "adaptive");
+        assert_eq!(value["routing"]["rules"][0]["outboundTag"], "auto-proxy");
+    }
+
+    #[test]
     fn vless_reality_subscription_uses_common_xray_uri_params() {
         let settings = Settings {
             config_path: "/tmp/config.json".into(),
@@ -629,6 +727,7 @@ mod tests {
             public_base_url: "http://127.0.0.1:18080".into(),
             subscription_host: "203.0.113.10".into(),
             enforcement_interval_seconds: 30,
+            adaptive_routing_enabled: false,
         };
         let inbound = Inbound {
             id: 1,

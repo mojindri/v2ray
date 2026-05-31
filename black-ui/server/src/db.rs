@@ -89,6 +89,7 @@ pub fn init(conn: &Connection, data_dir: &Path) -> Result<()> {
     set_default(conn, "publicBaseUrl", "http://127.0.0.1:18080")?;
     set_default(conn, "subscriptionHost", "127.0.0.1")?;
     set_default(conn, "enforcementIntervalSeconds", "30")?;
+    set_default(conn, "adaptiveRoutingEnabled", "false")?;
     seed_default_outbound(conn)?;
     seed_default_sections(conn)?;
     Ok(())
@@ -220,6 +221,10 @@ pub fn load_settings(conn: &Connection) -> Result<Settings> {
             .get("enforcementIntervalSeconds")
             .and_then(|v| v.parse().ok())
             .unwrap_or(30),
+        adaptive_routing_enabled: map
+            .get("adaptiveRoutingEnabled")
+            .map(|v| v == "true")
+            .unwrap_or(false),
     })
 }
 
@@ -234,6 +239,10 @@ pub fn save_settings(conn: &Connection, settings: &Settings) -> Result<()> {
         (
             "enforcementIntervalSeconds",
             settings.enforcement_interval_seconds.to_string(),
+        ),
+        (
+            "adaptiveRoutingEnabled",
+            settings.adaptive_routing_enabled.to_string(),
         ),
     ];
     for (key, value) in rows {

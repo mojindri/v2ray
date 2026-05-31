@@ -8,6 +8,7 @@ export interface Settings {
   publicBaseUrl: string;
   subscriptionHost: string;
   enforcementIntervalSeconds: number;
+  adaptiveRoutingEnabled: boolean;
 }
 
 export interface Status {

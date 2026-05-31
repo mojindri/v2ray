@@ -37,6 +37,11 @@ export function SettingsPage({
           onChange={(firewallAutoOpen) => setForm({ ...form, firewallAutoOpen })}
           label="Auto-open UFW ports for public enabled inbounds"
         />
+        <Switch
+          checked={form.adaptiveRoutingEnabled}
+          onChange={(adaptiveRoutingEnabled) => setForm({ ...form, adaptiveRoutingEnabled })}
+          label="Auto adaptive routing for enabled outbounds"
+        />
         <Field label="Public base URL">
           <Input value={form.publicBaseUrl} onChange={(e) => setForm({ ...form, publicBaseUrl: e.target.value })} />
         </Field>
