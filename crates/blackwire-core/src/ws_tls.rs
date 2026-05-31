@@ -384,6 +384,14 @@ pub(crate) fn build_conn_handler(
     stream_settings: &Option<StreamSettingsConfig>,
     handshake_timeout: Option<Duration>,
 ) -> Result<Arc<dyn ConnectionHandler>, anyhow::Error> {
+    let settings = stream_settings.as_ref();
+    let use_ws = settings.is_some_and(|s| s.network == NetworkType::Ws);
+    let use_httpupgrade = settings.is_some_and(|s| s.network == NetworkType::HttpUpgrade);
+    let use_splithttp = settings.is_some_and(|s| s.network == NetworkType::SplitHttp);
+    let use_grpc = settings.is_some_and(|s| s.network == NetworkType::Grpc);
+    let use_tls = settings.is_some_and(|s| s.security == SecurityType::Tls);
+    let use_shadowtls = settings.is_some_and(|s| s.security == SecurityType::ShadowTls);
+
     // Innermost: protocol handler.
     let mut handler: Arc<dyn ConnectionHandler> = Arc::new(PlainConnectionHandler {
         inbound,
@@ -391,18 +399,18 @@ pub(crate) fn build_conn_handler(
     });
 
     // Add WebSocket layer if requested.
-    if uses_ws(stream_settings) {
+    if use_ws {
         handler = WsConnectionHandler::new(handshake_timeout, handler);
     }
 
     // Add HTTPUpgrade layer if requested (mutually exclusive with WS/gRPC).
-    if uses_httpupgrade(stream_settings) {
-        let expected_path = stream_settings.as_ref().and_then(httpupgrade_listen_path);
+    if use_httpupgrade {
+        let expected_path = settings.and_then(httpupgrade_listen_path);
         handler = HttpUpgradeConnectionHandler::new(expected_path, handshake_timeout, handler);
     }
 
-    if uses_splithttp(stream_settings) {
-        let (expected_path, expected_method, mode) = stream_settings.as_ref().map_or_else(
+    if use_splithttp {
+        let (expected_path, expected_method, mode) = settings.map_or_else(
             || (None, None, normalize_splithttp_mode("")),
             splithttp_listen_params,
         );
@@ -416,9 +424,8 @@ pub(crate) fn build_conn_handler(
     }
 
     // Add gRPC layer if requested (mutually exclusive with WS).
-    if uses_grpc(stream_settings) {
-        let service_name = stream_settings
-            .as_ref()
+    if use_grpc {
+        let service_name = settings
             .and_then(|s| s.grpc_settings.as_ref())
             .map_or("GunService", |g| g.service_name.as_str())
             .to_string();
@@ -426,9 +433,8 @@ pub(crate) fn build_conn_handler(
     }
 
     // Add TLS layer if requested.
-    if uses_tls(stream_settings) {
-        let tls_cfg = stream_settings
-            .as_ref()
+    if use_tls {
+        let tls_cfg = settings
             .and_then(|s| s.tls_settings.as_ref())
             .ok_or_else(|| anyhow::anyhow!("security=tls but no tlsSettings provided"))?;
 
@@ -455,7 +461,7 @@ pub(crate) fn build_conn_handler(
         // - Everything else: no ALPN (accept any client choice).
         let alpn = if !tls_cfg.alpn.is_empty() {
             tls_cfg.alpn.clone()
-        } else if uses_grpc(stream_settings) || uses_splithttp(stream_settings) {
+        } else if use_grpc || use_splithttp {
             vec!["h2".to_string()]
         } else {
             vec![]
@@ -466,9 +472,8 @@ pub(crate) fn build_conn_handler(
         handler = TlsConnectionHandler::new(cert_pem, key_pem, alpn, handshake_timeout, handler);
     }
 
-    if uses_shadowtls(stream_settings) {
-        let shadow_cfg = stream_settings
-            .as_ref()
+    if use_shadowtls {
+        let shadow_cfg = settings
             .and_then(|s| s.shadow_tls_settings.as_ref())
             .ok_or_else(|| {
                 anyhow::anyhow!("security=shadowtls but no shadowTlsSettings provided")

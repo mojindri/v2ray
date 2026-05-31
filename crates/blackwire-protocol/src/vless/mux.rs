@@ -410,13 +410,13 @@ pub async fn relay_mux_cool(
         match meta.status {
             SessionStatus::New => {
                 if is_xudp_metadata(&meta) {
-                    let Some((_, dest)) = meta.target.clone() else {
+                    let Some((_, dest)) = meta.target.as_ref() else {
                         return Err(ProxyError::Protocol("mux: New without target".into()));
                     };
                     let global_id = meta.global_id.expect("checked by is_xudp_metadata");
                     debug!(
                         session_id = meta.session_id,
-                        %dest,
+                        dest = %dest,
                         global_id = %hex::encode(global_id),
                         "mux: new XUDP flow"
                     );
@@ -430,7 +430,7 @@ pub async fn relay_mux_cool(
                     );
                     if let Some(ref data) = payload {
                         if !data.is_empty() {
-                            let upstream = resolve_udp_dest(&dest).await?;
+                            let upstream = resolve_udp_dest(dest).await?;
                             socket.send_to(data, upstream).await.map_err(|e| {
                                 ProxyError::Transport(format!("xudp UDP send: {e}"))
                             })?;
@@ -506,9 +506,10 @@ pub async fn relay_mux_cool(
                                 ProxyError::Transport(format!("mux UDP bind: {e}"))
                             })?);
                         let upstream = resolve_udp_dest(&dest).await?;
-                        socket.connect(upstream).await.map_err(|e| {
-                            ProxyError::Transport(format!("mux UDP connect: {e}"))
-                        })?;
+                        socket
+                            .connect(upstream)
+                            .await
+                            .map_err(|e| ProxyError::Transport(format!("mux UDP connect: {e}")))?;
                         if let Some(ref data) = payload {
                             if !data.is_empty() {
                                 socket.send(data).await.map_err(|e| {
@@ -519,9 +520,8 @@ pub async fn relay_mux_cool(
                         let writer = Arc::clone(&mux_writer);
                         let sid = meta.session_id;
                         let sock_reader = Arc::clone(&socket);
-                        let dest_copy = dest.clone();
                         let reader_task = tokio::spawn(async move {
-                            mux_udp_to_client(writer, sid, sock_reader, dest_copy).await;
+                            mux_udp_to_client(writer, sid, sock_reader).await;
                         });
                         udp_sessions.insert(
                             meta.session_id,
@@ -680,7 +680,6 @@ async fn mux_udp_to_client(
     mux_writer: Arc<tokio::sync::Mutex<tokio::io::WriteHalf<BoxedStream>>>,
     session_id: u16,
     socket: Arc<UdpSocket>,
-    _reply_dest: Address,
 ) {
     let mut buf = vec![0u8; 65535];
     loop {

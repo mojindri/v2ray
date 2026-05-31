@@ -47,7 +47,7 @@ use crate::runtime_stats;
 #[derive(Clone)]
 struct MetricsState {
     prometheus_handle: Arc<PrometheusHandle>,
-    ready: Arc<std::sync::atomic::AtomicBool>,
+    ready: bool,
 }
 
 /// Start the metrics HTTP server.
@@ -78,10 +78,9 @@ pub fn start_metrics_server(addr: &str) -> anyhow::Result<JoinHandle<()>> {
     // Describe metrics so Prometheus scrape shows help text.
     describe_metrics();
 
-    let ready = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let state = MetricsState {
         prometheus_handle: Arc::new(handle),
-        ready,
+        ready: true,
     };
 
     let app = Router::new()
@@ -255,7 +254,7 @@ async fn healthz() -> impl IntoResponse {
 }
 
 async fn readyz(State(state): State<MetricsState>) -> impl IntoResponse {
-    if state.ready.load(std::sync::atomic::Ordering::Relaxed) {
+    if state.ready {
         (axum::http::StatusCode::OK, "ready")
     } else {
         (axum::http::StatusCode::SERVICE_UNAVAILABLE, "not ready")

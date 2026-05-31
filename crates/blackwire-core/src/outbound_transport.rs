@@ -153,8 +153,18 @@ async fn connect_transport(
     server: SocketAddr,
     stream_settings: &Option<StreamSettingsConfig>,
 ) -> Result<BoxedStream, ProxyError> {
-    if uses_quic(stream_settings) {
-        let Some(settings) = stream_settings.as_ref() else {
+    let settings = stream_settings.as_ref();
+    let use_quic = settings.is_some_and(|s| s.network == NetworkType::Quic);
+    let use_kcp = settings.is_some_and(|s| s.network == NetworkType::Kcp);
+    let use_httpupgrade = settings.is_some_and(|s| s.network == NetworkType::HttpUpgrade);
+    let use_grpc = settings.is_some_and(|s| s.network == NetworkType::Grpc);
+    let use_splithttp = settings.is_some_and(|s| s.network == NetworkType::SplitHttp);
+    let use_ws = settings.is_some_and(|s| s.network == NetworkType::Ws);
+    let use_tls = settings.is_some_and(|s| s.security == SecurityType::Tls);
+    let use_shadowtls = settings.is_some_and(|s| s.security == SecurityType::ShadowTls);
+
+    if use_quic {
+        let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=quic requested without streamSettings".into(),
             ));
@@ -168,7 +178,7 @@ async fn connect_transport(
         return quic_connect(server, server_name, allow_insecure).await;
     }
 
-    if uses_kcp(stream_settings) {
+    if use_kcp {
         let cfg = build_mkcp_client_config(server, stream_settings)?;
         let stream = mkcp_connect(&cfg)
             .await
@@ -176,8 +186,8 @@ async fn connect_transport(
         return Ok(Box::new(stream));
     }
 
-    if uses_httpupgrade(stream_settings) {
-        let Some(settings) = stream_settings.as_ref() else {
+    if use_httpupgrade {
+        let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=httpupgrade requested without streamSettings".into(),
             ));
@@ -195,9 +205,8 @@ async fn connect_transport(
     tcp.set_nodelay(true)?;
     let mut stream: BoxedStream = Box::new(tcp);
 
-    if uses_shadowtls(stream_settings) {
-        let shadow = stream_settings
-            .as_ref()
+    if use_shadowtls {
+        let shadow = settings
             .and_then(|s| s.shadow_tls_settings.as_ref())
             .ok_or_else(|| {
                 ProxyError::Protocol("security=shadowtls but no shadowTlsSettings provided".into())
@@ -216,8 +225,8 @@ async fn connect_transport(
         stream = shadowtls_v3_connect(stream, shadow.password.as_bytes(), &shadow.dest).await?;
     }
 
-    if uses_tls(stream_settings) {
-        let Some(settings) = stream_settings.as_ref() else {
+    if use_tls {
+        let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "security=tls requested without streamSettings".into(),
             ));
@@ -235,8 +244,8 @@ async fn connect_transport(
         stream = tls_connect(stream, server_name, &alpn, allow_insecure).await?;
     }
 
-    if uses_grpc(stream_settings) {
-        let Some(settings) = stream_settings.as_ref() else {
+    if use_grpc {
+        let Some(settings) = settings else {
             return Err(ProxyError::Protocol(
                 "network=grpc requested without streamSettings".into(),
             ));
@@ -257,7 +266,7 @@ async fn connect_transport(
         return Ok(stream);
     }
 
-    if uses_splithttp(stream_settings) {
+    if use_splithttp {
         let Some(settings) = stream_settings.as_ref() else {
             return Err(ProxyError::Protocol(
                 "network=splithttp requested without streamSettings".into(),
@@ -273,43 +282,41 @@ async fn connect_transport(
         return Ok(stream);
     }
 
-    if uses_ws(stream_settings) {
+    if use_ws {
         let Some(settings) = stream_settings.as_ref() else {
             return Err(ProxyError::Protocol(
                 "network=ws requested without streamSettings".into(),
             ));
         };
         let ws = settings.ws_settings.as_ref();
-        let mut headers = ws
-            .map(|w| {
-                w.headers
-                    .iter()
-                    .filter(|(key, _)| !key.eq_ignore_ascii_case("host"))
-                    .map(|(key, value)| (key.clone(), value.clone()))
-                    .collect::<Vec<_>>()
-            })
-            .unwrap_or_default();
-
+        let mut headers = Vec::new();
+        let mut host: Option<String> = None;
+        if let Some(ws) = ws {
+            headers.reserve(ws.headers.len());
+            for (key, value) in &ws.headers {
+                if key.eq_ignore_ascii_case("host") {
+                    host = Some(value.clone());
+                } else {
+                    headers.push((key.clone(), value.clone()));
+                }
+            }
+        }
         // The Host header belongs in WsConnectConfig.host because tungstenite
         // also uses it to build the HTTP upgrade request URI.
-        let host = ws
-            .and_then(|w| {
-                w.headers
-                    .iter()
-                    .find(|(key, _)| key.eq_ignore_ascii_case("host"))
-                    .map(|(_, value)| value.clone())
-            })
+        let host = host
             .or_else(|| {
-                stream_settings
+                settings
+                    .tls_settings
                     .as_ref()
-                    .and_then(|s| s.tls_settings.as_ref())
                     .map(|t| t.server_name.clone())
                     .filter(|name| !name.is_empty())
             })
             .unwrap_or_else(|| "localhost".to_string());
 
         // Keep custom headers deterministic for easier debugging.
-        headers.sort_by(|a, b| a.0.cmp(&b.0));
+        if headers.len() > 1 {
+            headers.sort_by(|a, b| a.0.cmp(&b.0));
+        }
 
         stream = ws_connect(
             stream,

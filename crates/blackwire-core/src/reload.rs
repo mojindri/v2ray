@@ -123,7 +123,7 @@ impl ReloadState {
         let rules = if let Some(routing) = &config.routing {
             build_rules(&routing.rules, &outbound_tags)?
         } else {
-            vec![]
+            Vec::new()
         };
 
         let (geoip, geosite) = self.load_geo_data_cached(config);
@@ -141,10 +141,14 @@ impl ReloadState {
         info!(count, "sniffing map hot-swapped");
 
         if let Ok(mut tags) = self.inbound_tags.write() {
-            *tags = config.inbounds.iter().map(|i| i.tag.clone()).collect();
+            let mut next = Vec::with_capacity(config.inbounds.len());
+            next.extend(config.inbounds.iter().map(|i| i.tag.clone()));
+            *tags = next;
         }
         if let Ok(mut tags) = self.outbound_tags.write() {
-            *tags = config.outbounds.iter().map(|o| o.tag.clone()).collect();
+            let mut next = Vec::with_capacity(config.outbounds.len());
+            next.extend(config.outbounds.iter().map(|o| o.tag.clone()));
+            *tags = next;
         }
 
         for in_cfg in &config.inbounds {

@@ -531,7 +531,7 @@ async fn udp_nat_forward_and_response_roundtrip() {
     );
     let parsed = parse_ip_packet(&pkt).unwrap();
 
-    nat.forward(&parsed, &pkt, tun_tx).await.unwrap();
+    nat.forward(&parsed, &pkt, &tun_tx).await.unwrap();
 
     // The NAT table spawned a response reader. Wait for the echo response.
     let response = timeout(Duration::from_secs(2), tun_rx.recv())
@@ -605,7 +605,7 @@ async fn vps_udp_nat_real_dns_query() {
     let pkt = udp_ipv4_packet(fake_src.octets(), 44444, [8, 8, 8, 8], 53, dns_query);
     let parsed = parse_ip_packet(&pkt).unwrap();
 
-    nat.forward(&parsed, &pkt, tun_tx)
+    nat.forward(&parsed, &pkt, &tun_tx)
         .await
         .expect("NAT forward failed");
 

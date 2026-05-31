@@ -148,7 +148,7 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
             Destination::V4(ip, port) => SocketAddr::new((*ip).into(), *port),
             Destination::V6(ip, port) => SocketAddr::new((*ip).into(), *port),
             Destination::Domain(name, port) => {
-                match tokio::net::lookup_host(format!("{name}:{port}")).await {
+                match tokio::net::lookup_host((name.as_str(), *port)).await {
                     Ok(mut addrs) => match addrs.next() {
                         Some(a) => a,
                         None => {
@@ -166,8 +166,8 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
 
         let session_id = dg.session_id;
         let packet_id = dg.packet_id;
-        let payload = dg.data.clone();
-        let dest = dg.dest.clone();
+        let payload = dg.data;
+        let dest = dg.dest;
 
         // Get or create a local UDP socket for this session.
         let sock = if let Some(entry) = sessions.get(&session_id) {
@@ -201,7 +201,7 @@ async fn serve_udp_sessions(conn: Connection, inbound_tag: String) {
 
         tokio::spawn(async move {
             let _permit = permit;
-            if let Err(e) = sock.send_to(&payload, dest_addr).await {
+            if let Err(e) = sock.send_to(payload.as_ref(), dest_addr).await {
                 warn!("Hysteria2 UDP send to {dest_addr}: {e}");
                 return;
             }

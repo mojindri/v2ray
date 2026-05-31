@@ -59,8 +59,7 @@ pub struct HealthChecker {
 #[derive(Clone, Debug)]
 struct HealthProbe {
     dest: Address,
-    host_header: String,
-    path: String,
+    request: String,
 }
 
 impl HealthChecker {
@@ -87,19 +86,17 @@ impl HealthChecker {
     pub async fn run(self: Arc<Self>) {
         let mut interval = tokio::time::interval(Duration::from_secs(self.config.interval_secs));
         interval.tick().await;
+        let mut handles = Vec::with_capacity(self.outbounds.len());
         loop {
             interval.tick().await;
-            let handles: Vec<_> = self
-                .outbounds
-                .iter()
-                .map(|(tag, ob)| {
-                    let tag = tag.clone();
-                    let ob = ob.clone();
-                    let checker = Arc::clone(&self);
-                    tokio::spawn(async move { checker.probe(tag, ob).await })
-                })
-                .collect();
-            for h in handles {
+            handles.clear();
+            for (tag, ob) in &self.outbounds {
+                let tag = tag.clone();
+                let ob = ob.clone();
+                let checker = Arc::clone(&self);
+                handles.push(tokio::spawn(async move { checker.probe(tag, ob).await }));
+            }
+            for h in handles.drain(..) {
                 let _ = h.await;
             }
         }
@@ -132,10 +129,6 @@ impl HealthChecker {
     /// Connect, send a minimal HTTP GET, and read the response — all under one timeout.
     async fn run_probe(&self, outbound: &Arc<dyn OutboundHandler>) -> bool {
         let ctx = Context::default();
-        let req = format!(
-            "GET {} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
-            self.probe.path, self.probe.host_header
-        );
         let probe_timeout = Duration::from_secs(self.config.timeout_secs);
 
         match timeout(probe_timeout, async {
@@ -144,7 +137,7 @@ impl HealthChecker {
                 .await
                 .map_err(|e| anyhow::anyhow!("connect: {e}"))?;
             stream
-                .write_all(req.as_bytes())
+                .write_all(self.probe.request.as_bytes())
                 .await
                 .map_err(|e| anyhow::anyhow!("write: {e}"))?;
             let mut resp = [0u8; 32];
@@ -189,14 +182,20 @@ impl HealthProbe {
 
         let path = format!("/{}", path);
         let (host, port) = parse_authority(authority)?;
+        let host_header = if port == 80 {
+            host.clone()
+        } else {
+            format!("{host}:{port}")
+        };
+        let mut request = String::with_capacity(path.len() + host_header.len() + 48);
+        request.push_str("GET ");
+        request.push_str(&path);
+        request.push_str(" HTTP/1.1\r\nHost: ");
+        request.push_str(&host_header);
+        request.push_str("\r\nConnection: close\r\n\r\n");
         Ok(Self {
-            dest: Address::Domain(host.clone(), port),
-            host_header: if port == 80 {
-                host
-            } else {
-                format!("{host}:{port}")
-            },
-            path,
+            dest: Address::Domain(host, port),
+            request,
         })
     }
 }
@@ -289,16 +288,20 @@ mod tests {
     fn health_probe_parses_http_url_with_default_port() {
         let probe = HealthProbe::parse("http://example.com/generate_204").unwrap();
         assert_eq!(probe.dest, Address::Domain("example.com".into(), 80));
-        assert_eq!(probe.host_header, "example.com");
-        assert_eq!(probe.path, "/generate_204");
+        assert_eq!(
+            probe.request,
+            "GET /generate_204 HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"
+        );
     }
 
     #[test]
     fn health_probe_parses_http_url_with_explicit_port() {
         let probe = HealthProbe::parse("http://example.com:8080/healthz").unwrap();
         assert_eq!(probe.dest, Address::Domain("example.com".into(), 8080));
-        assert_eq!(probe.host_header, "example.com:8080");
-        assert_eq!(probe.path, "/healthz");
+        assert_eq!(
+            probe.request,
+            "GET /healthz HTTP/1.1\r\nHost: example.com:8080\r\nConnection: close\r\n\r\n"
+        );
     }
 
     #[test]

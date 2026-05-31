@@ -546,13 +546,9 @@ impl FreedomOutbound {
                     return Ok(SocketAddr::new(ip, *port));
                 }
 
-                let addrs: Vec<SocketAddr> = tokio::net::lookup_host((name.as_str(), *port))
+                tokio::net::lookup_host((name.as_str(), *port))
                     .await
                     .map_err(|e| ProxyError::DnsResolutionFailed(format!("{name}: {e}")))?
-                    .collect();
-
-                addrs
-                    .into_iter()
                     .next()
                     .ok_or_else(|| ProxyError::DnsResolutionFailed(name.clone()))
             }

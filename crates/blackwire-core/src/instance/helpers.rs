@@ -126,14 +126,16 @@ pub(crate) fn load_geo_data(
     HashMap<String, blackwire_app::geo::GeoIpMatcher>,
     HashMap<String, blackwire_app::geo::GeoSiteMatcher>,
 ) {
-    let geoip = routing
-        .and_then(|r| r.geoip_file.as_deref())
-        .map(load_geoip)
-        .unwrap_or_default();
-    let geosite = routing
-        .and_then(|r| r.geosite_file.as_deref())
-        .map(load_geosite)
-        .unwrap_or_default();
+    let mut geoip = HashMap::new();
+    let mut geosite = HashMap::new();
+    if let Some(routing) = routing {
+        if let Some(path) = routing.geoip_file.as_deref() {
+            geoip = load_geoip(path);
+        }
+        if let Some(path) = routing.geosite_file.as_deref() {
+            geosite = load_geosite(path);
+        }
+    }
     (geoip, geosite)
 }
 
@@ -295,7 +297,7 @@ pub(crate) fn parse_uuid(s: &str) -> Result<[u8; 16]> {
 pub(crate) fn build_sniffing_map(
     inbounds: &[blackwire_config::schema::InboundConfig],
 ) -> std::collections::HashMap<String, Arc<blackwire_config::schema::SniffingConfig>> {
-    let mut map = std::collections::HashMap::new();
+    let mut map = std::collections::HashMap::with_capacity(inbounds.len());
     for inbound in inbounds {
         if let Some(sniff) = &inbound.sniffing {
             if sniff.enabled {

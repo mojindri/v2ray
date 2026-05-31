@@ -160,12 +160,14 @@ async fn parse_dns_upstream(server: &str) -> Option<NameServerConfig> {
 
 fn split_host_path(url: &str) -> (String, String) {
     let (host, path) = url.split_once('/').unwrap_or((url, ""));
-    let path = if path.is_empty() {
-        "/".to_string()
+    if path.is_empty() {
+        (host.to_string(), "/".to_string())
     } else {
-        format!("/{path}")
-    };
-    (host.to_string(), path)
+        let mut normalized = String::with_capacity(path.len() + 1);
+        normalized.push('/');
+        normalized.push_str(path);
+        (host.to_string(), normalized)
+    }
 }
 
 async fn resolve_host_ip(host: &str, default_port: u16) -> Option<IpAddr> {
