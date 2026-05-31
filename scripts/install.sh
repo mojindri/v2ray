@@ -527,12 +527,16 @@ setup_nginx_ws_proxy() {
         use_existing_cert=1
     else
         use_existing_cert=0
-        if ! command -v certbot >/dev/null 2>&1; then
-            if [ "$INSTALL_CERTBOT" = "1" ]; then
-                install_package_if_possible certbot
-            else
+        if [ "$INSTALL_CERTBOT" = "1" ] && command -v apt-get >/dev/null 2>&1; then
+            install_package_if_possible python3-certbot-nginx
+        elif ! command -v certbot >/dev/null 2>&1; then
+            if [ "$INSTALL_CERTBOT" != "1" ]; then
                 die "certbot not found; install certbot or set INSTALL_CERTBOT=1"
             fi
+            install_package_if_possible certbot
+        fi
+        if ! certbot plugins 2>/dev/null | grep -Eq '^[*][[:space:]]+nginx$'; then
+            die "certbot nginx plugin not found; install python3-certbot-nginx or provide TLS_CERT_FILE/TLS_KEY_FILE"
         fi
     fi
 
